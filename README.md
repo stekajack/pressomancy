@@ -117,7 +117,4 @@ class CustomObject(SimulationObject):
 
 Contributions to **Pressomancy** are welcome! To contribute, please fork the repository, make your changes, and submit a pull request. For major changes, please open an issue first to discuss your ideas.
 
-## License
-
-**Pressomancy** is licensed under the MIT License. See `LICENSE` for more information.
 """
