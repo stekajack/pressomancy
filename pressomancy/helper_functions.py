@@ -1,6 +1,37 @@
 import numpy as np
 from itertools import product
 from collections import defaultdict
+import warnings
+
+class PartDictSafe(dict):
+    
+    def sanity_check(self,key,value):
+        if value in self.values():
+            existing_keys = [k for k, v in self.items() if v == value]
+            if key not in existing_keys:
+                raise RuntimeError(f"Value '{value}' with key '{key}' is already associated with key(s) {existing_keys} in `part_types`. Already reserved values are {self.values()} ")
+        if key in self.keys():
+            warnings.warn(
+                f"Key '{key}' already exists in `part_types` with value '{self[key]}'. Is reset to value '{value}'."
+            )
+
+    def __setitem__(self, key, value):
+        self.sanity_check(key, value)
+        super().__setitem__(key, value)
+
+    def update(self, *args, **kwargs):
+        # Handle positional args and keyword args as update normally would
+        if args:
+            # The first positional argument should be a dictionary or iterable of key-value pairs
+            iterable = args[0]
+            for key, value in (iterable.items() if isinstance(iterable, dict) else iterable):
+                self.sanity_check(key, value)
+                super().__setitem__(key, value)
+
+        # Process keyword arguments in kwargs
+        for key, value in kwargs.items():
+            self.sanity_check(key, value)
+            super().__setitem__(key, value)
 
 class RoutineWithArgs:
     def __init__(self, func=None, num_monomers=1):
