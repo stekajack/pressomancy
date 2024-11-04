@@ -6,7 +6,7 @@ import numpy as np
 import os
 import gzip
 import pickle
-from itertools import combinations
+from itertools import combinations_with_replacement
 from pressomancy.object_classes import *
 from pressomancy.helper_functions import *
 
@@ -206,7 +206,8 @@ class Simulation():
         '''
         print(f'part types available {self.part_types.keys()} ')
         print(f'WCA interactions initiated for keys: {key}')
-        for key_el, key_el2 in combinations(key, 2):
+        for key_el, key_el2 in combinations_with_replacement(key, 2):
+            print(key_el,key_el2)
             self.sys.non_bonded_inter[self.part_types[key_el], self.part_types[key_el2]
                                       ].wca.set_params(epsilon=wca_eps, sigma=sigma)
 
