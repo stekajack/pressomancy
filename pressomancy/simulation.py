@@ -6,7 +6,7 @@ import numpy as np
 import os
 import gzip
 import pickle
-from itertools import product
+from itertools import combinations
 from pressomancy.object_classes import *
 from pressomancy.helper_functions import *
 
@@ -88,7 +88,7 @@ class Simulation():
         self.no_objects = 0
         self.objects = []
         self.n_parts_per_obj = 0
-        self.part_types = {}
+        self.part_types = PartDictSafe({})
         self.seed = int.from_bytes(os.urandom(2), sysos.byteorder)
         self.sys = espresso_handle
         self.partitioned=None
@@ -102,9 +102,9 @@ class Simulation():
         np.random.seed(seed=self.seed)
         print('core.seed: ', self.seed)
         self.sys.periodicity = (True, True, True)
-        self.sys.time_step = 0.005
+        self.sys.time_step = timestep
         self.sys.cell_system.skin = 0.5
-        # self.sys.min_global_cut = 3.
+        self.sys.min_global_cut = 3.
         self.sys.virtual_sites = VirtualSitesRelative(have_quaternion=False)
         assert type(self.sys.virtual_sites) is VirtualSitesRelative, 'VirtualSitesRelative must be set. If not, anything involving virtual particles will not work correctly, but it might be very hard to figure out why. I have wasted days debugging issues only to remember i commented out this line!!!'
 
@@ -118,14 +118,15 @@ class Simulation():
         assert all((hasattr(ob, 'n_parts') and hasattr(ob, 'part_types'))
                    for ob in iterable_list), "method requiers that stored objects have n_parts attribute"
         assert not set(iterable_list).intersection(self.objects), "Lists have common elements!"
+        temp_dict={}
         for element in iterable_list:
             self.objects.append(element)
-            for key, val in zip(element.part_types.keys(), element.part_types.values()):
-                self.part_types[key] = val
+            for key, val in element.part_types.items():
+                temp_dict[key]=val            
             self.no_objects += 1
+        self.part_types.update(temp_dict)
         self.n_parts_per_obj = self.objects[0].n_parts
         print(np.shape(self.objects))
-        pass
 
     def set_objects(self, objects):
             '''
@@ -163,16 +164,16 @@ class Simulation():
         assert any(isinstance(ele, Quadriplex) for ele in self.objects), "method assumes simulation holds Quadriplex objects"
         # assert 'cation' not in self.part_types, f"Error: Key cation exists in the dictionary. add_patches_triples will not work correctly"
 
-        self.part_types['patch'] = 3
+        self.part_types['patch'] = 4
         quadriplexes = [ele for ele in self.objects if isinstance(ele, Quadriplex)]
         for quad_el in quadriplexes:
             triples = quad_el.associated_quartets
-            part_hndl_a = self.sys.part.add(type=3, pos=self.sys.part.by_id(
+            part_hndl_a = self.sys.part.add(type=self.part_types['patch'], pos=self.sys.part.by_id(
                 triples[1].realz_indices[0]).pos, director=self.sys.part.by_id(triples[1].realz_indices[0]).director)
             part_hndl_a.vs_auto_relate_to(
                 self.sys.part.by_id(triples[1].realz_indices[0]))
 
-            part_hndl_b = self.sys.part.add(type=3, pos=self.sys.part.by_id(
+            part_hndl_b = self.sys.part.add(type=self.part_types['patch'], pos=self.sys.part.by_id(
                 triples[2].realz_indices[0]).pos, director=self.sys.part.by_id(triples[2].realz_indices[0]).director)
             part_hndl_b.vs_auto_relate_to(
                 self.sys.part.by_id(triples[2].realz_indices[0]))
@@ -203,8 +204,9 @@ class Simulation():
 
         Interaction length is allways determined from sigma.
         '''
-        print('WCA interactions initiated')
-        for key_el, key_el2 in product(key, key):
+        print(f'part types available {self.part_types.keys()} ')
+        print(f'WCA interactions initiated for keys: {key}')
+        for key_el, key_el2 in combinations(key, 2):
             self.sys.non_bonded_inter[self.part_types[key_el], self.part_types[key_el2]
                                       ].wca.set_params(epsilon=wca_eps, sigma=sigma)
 

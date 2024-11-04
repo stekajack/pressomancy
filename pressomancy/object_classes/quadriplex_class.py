@@ -3,11 +3,11 @@ import numpy as np
 from itertools import combinations, product
 import random
 import os
-from pressomancy.helper_functions import load_coord_file
+from pressomancy.helper_functions import load_coord_file, PartDictSafe
 from pressomancy.object_classes.object_class import Simulation_Object 
 
 
-class Quadriplex(Simulation_Object):
+class Quadriplex(metaclass=Simulation_Object):
 
     '''
     Class that contains quadriplex relevant paramaters and methods. At construction one must pass an espresso handle becaouse the class manages parameters that are both internal and external to espresso. It is assumed that in any simulation instanse there will be only one type of a Quadriplex. Therefore many relevant parameters are class specific, not instance specific.
@@ -15,10 +15,11 @@ class Quadriplex(Simulation_Object):
     numInstances = 0
     sigma = 5
     last_index_used = 0
-    part_types = {'real': 1, 'virt': 2}
+    part_types = PartDictSafe({'real': 1, 'virt': 2})
     fene_handle = None
     bending_handle = None
     size=0.
+    n_parts=3
     def __init__(self, sigma, quartet_grp, espresso_handle, fene_k=0., fene_r0=0., bending_k=0., bending_angle=None, bonding_mode=None, size=None):
         '''
         Initialisation of a quadriplex object requires the specification of particle size, number of parts and a handle to the espresso system
@@ -59,7 +60,7 @@ class Quadriplex(Simulation_Object):
         self.associated_quartets = quartet_grp
         self.realz_indices = []
         self.orientor = np.empty(shape=3, dtype=float)
-        self.n_parts = len(quartet_grp)
+        Quadriplex.n_parts = len(quartet_grp)
 
     def set_object(self,  pos, ori):
         '''
@@ -69,7 +70,7 @@ class Quadriplex(Simulation_Object):
         :return: None
 
         '''
-        assert self.n_parts == 3, "a quadriplex can only be created from 3 quartets!!! "
+        assert Quadriplex.n_parts == 3, "a quadriplex can only be created from 3 quartets!!! "
         p_central = self.associated_quartets[0].set_object(
             pos, ori, triplet=self.who_am_i)
         self.realz_indices.extend(p_central)
@@ -158,7 +159,7 @@ class Quadriplex(Simulation_Object):
             part_type=part_type)
 
 
-class Quartet(Simulation_Object):
+class Quartet(metaclass=Simulation_Object):
 
     '''
     Class that contains quartet relevant paramaters and methods. At construction one must pass an espresso handle becaouse the class manages parameters that are both internal and external to espresso. It is assumed that in any simulation instanse there will be only one type of a Quartet. Therefore many relevant parameters are class specific, not instance specific.
@@ -166,13 +167,16 @@ class Quartet(Simulation_Object):
 
     numInstances = 0
     sigma = 1
-    part_types = {'real': 1, 'virt': 2, 'circ': 8,
-                  'squareA': 4, 'squareB': 5, 'cation': 7}
+    part_types = PartDictSafe({'real': 1, 'virt': 2})
     last_index_used = 0
-    referece_sheet = None
+    current_dir = os.path.dirname(__file__)
+    resources_dir = os.path.join(current_dir, '..', 'resources')
+    resource_file = os.path.join(resources_dir, 'g_quartet_mesh_coordinates.txt')
+    n_parts=25
+    referece_sheet = load_coord_file(resource_file)
     type = 'solid'
     fene_handle = None
-    size=0
+    size=0.
 
     def __init__(self, sigma, n_parts, type, espresso_handle, fene_k=0., fene_r0=0., size=None):
         '''
@@ -181,6 +185,10 @@ class Quartet(Simulation_Object):
         assert isinstance(espresso_handle, espressomd.System)
         assert type == 'solid' or type == 'broken'
         self.type = type
+        if self.type == 'broken':
+            Quartet.part_types.update({'circ': 8,
+                  'squareA': 4, 'squareB': 5, 'cation': 7})
+   
         Quartet.sigma = sigma
         Quartet.n_parts = n_parts
         if size==None:
@@ -188,11 +196,6 @@ class Quartet(Simulation_Object):
         else:
             Quartet.size = size
         Quartet.sys = espresso_handle
-        current_dir = os.path.dirname(__file__)
-        resources_dir = os.path.join(current_dir, '..', 'resources')
-        resource_file = os.path.join(resources_dir, 'g_quartet_mesh_coordinates.txt')
-        if Quartet.referece_sheet is None:
-            Quartet.referece_sheet = load_coord_file(resource_file)
         self.who_am_i = Quartet.numInstances
         Quartet.numInstances += 1
         self.realz_indices = []

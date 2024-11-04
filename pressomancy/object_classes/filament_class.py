@@ -3,12 +3,9 @@ import numpy as np
 import random
 from itertools import product
 from pressomancy.object_classes.object_class import Simulation_Object 
-
-from pressomancy.helper_functions import RoutineWithArgs, make_centered_rand_orient_point_array
+from pressomancy.helper_functions import RoutineWithArgs, make_centered_rand_orient_point_array, PartDictSafe
 from typing import Generic, TypeVar, Iterable
 
-# Define a TypeVar for the owned object type
-T = TypeVar('T')
 def rule_maker(choice_id, offset, n=3):
     top = [26, 45, 49, 30]
     bottom = [51, 70, 74, 55]
@@ -35,26 +32,21 @@ def rule_maker(choice_id, offset, n=3):
         i = (i + 1) % length
     return results, free_end
 
-class Filament(Generic[T],Simulation_Object):
+class Filament(metaclass=Simulation_Object):
     '''
     Class that contains filament relevant paramaters and methods. At construction one must pass an espresso handle becaouse the class manages parameters that are both internal and external to espresso. It is assumed that in any simulation instanse there will be only one type of a Filament. Therefore many relevant parameters are class specific, not instance specific.
     '''
     numInstances = 0
     sigma = 1
-    type_nonmag = 0
-    part_types = {'nonmagn': 0, 'magn': 1, 'virt': 2, 'to_be_magnetized': 3}
-    type_mag = 1
-    type_virt = 2
-    type_to_be_magnetized = 3
+    part_types = PartDictSafe({'virt': 2, 'to_be_magnetized': 3})
     last_index_used = 0
     n_parts = 6
-    config = [0 for x in range(n_parts)]
     bond_len = sigma*pow(2, 1/6.)+1-0.6
     fene_k = 40
     fene_r0 = 0
     fene_r_max = sigma*3.
     dip_magnitude = 0.
-    size = 0
+    size = 0.
 
     def __init__(self, sigma, n_parts, espresso_handle, monomers=None,size=None):
         '''
@@ -90,7 +82,7 @@ class Filament(Generic[T],Simulation_Object):
             pos) == Filament.n_parts, 'there is a missmatch between the pos lenth and Filament n_parts'
         self.orientor = ori
         if self.associated_monomers is None:
-            logic = ([Filament.sys.part.add(id=idpp+Filament.last_index_used, type=Filament.type_nonmag,
+            logic = ([Filament.sys.part.add(id=idpp+Filament.last_index_used, type=Filament.part_types['nonmagn'],
                                             pos=pp, rotation=(True, True, True)).id,] for idpp, pp in enumerate(pos, start=0))
         else:
             assert self.n_parts == len(
@@ -122,11 +114,11 @@ class Filament(Generic[T],Simulation_Object):
         for pp in handles:
             pp.director = director
         logic_front = ((Filament.sys.part.add(
-            id=idpp + Filament.last_index_used, type=Filament.type_virt, pos=pp.pos + 0.5 *
+            id=idpp + Filament.last_index_used, type=Filament.part_types['virt'], pos=pp.pos + 0.5 *
             Filament.sigma * director),
             pp) for idpp, pp in enumerate(handles, start=0))
         logic_back = ((Filament.sys.part.add(
-            id=idpp + Filament.last_index_used, type=Filament.type_virt, pos=pp.pos - 0.5 * Filament.sigma
+            id=idpp + Filament.last_index_used, type=Filament.part_types['virt'], pos=pp.pos - 0.5 * Filament.sigma
             * director),
             pp) for idpp, pp in enumerate(handles, start=0))
         while True:
@@ -184,7 +176,7 @@ class Filament(Generic[T],Simulation_Object):
         handles = Filament.sys.part.by_ids(self.realz_indices)
         logic = (
             (Filament.sys.part.add(
-                id=idpp + Filament.last_index_used, type=Filament.type_to_be_magnetized, pos=pp.pos,
+                id=idpp + Filament.last_index_used, type=Filament.part_types['to_be_magnetized'], pos=pp.pos,
                 dip=Filament.dip_magnitude*self.orientor, rotation=(False, False, False)),
              pp) for idpp, pp in enumerate(handles, start=0))
         while True:
@@ -214,7 +206,7 @@ class Filament(Generic[T],Simulation_Object):
 
     def center_filament(self):
         list_parts = list(Filament.sys.part.by_ids(self.realz_indices))
-        ref_index = int(len(self.config)/2)
+        ref_index = int(self.n_parts*0.5)
         ref_pos = list_parts[ref_index].pos
         shift = ref_pos
         for elem in list_parts:

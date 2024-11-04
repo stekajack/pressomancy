@@ -1,11 +1,12 @@
 import espressomd
 import os
-from pressomancy.helper_functions import load_coord_file
+from pressomancy.helper_functions import load_coord_file, PartDictSafe
 import numpy as np
+from pressomancy.object_classes.object_class import Simulation_Object 
 from scipy.spatial.transform import Rotation as R
 
 
-class OTP():
+class OTP(metaclass=Simulation_Object):
 
     '''
     Class that contains OTP relevant paramaters and methods. At construction one must pass an espresso handle becaouse the class manages parameters that are both internal and external to espresso. It is assumed that in any simulation instanse there will be only one type of a OTP. Therefore many relevant parameters are class specific, not instance specific.
@@ -13,7 +14,7 @@ class OTP():
 
     numInstances = 0
     sigma = 1
-    part_types = {'otp': 1,}
+    part_types = PartDictSafe({'otp': 1,})
     last_index_used = 0
     n_parts = 3
     long_side=(None,0.719194480723940)
