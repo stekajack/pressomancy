@@ -6,11 +6,16 @@ def generic_type_exception(name, attribute_name, expected_type):
                     f"Please define '{attribute_name}' as a '{expected_type.__name__}' in your subclass."
                 )
 
+def generic_type_exception_inst(name, attribute_name, expected_type):
+    raise NotImplementedError(
+                    f"The instance attribute '{attribute_name}' is required in '{name}' but not defined. "
+                    f"Please define '{attribute_name}' as a '{expected_type.__name__}' in your subclass."
+                )
+
 class Simulation_Object(type):
     """
     Metaclass for simulation objects. Enforces required attributes and provides shared methods.
     """
-
     def __init__(cls, name, bases, class_dict):
         super().__init__(name, bases, class_dict)
         # dict of required attributes
@@ -30,14 +35,14 @@ class Simulation_Object(type):
     def __call__(cls, *args, **kwargs):
         # Create a new instance of the class
         instance = super().__call__(*args, **kwargs)
-        required_attributes = ["who_am_i",]
-        for attr in required_attributes:
+        # Assign the build_function to the class if it does not already have one
+        if not hasattr(instance, "build_function"):
+            instance.build_function =RoutineWithArgs()
+        required_attributes = {"who_am_i": int,}
+        for attr, expected_type in required_attributes.items():
             # Check for required instance attribute `who_am_i`
             if not hasattr(instance, attr):
-                raise NotImplementedError(
-                    "The instance attribute 'who_am_i' is required but not defined. "
-                    "Please define it in the subclass's __init__ method."
-                )
+                generic_type_exception_inst(instance.__class__.__name__, attr, expected_type)
         return instance
 
     # Shared method for equality comparison based on `who_am_i`
@@ -51,8 +56,6 @@ class Simulation_Object(type):
         return hash((self.__class__, getattr(self, "who_am_i", None)))
 
     # Placeholder for build function
-    build_function = RoutineWithArgs()
-
     # Shared method for setting object attributes (meant to be overridden if necessary)
     def set_object(self, pos, ori):
         raise NotImplementedError("The 'set_object' method must be implemented in subclasses.")
