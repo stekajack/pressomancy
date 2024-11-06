@@ -13,8 +13,8 @@ class OTP(metaclass=Simulation_Object):
     '''
 
     numInstances = 0
-    sigma = 1
-    part_types = PartDictSafe({'otp': 1,})
+    sigma: float = 1. # particle size used mostly by the Filament class rn
+    part_types = PartDictSafe({'otp': 6,})
     last_index_used = 0
     n_parts = 3
     long_side=(None,0.719194480723940)

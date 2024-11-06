@@ -4,7 +4,6 @@ import random
 from itertools import product
 from pressomancy.object_classes.object_class import Simulation_Object 
 from pressomancy.helper_functions import RoutineWithArgs, make_centered_rand_orient_point_array, PartDictSafe
-from typing import Generic, TypeVar, Iterable
 
 def rule_maker(choice_id, offset, n=3):
     top = [26, 45, 49, 30]
@@ -38,9 +37,9 @@ class Filament(metaclass=Simulation_Object):
     '''
     numInstances = 0
     sigma = 1
-    part_types = PartDictSafe({'virt': 2, 'to_be_magnetized': 3})
+    part_types = PartDictSafe({'real':1, 'virt': 2, 'to_be_magnetized': 3})
     last_index_used = 0
-    n_parts = 6
+    n_parts = 1
     bond_len = sigma*pow(2, 1/6.)+1-0.6
     fene_k = 40
     fene_r0 = 0
@@ -48,7 +47,7 @@ class Filament(metaclass=Simulation_Object):
     dip_magnitude = 0.
     size = 0.
 
-    def __init__(self, sigma, n_parts, espresso_handle, monomers=None,size=None):
+    def __init__(self, sigma, espresso_handle, n_parts=n_parts, monomers=None,size=None):
         '''
         Initialisation of a filament object requires the specification of particle size, number of parts and a handle to the espresso system
         '''
@@ -78,11 +77,12 @@ class Filament(metaclass=Simulation_Object):
         :return: None
 
         '''
+        pos=np.atleast_2d(pos)
         assert len(
             pos) == Filament.n_parts, 'there is a missmatch between the pos lenth and Filament n_parts'
         self.orientor = ori
         if self.associated_monomers is None:
-            logic = ([Filament.sys.part.add(id=idpp+Filament.last_index_used, type=Filament.part_types['nonmagn'],
+            logic = ([Filament.sys.part.add(id=idpp+Filament.last_index_used, type=Filament.part_types['real'],
                                             pos=pp, rotation=(True, True, True)).id,] for idpp, pp in enumerate(pos, start=0))
         else:
             assert self.n_parts == len(

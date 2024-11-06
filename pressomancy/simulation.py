@@ -10,60 +10,6 @@ from itertools import combinations_with_replacement
 from pressomancy.object_classes import *
 from pressomancy.helper_functions import *
 
-def partition_cubic_volume_oriented_rectangles(big_box_dim, num_spheres, small_box_dim, num_monomers):
-    _, _, sphere_diameter = small_box_dim
-    sphere_radius = sphere_diameter*0.5
-    volumes_to_fill = 0
-
-    x_partitions, y_partitions, z_partitions = (
-        big_box_dim // small_box_dim).astype(int)
-
-    x_len, y_len, z_len = small_box_dim
-    x_coords = np.linspace(
-        0.5 * x_len, big_box_dim[0] - 0.5 * x_len, x_partitions)
-    y_coords = np.linspace(
-        0.5 * y_len, big_box_dim[1] - 0.5 * y_len, y_partitions)
-    z_coords = np.linspace(
-        0.5 * z_len, big_box_dim[2] - 0.5 * z_len, z_partitions)
-
-    xx, yy, zz = np.meshgrid(x_coords, y_coords, z_coords, indexing='ij')
-    sphere_centers = np.vstack([xx.ravel(), yy.ravel(), zz.ravel()]).T
-
-    # Adjust coordinates for partitions equal to 1
-    if x_partitions == 1:
-        for i in range(1, len(sphere_centers), 2):
-            sphere_centers[i, 0] = big_box_dim[0] - 0.5 * x_len
-
-    if y_partitions == 1:
-        for i in range(1, len(sphere_centers), 2):
-            sphere_centers[i, 1] = big_box_dim[1] - 0.5 * y_len
-
-    if z_partitions == 1:
-        for i in range(1, len(sphere_centers), 2):
-            sphere_centers[i, 2] = big_box_dim[2] - 0.5 * z_len
-    volumes_to_fill = len(sphere_centers)
-
-    assert len(sphere_centers) >= num_spheres, \
-        'must be enough possible volumes. intriduce a scaling factor'
-
-    take_index = np.arange(len(sphere_centers))
-    np.random.shuffle(take_index)
-    take_index = take_index[:num_spheres]
-    shift = sphere_radius / num_monomers
-    alphas = np.linspace(-sphere_radius,
-                         sphere_radius, num_monomers + 1)[:-1] + shift
-    result = np.empty((num_spheres, num_monomers, 3))
-    for i, iid in enumerate(take_index):
-        center = sphere_centers[iid]
-        theta = np.random.uniform(0, 2 * np.pi)
-        phi = 0.
-        x_points = center[0] + alphas * np.sin(phi) * np.cos(theta)
-        y_points = center[1] + alphas * np.sin(phi) * np.sin(theta)
-        z_points = center[2] + alphas * np.cos(phi)
-        result[i] = np.column_stack((x_points, y_points, z_points))
-
-    return sphere_centers[take_index], result
-
 def singleton(aClass):
     def onCall(*args, **kwargs):
         if onCall.instance == None:
@@ -81,9 +27,8 @@ class Simulation():
     volume_centers=[]
     volume_size=None
     part_positions=[]
-    def __init__(self, n_part_tot, density, espresso_handle):
+    def __init__(self, espresso_handle, density=0.01):
         assert isinstance(espresso_handle, espressomd.System)
-        self.n_part_tot = n_part_tot
         self.density = density
         self.no_objects = 0
         self.objects = []
@@ -107,6 +52,7 @@ class Simulation():
         self.sys.min_global_cut = 3.
         self.sys.virtual_sites = VirtualSitesRelative(have_quaternion=False)
         assert type(self.sys.virtual_sites) is VirtualSitesRelative, 'VirtualSitesRelative must be set. If not, anything involving virtual particles will not work correctly, but it might be very hard to figure out why. I have wasted days debugging issues only to remember i commented out this line!!!'
+        print(f'System params have been autoset. The values of min_global_cut and skin are not guaranteed to be optimal for your simualtion and should be tuned by hand!!!')
 
     def store_objects(self, iterable_list):
         '''
@@ -126,7 +72,7 @@ class Simulation():
             self.no_objects += 1
         self.part_types.update(temp_dict)
         self.n_parts_per_obj = self.objects[0].n_parts
-        print(np.shape(self.objects))
+        print(f'{iterable_list[0].__class__.__name__}s stored')
 
     def set_objects(self, objects):
             '''
@@ -156,7 +102,7 @@ class Simulation():
                 try:
                     next(logic)
                 except StopIteration:
-                    print('Objects set!!!')
+                    print(f'{objects[0].__class__.__name__} set!!!')
                     break
 
     def add_patches_triples(self):
@@ -207,7 +153,6 @@ class Simulation():
         print(f'part types available {self.part_types.keys()} ')
         print(f'WCA interactions initiated for keys: {key}')
         for key_el, key_el2 in combinations_with_replacement(key, 2):
-            print(key_el,key_el2)
             self.sys.non_bonded_inter[self.part_types[key_el], self.part_types[key_el2]
                                       ].wca.set_params(epsilon=wca_eps, sigma=sigma)
 
@@ -237,10 +182,10 @@ class Simulation():
         Interaction length is allways determined from lj_size.
         '''
         lj_cut = 2.5*lj_size
-        for key_el, key_el2 in product(key, key):
+        for key_el, key_el2 in combinations_with_replacement(key, 2):
             self.sys.non_bonded_inter[self.part_types[key_el], self.part_types[key_el2]].lennard_jones.set_params(
                 epsilon=lj_eps, sigma=lj_size, cutoff=lj_cut, shift=0)
-        print('vdW interactions initiated!')
+        print(f'vdW interactions initiated initiated for keys: {key}')
 
     def set_vdW_custom(self, pairs=[(None, None),], lj_eps=[1.,], lj_size=[1.,]):
 
