@@ -1,6 +1,6 @@
 import espressomd
 from pressomancy.object_classes.object_class import Simulation_Object 
-from pressomancy.helper_functions import PartDictSafe
+from pressomancy.helper_functions import PartDictSafe, SinglePairDict
 
 class Crowder(metaclass=Simulation_Object):
 
@@ -10,10 +10,11 @@ class Crowder(metaclass=Simulation_Object):
 
     numInstances = 0
     sigma = 1
-    part_types = PartDictSafe({'crowder': 5, 'virt': 2})
-    last_index_used = 0
     n_parts = 1
     size=0.
+    simulation_type= SinglePairDict('crowder', 5)
+    part_types = PartDictSafe({'crowder': 5})
+
     def __init__(self, sigma, espresso_handle,size=None):
         '''
         Initialisation of a crowder object requires the specification of particle size and a handle to the espresso system

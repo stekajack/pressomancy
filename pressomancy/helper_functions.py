@@ -3,6 +3,49 @@ from itertools import product
 from collections import defaultdict
 import warnings
 
+class SinglePairDict(dict):
+    # Class-level dictionary to track all unique key-value pairs across instances
+    _global_registry = {}
+
+    def __init__(self, key, value):
+        # Enforce global uniqueness for key and value
+        if key in SinglePairDict._global_registry:
+            raise ValueError(f"Key '{key}' already exists in another instance.")
+        if value in SinglePairDict._global_registry.values():
+            raise ValueError(f"Value '{value}' already exists in another instance.")
+        
+        # Initialize as a single-item dictionary
+        super().__init__({key: value})
+
+        # Register the key-value pair globally
+        SinglePairDict._global_registry[key] = value
+
+    # Override __setitem__ to prevent modifying the dictionary after initialization
+    def __setitem__(self, key, value):
+        raise TypeError("SinglePairDict does not support item assignment after initialization.")
+
+    # Override __delitem__ to prevent deletion
+    def __delitem__(self, key):
+        raise TypeError("SinglePairDict does not support item deletion.")
+
+    @property
+    def key(self):
+        # Retrieve the single key
+        return next(iter(self.keys()))
+
+    @property
+    def value(self):
+        # Retrieve the single value
+        return next(iter(self.values()))
+
+    @classmethod
+    def get_all_pairs(cls):
+        """Return all registered key-value pairs across instances."""
+        return cls._global_registry.copy()
+
+    def __repr__(self):
+        return f"SinglePairDict({self.key!r}: {self.value!r})"
+    
 class PartDictSafe(dict):
     
     def sanity_check(self,key,value):

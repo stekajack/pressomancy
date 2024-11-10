@@ -1,9 +1,9 @@
 import espressomd
 import numpy as np
 import random
-from itertools import product
+from itertools import product, pairwise
 from pressomancy.object_classes.object_class import Simulation_Object 
-from pressomancy.helper_functions import RoutineWithArgs, make_centered_rand_orient_point_array, PartDictSafe
+from pressomancy.helper_functions import RoutineWithArgs, make_centered_rand_orient_point_array, PartDictSafe, SinglePairDict
 
 def rule_maker(choice_id, offset, n=3):
     top = [26, 45, 49, 30]
@@ -37,8 +37,6 @@ class Filament(metaclass=Simulation_Object):
     '''
     numInstances = 0
     sigma = 1
-    part_types = PartDictSafe({'real':1, 'virt': 2, 'to_be_magnetized': 3})
-    last_index_used = 0
     n_parts = 1
     bond_len = sigma*pow(2, 1/6.)+1-0.6
     fene_k = 40
@@ -46,6 +44,8 @@ class Filament(metaclass=Simulation_Object):
     fene_r_max = sigma*3.
     dip_magnitude = 0.
     size = 0.
+    simulation_type=SinglePairDict('filament', 54)
+    part_types = PartDictSafe({'real':1,})
 
     def __init__(self, sigma, espresso_handle, n_parts=n_parts, monomers=None,size=None):
         '''
@@ -58,10 +58,6 @@ class Filament(metaclass=Simulation_Object):
         Filament.sys = espresso_handle
         self.build_function=RoutineWithArgs(func=make_centered_rand_orient_point_array,num_monomers=self.n_parts)
         self.who_am_i = Filament.numInstances
-        self.realz_indices = []
-        self.fronts_indices = []
-        self.backs_indices = []
-        self.magnetizable_virts = []
         self.orientor = np.empty(shape=3, dtype=float)
         self.associated_monomers = monomers
         if size==None:

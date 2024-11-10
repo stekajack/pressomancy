@@ -3,9 +3,9 @@ import numpy as np
 from itertools import combinations, product
 import random
 import os
-from pressomancy.helper_functions import load_coord_file, PartDictSafe
+from pressomancy.helper_functions import load_coord_file, PartDictSafe, SinglePairDict
 from pressomancy.object_classes.object_class import Simulation_Object 
-
+import warnings
 
 
 class Quartet(metaclass=Simulation_Object):
@@ -16,8 +16,6 @@ class Quartet(metaclass=Simulation_Object):
 
     numInstances = 0
     sigma = 1.
-    part_types = PartDictSafe({'real': 1, 'virt': 2})
-    last_index_used = 0
     current_dir = os.path.dirname(__file__)
     resources_dir = os.path.join(current_dir, '..', 'resources')
     resource_file = os.path.join(resources_dir, 'g_quartet_mesh_coordinates.txt')
@@ -26,6 +24,8 @@ class Quartet(metaclass=Simulation_Object):
     type = 'solid'
     fene_handle = None
     size=0.
+    simulation_type=SinglePairDict('quartet', 11)
+    part_types = PartDictSafe({'real': 1, 'virt': 2})
 
     def __init__(self, sigma, espresso_handle, n_parts=n_parts, type=type, fene_k=0., fene_r0=0., size=None):
         '''
@@ -47,8 +47,6 @@ class Quartet(metaclass=Simulation_Object):
         Quartet.sys = espresso_handle
         self.who_am_i = Quartet.numInstances
         Quartet.numInstances += 1
-        self.realz_indices = []
-        self.virts_indices = []
         self.orientor = np.empty(shape=3, dtype=float)
         self.triplets_associated = None
         self.corner_particles = []
@@ -153,12 +151,13 @@ class Quadriplex(metaclass=Simulation_Object):
     '''
     numInstances = 0
     sigma = 5
-    last_index_used = 0
-    part_types = PartDictSafe({'real': 1, 'virt': 2})
     fene_handle = None
     bending_handle = None
     size=0.
     n_parts=3
+    part_types = PartDictSafe()
+    simulation_type=SinglePairDict('quadriplex',22)
+
     def __init__(self, sigma, quartet_grp, espresso_handle, fene_k=0., fene_r0=0., bending_k=0., bending_angle=None, bonding_mode=None, size=None):
         '''
         Initialisation of a quadriplex object requires the specification of particle size, number of parts and a handle to the espresso system

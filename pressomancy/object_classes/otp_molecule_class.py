@@ -1,6 +1,6 @@
 import espressomd
 import os
-from pressomancy.helper_functions import load_coord_file, PartDictSafe
+from pressomancy.helper_functions import load_coord_file, PartDictSafe, SinglePairDict
 import numpy as np
 from pressomancy.object_classes.object_class import Simulation_Object 
 from scipy.spatial.transform import Rotation as R
@@ -14,13 +14,15 @@ class OTP(metaclass=Simulation_Object):
 
     numInstances = 0
     sigma: float = 1. # particle size used mostly by the Filament class rn
-    part_types = PartDictSafe({'otp': 6,})
+
     last_index_used = 0
     n_parts = 3
     long_side=(None,0.719194480723940)
     short_side=(None,0.483)
     referece_sheet=None
     size=0.
+    simulation_type= SinglePairDict('otp', 6)
+    part_types = PartDictSafe(simulation_type)
 
     def __init__(self, sigma, long_side, short_side, espresso_handle, size=None):
         '''
