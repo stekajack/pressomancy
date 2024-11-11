@@ -47,17 +47,32 @@ class SinglePairDict(dict):
         return f"SinglePairDict({self.key!r}: {self.value!r})"
     
 class PartDictSafe(dict):
-    
-    def sanity_check(self,key,value):
-        if value in self.values():
-            existing_keys = [k for k, v in self.items() if v == value]
-            if key not in existing_keys:
-                raise RuntimeError(f"Value '{value}' with key '{key}' is already associated with key(s) {existing_keys} in `part_types`. Already reserved values are {self.values()} ")
-        if key in self.keys():
-            warnings.warn(
-                f"Key '{key}' already exists in `part_types` with value '{self[key]}'. Is reset to value '{value}'."
+    def __init__(self, *args, **kwargs):
+        # Set a default factory, defaulting to an empty list
+        self.default_factory = list
+        # Initialize the dictionary as usual
+        super().__init__(*args, **kwargs)
+
+    def sanity_check(self, key, value):
+        if value == self.default_factory():
+            return
+        current_value = self.get(key)
+        if current_value == value:
+            return
+
+        if current_value is not None:
+            raise RuntimeError(
+                f"Key '{key}' already exists in `part_types` with a different value '{current_value}'. "
+                f"Attempted to reset it to '{value}', which is not allowed."
             )
 
+        if value in self.values():
+            existing_key = next(k for k, v in self.items() if v == value)
+            raise RuntimeError(
+                f"Value '{value}' is already associated with key '{existing_key}' in `part_types`. "
+                f"New entries must have unique values."
+            )
+            
     def __setitem__(self, key, value):
         self.sanity_check(key, value)
         super().__setitem__(key, value)
@@ -65,16 +80,24 @@ class PartDictSafe(dict):
     def update(self, *args, **kwargs):
         # Handle positional args and keyword args as update normally would
         if args:
-            # The first positional argument should be a dictionary or iterable of key-value pairs
             iterable = args[0]
             for key, value in (iterable.items() if isinstance(iterable, dict) else iterable):
                 self.sanity_check(key, value)
                 super().__setitem__(key, value)
 
-        # Process keyword arguments in kwargs
         for key, value in kwargs.items():
             self.sanity_check(key, value)
             super().__setitem__(key, value)
+
+    def __getitem__(self, key):
+        # Use default factory if the key is not in the dictionary
+        if key not in self:
+            self[key] = self.default_factory()
+        return super().__getitem__(key)
+
+    def set_default_factory(self, factory):
+        """Allow setting a different default factory if desired."""
+        self.default_factory = factory
 
 class RoutineWithArgs:
     def __init__(self, func=None, num_monomers=1):
@@ -461,7 +484,6 @@ def get_orientation_vec(pos):
     pr_comp = egiv[:, np.argmax(res)]
     pr_comp /= np.linalg.norm(pr_comp)
     return np.array(pr_comp, float)
-
 
 def get_cross_lattice_noninterceting_volumes(sphere_centers_long, sph_diam_log,sphere_centers_short, grouped_part_pos_short,sph_diam_short,box_len):
     # assume lattice doesn need to use scaling and it fits in the box for now!!!
