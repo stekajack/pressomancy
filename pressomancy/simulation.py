@@ -27,17 +27,16 @@ class Simulation():
     volume_centers=[]
     volume_size=None
     part_positions=[]
-    def __init__(self, espresso_handle, density=0.01):
-        assert isinstance(espresso_handle, espressomd.System)
+    object_permissions=['part_types']
+    _sys=espressomd.System
+    def __init__(self, box_dim, density=0.01):
         self.density = density
         self.no_objects = 0
         self.objects = []
-        self.n_parts_per_obj = 0
         self.part_types = PartDictSafe({})
         self.seed = int.from_bytes(os.urandom(2), sysos.byteorder)
-        self.sys = espresso_handle
         self.partitioned=None
-
+        self.sys=self._sys(box_l=box_dim)
         self.set_sys()
 
     def set_sys(self, timestep=0.01):
@@ -54,6 +53,16 @@ class Simulation():
         assert type(self.sys.virtual_sites) is VirtualSitesRelative, 'VirtualSitesRelative must be set. If not, anything involving virtual particles will not work correctly, but it might be very hard to figure out why. I have wasted days debugging issues only to remember i commented out this line!!!'
         print(f'System params have been autoset. The values of min_global_cut and skin are not guaranteed to be optimal for your simualtion and should be tuned by hand!!!')
 
+    def modify_system_attribute(self, requester, attribute_name, action):
+        """
+        Validates and modifies a Simulation attribute if allowed by the permissions.
+        """
+        if hasattr(self, attribute_name) and attribute_name in self.object_permissions:
+            action(getattr(self,attribute_name))
+
+        else:
+            print("Requester does not have permission to modify attributes.")
+
     def store_objects(self, iterable_list):
         '''
         Method stores objects in the self.objects dict, if the object has a n_part and part_types attributes,
@@ -66,6 +75,7 @@ class Simulation():
         assert not set(iterable_list).intersection(self.objects), "Lists have common elements!"
         temp_dict={}
         for element in iterable_list:
+            element.modify_system_attribute = self.modify_system_attribute
             self.objects.append(element)
             for key, val in element.part_types.items():
                 temp_dict[key]=val            
