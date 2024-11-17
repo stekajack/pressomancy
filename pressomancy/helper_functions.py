@@ -1,7 +1,61 @@
 import numpy as np
 from itertools import product
 from collections import defaultdict
-import warnings
+import inspect
+
+class ManagedSimulation:
+    def __init__(self, aClass):
+        self.aClass = aClass
+        setattr(aClass, 'reinitialize_instance', self.reinitialize_instance)
+        self.instance = None
+        self.init_args = ()
+        self.init_kwargs = {}
+        self._espressomd_system = None  # Shared espressomd.System instance
+        self.__name__ = f"Singleton({aClass.__name__})"
+        self.__qualname__ = f"Singleton({aClass.__qualname__})"
+
+    def __call__(self, *args, **kwargs):
+        """Return the Singleton itself instead of an instance of the class."""
+        if self.instance is None:
+            # Initialize the espressomd.System instance if it hasn't been done
+            if self._espressomd_system is None:
+                box_dim = kwargs.get('box_dim', [10, 10, 10])  # Default box_dim if not provided
+                self._espressomd_system = self.aClass._sys(box_l=box_dim)
+
+            # Instantiate the decorated class and set its sys attribute
+            self.instance = self.aClass(*args, **kwargs)
+            self.instance.sys = self._espressomd_system
+            self.init_args = args
+            self.init_kwargs = kwargs
+        else:
+            # Raise exception if trying to create a second instance
+            frame = inspect.currentframe().f_back
+            raise SimulationExistsException(
+                f"An instance of {self.aClass.__name__} already exists at {frame.f_code.co_filename}, line {frame.f_lineno}"
+            )
+        return self  # Return the Singleton itself, not the instance
+
+    def reinitialize_instance(self):
+        """Reinitialize the instance without affecting espressomd.System, no return."""
+        if self.instance is not None:
+            # Recreate the instance while preserving the shared _sys instance            
+            self.instance = self.aClass(*self.init_args, **self.init_kwargs)
+            self.instance.sys = self._espressomd_system
+            self.instance.sys.part.clear()
+            self.instance.sys.non_bonded_inter.reset()
+            self.instance.sys.bonded_inter.clear()
+
+
+
+    def __getattr__(self, name):
+        """Forward attribute access to the actual instance."""
+        if self.instance is None:
+            raise AttributeError(f"Instance of {self.aClass.__name__} has not been initialized.")
+        return getattr(self.instance, name) 
+
+class SimulationExistsException(Exception):
+    def __init__(self, message):
+        super().__init__(message)
 
 class SinglePairDict(dict):
     # Class-level dictionary to track all unique key-value pairs across instances

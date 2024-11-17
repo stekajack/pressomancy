@@ -10,34 +10,25 @@ from itertools import combinations_with_replacement
 from pressomancy.object_classes import *
 from pressomancy.helper_functions import *
 
-def singleton(aClass):
-    def onCall(*args, **kwargs):
-        if onCall.instance == None:
-            onCall.instance = aClass(*args, **kwargs)
-        return onCall.instance
-    onCall.instance = None
-    return onCall
-
-@singleton
+@ManagedSimulation
 class Simulation():
     '''
     Singleton class that is intended to manage a suspension of objects stored in a class dict() attribute self.objects = {}. Initialisation of class wraps the espresso system handle and general suspension level attributes. Therefore espresso system needs to be instatiated beforehand. From there one can set the system, store objects and manage them either trough simulation level methods that in general loop trough stored objects and defers any real work to the object class method.
 
     '''
-    volume_centers=[]
-    volume_size=None
-    part_positions=[]
+    
     object_permissions=['part_types']
     _sys=espressomd.System
-    def __init__(self, box_dim, density=0.01):
-        self.density = density
+    def __init__(self, box_dim):
         self.no_objects = 0
         self.objects = []
         self.part_types = PartDictSafe({})
         self.seed = int.from_bytes(os.urandom(2), sysos.byteorder)
         self.partitioned=None
-        self.sys=self._sys(box_l=box_dim)
-        self.set_sys()
+        self.part_positions=[]
+        self.volume_size=None
+        self.volume_centers=[]
+        # self.sys=espressomd.System(box_l=box_dim) is added and managed by the singleton decrator!
 
     def set_sys(self, timestep=0.01):
         '''
@@ -81,7 +72,6 @@ class Simulation():
                 temp_dict[key]=val            
             self.no_objects += 1
         self.part_types.update(temp_dict)
-        self.n_parts_per_obj = self.objects[0].n_parts
         print(f'{iterable_list[0].__class__.__name__}s stored')
 
     def set_objects(self, objects):
