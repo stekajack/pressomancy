@@ -543,13 +543,13 @@ def get_cross_lattice_noninterceting_volumes(sphere_centers_long, sph_diam_log,s
     # assume lattice doesn need to use scaling and it fits in the box for now!!!
 
     neigh=get_neighbours_cross_lattice(sphere_centers_long,sphere_centers_short,
-    box_len,cuttoff=(sph_diam_log+sph_diam_log)*0.5)
+    box_len,cuttoff=(sph_diam_log+sph_diam_short)*0.5)
     aranged_cross_lattice_options={}
     for vol_id,associated_vol_ids in neigh.items():
         mask=[]
         if associated_vol_ids:
             for as_vol_id in associated_vol_ids:
                 res=calculate_pairwise_distances([sphere_centers_long[vol_id]], grouped_part_pos_short[as_vol_id], box_length=box_len)
-                mask.append(all([x>0.5*sph_diam_short for x in res if not np.isclose(x,0.)]))
+                mask.append(all([x>0.5*sph_diam_short for x in res if not np.isclose(x,0.)])) 
         aranged_cross_lattice_options[vol_id]=mask
     return aranged_cross_lattice_options
