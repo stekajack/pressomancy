@@ -105,25 +105,36 @@ class Simulation():
                     print(f'{objects[0].__class__.__name__} set!!!')
                     break
 
-    def add_patches_triples(self):
+    def unstore_objects(self, iterable_list=None):
+        '''
+        Method removes specified objects from the self.objects list.
+        Updates the self.part_types attribute by removing types associated with these objects.
+        Adjusts other relevant attributes like self.no_objects and self.n_parts_per_obj.
+        '''
+        if iterable_list==None:
+        
+            self.objects.clear()
+            self.no_objects = 0
+            print(f'all objects removed')
+        
+        else:
+            assert all(ob in self.objects for ob in iterable_list), "Some objects to be removed are not in the stored list!"
+            temp_dict = {}
+            for element in iterable_list:
+                self.objects.remove(element)            
+                self.no_objects -= 1
 
-        assert any(isinstance(ele, Quadriplex) for ele in self.objects), "method assumes simulation holds Quadriplex objects"
-        # assert 'cation' not in self.part_types, f"Error: Key cation exists in the dictionary. add_patches_triples will not work correctly"
+                for key, val in element.part_types.items():
+                    temp_dict[key] = val
 
-        self.part_types['patch'] = 4
-        quadriplexes = [ele for ele in self.objects if isinstance(ele, Quadriplex)]
-        for quad_el in quadriplexes:
-            triples = quad_el.associated_quartets
-            part_hndl_a = self.sys.part.add(type=self.part_types['patch'], pos=self.sys.part.by_id(
-                triples[1].realz_indices[0]).pos, director=self.sys.part.by_id(triples[1].realz_indices[0]).director)
-            part_hndl_a.vs_auto_relate_to(
-                self.sys.part.by_id(triples[1].realz_indices[0]))
-
-            part_hndl_b = self.sys.part.add(type=self.part_types['patch'], pos=self.sys.part.by_id(
-                triples[2].realz_indices[0]).pos, director=self.sys.part.by_id(triples[2].realz_indices[0]).director)
-            part_hndl_b.vs_auto_relate_to(
-                self.sys.part.by_id(triples[2].realz_indices[0]))
-            part_hndl_a.add_exclusion(part_hndl_b.id)
+            for key in temp_dict:
+                self.part_types.pop(key, None)
+            
+            print(f'{iterable_list[0].__class__.__name__}s removed')
+    
+    def delete_objects(self):
+        for object in self.objects:
+            object.delete_owned_parts()
 
     def mark_for_collision_detection(self, object_type=Quadriplex, part_type=666):
         assert any(isinstance(ele, object_type) for ele in self.objects), "method assumes simulation holds correct type object"

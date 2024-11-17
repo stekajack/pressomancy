@@ -2,3 +2,5 @@ pressomancy.egg-info
 __pycache__
 tests.ipynb
 .vscode
+technical_description.txt
+.coverage

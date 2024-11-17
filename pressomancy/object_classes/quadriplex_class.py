@@ -151,7 +151,7 @@ class Quadriplex(metaclass=Simulation_Object):
     n_parts=3
     part_types = PartDictSafe()
     simulation_type=SinglePairDict('quadriplex',22)
-    print('Quadriplex num: ',numInstances)
+
     def __init__(self, sigma, quartet_grp, espresso_handle, fene_k=0., fene_r0=0., bending_k=0., bending_angle=None, bonding_mode=None, size=None):
         '''
         Initialisation of a quadriplex object requires the specification of particle size, number of parts and a handle to the espresso system

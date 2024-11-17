@@ -54,15 +54,15 @@ class Simulation_Object(type):
         helper_set_attribute(instance,"add_particle",Simulation_Object.add_particle)
         helper_set_attribute(instance,"change_part_type",Simulation_Object.change_part_type)
         helper_set_attribute(instance,"modify_system_attribute",generic_modify_system_attribute)
+        helper_set_attribute(instance,"delete_owned_parts",Simulation_Object.delete_owned_parts)
 
-        required_attributes = {"who_am_i": int,'type_part_dict'  :PartDictSafe }
+        required_attributes = {"who_am_i": int,'type_part_dict'  :PartDictSafe,'associated_objects': list}
         for attr, expected_type in required_attributes.items():
             # Check for required instance attribute `who_am_i`
             if not hasattr(instance, attr):
                 generic_type_exception_inst(instance.__class__.__name__, attr, expected_type)
         return instance
 
-    # Define __eq__, __hash__, and __iter__ as class-level methods for consistency
     @staticmethod
     def _eq(self, other):
         if not isinstance(other, self.__class__):
@@ -78,11 +78,18 @@ class Simulation_Object(type):
         """Return an iterator for the internal list, making the object iterable."""
         return iter([self])
 
-    # Shared method for setting object attributes (meant to be overridden if necessary)
     def set_object(self, *args,**kwargs):
         print(f"Self is: {self}")
         raise NotImplementedError("The 'set_object' method must be implemented in subclasses.")
     
+    def delete_owned_parts(self):
+        for key,elem in self.type_part_dict.items():
+            for prt in elem:
+                prt.remove()
+        if self.associated_objects!= None:
+            for obj in self.associated_objects:
+                obj.delete_owned_parts()
+                
     def add_particle(self, type_name, pos, **kwargs):
         '''
         Adds a particle to simualtion box, usign the espresso system.part.add() comand. Makes sure that every time a particle is added, 
