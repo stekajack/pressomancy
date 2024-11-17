@@ -24,7 +24,7 @@ class OTP(metaclass=Simulation_Object):
     simulation_type= SinglePairDict('otp', 6)
     part_types = PartDictSafe(simulation_type)
 
-    def __init__(self, sigma, long_side, short_side, espresso_handle, size=None):
+    def __init__(self, sigma, long_side, short_side, espresso_handle,associated_objects=None, size=None):
         '''
         Initialisation of a crowder object requires the specification of particle size and a handle to the espresso system
         '''
@@ -47,6 +47,7 @@ class OTP(metaclass=Simulation_Object):
         if OTP.referece_sheet is None:
             OTP.referece_sheet = load_coord_file(resource_file)[1:]
             OTP.referece_sheet=OTP.referece_sheet-np.mean(OTP.referece_sheet, axis=0)
+        self.associated_objects=associated_objects
 
     def set_object(self,  pos, ori):
         '''
