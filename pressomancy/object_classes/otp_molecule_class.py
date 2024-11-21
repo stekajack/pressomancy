@@ -48,6 +48,7 @@ class OTP(metaclass=Simulation_Object):
             OTP.referece_sheet = load_coord_file(resource_file)[1:]
             OTP.referece_sheet=OTP.referece_sheet-np.mean(OTP.referece_sheet, axis=0)
         self.associated_objects=associated_objects
+        self.type_part_dict=PartDictSafe({key: [] for key in OTP.part_types.keys()})
 
     def set_object(self,  pos, ori):
         '''

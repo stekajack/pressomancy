@@ -8,7 +8,7 @@ import gc
 
 sigma = 1.
 rho_si = 0.6*N_avog
-no_obj=300
+no_obj=30
 N = int(no_obj/3)
 vol = N/rho_si
 box_l = pow(vol, 1/3)
@@ -17,9 +17,9 @@ box_dim = _box_l*np.ones(3)
 _rho = N/pow(_box_l, 3)
 
 sheets_per_quad = 3
-part_per_filament = 4
-no_crowders=100
-part_per_ligand=4
+part_per_filament = 2
+no_crowders=10
+part_per_ligand=2
 
 sim_inst = Simulation(box_dim=box_dim)
 sim_inst.set_sys()
