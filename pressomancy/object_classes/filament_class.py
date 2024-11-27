@@ -140,7 +140,6 @@ class Filament(metaclass=Simulation_Object):
         :return: None
 
         '''
-        Filament.sys.bonded_inter.add(bond_handle)
         handles_font = list(Filament.sys.part.by_ids(self.fronts_indices))
         handles_back = list(Filament.sys.part.by_ids(self.backs_indices))
 
@@ -202,7 +201,6 @@ class Filament(metaclass=Simulation_Object):
 
     def bond_center_to_center(self, bond_handle, type_key):
         
-        Filament.sys.bonded_inter.add(bond_handle)
         if self.associated_objects!=None:
             assert all([type_key in x.part_types.keys() for x in self.associated_objects]), 'type key must exist in the part_types of all associated monomers!'
 
@@ -212,14 +210,35 @@ class Filament(metaclass=Simulation_Object):
         else:
             for x,y in pairwise(self.type_part_dict[type_key]):
                 x.add_bond((bond_handle,y))
-            
+
+    def bond_nearest_part(self, bond_handle, type_key):
+        '''
+        Docstring for bond_nearest_part
+        
+        :param self: Description
+        :type self:  
+        :param bond_handle: Description
+        :type bond_handle:  
+        :param type_key: Description
+        :type type_key:  '''
+        assert all([type_key in x.part_types.keys() for x in self.associated_objects]), 'type key must exist in the part_types of all associated monomers!'
+        len_sq=pow(self.associated_objects[0].n_parts,2)
+        for el1,el2 in pairwise(self.associated_objects):
+            el1_pos=np.mean([x.pos for x in el1.type_part_dict['real']],axis=0)
+            el2_pos=np.mean([x.pos for x in el2.type_part_dict['real']],axis=0)
+            midpoint = (el1_pos+el2_pos)*0.5
+            small_spheres1 = sorted(el1.type_part_dict[type_key], key=lambda s: np.linalg.norm(s.pos - midpoint))
+            small_spheres2 = sorted(el2.type_part_dict[type_key], key=lambda s: np.linalg.norm(s.pos - midpoint))
+
+            x, y = small_spheres1[0], small_spheres2[0]
+            x.add_bond((bond_handle, y))
+        
     def bond_quadriplexes(self, bond_handle, mode='hinge'):
         '''
         associated_objects contains monomer objects (assume quadriplex). We add cormer particles in each quadriplex pair to a pool of candidate corners: candidate1 and candidate2. Finaly checks which corner pairs have a distance Filament.sigma-2*fene_r0. Relies on np.isclose().
         :return: None
 
         '''
-        Filament.sys.bonded_inter.add(bond_handle)
         monomer_pairs = zip(self.associated_objects,
                             self.associated_objects[1:])
         for pair in monomer_pairs:
@@ -257,8 +276,6 @@ class Filament(metaclass=Simulation_Object):
 
         '''
         bond_handle, diag_bond = bond_handles
-        Filament.sys.bonded_inter.add(bond_handle)
-        Filament.sys.bonded_inter.add(diag_bond)
         for iid in range(len(self.associated_objects)):
             monomer = self.associated_objects[iid]
             fene_r0 = monomer.fene_r0
