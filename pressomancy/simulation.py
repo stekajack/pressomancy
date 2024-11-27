@@ -1,5 +1,6 @@
 import espressomd
 from espressomd.virtual_sites import VirtualSitesRelative
+from espressomd import shapes
 import espressomd.polymer
 import sys as sysos
 import numpy as np
@@ -30,7 +31,7 @@ class Simulation():
         self.volume_centers=[]
         # self.sys=espressomd.System(box_l=box_dim) is added and managed by the singleton decrator!
 
-    def set_sys(self, timestep=0.01):
+    def set_sys(self, timestep=0.01, min_global_cut=3.0):
         '''
         Set espresso cellsystem params, and import virtual particle scheme. Run automatically on initialisation of the System class.
         '''
@@ -39,7 +40,7 @@ class Simulation():
         self.sys.periodicity = (True, True, True)
         self.sys.time_step = timestep
         self.sys.cell_system.skin = 0.5
-        self.sys.min_global_cut = 3.
+        self.sys.min_global_cut = min_global_cut
         self.sys.virtual_sites = VirtualSitesRelative(have_quaternion=False)
         assert type(self.sys.virtual_sites) is VirtualSitesRelative, 'VirtualSitesRelative must be set. If not, anything involving virtual particles will not work correctly, but it might be very hard to figure out why. I have wasted days debugging issues only to remember i commented out this line!!!'
         print(f'System params have been autoset. The values of min_global_cut and skin are not guaranteed to be optimal for your simualtion and should be tuned by hand!!!')
@@ -211,14 +212,13 @@ class Simulation():
     def init_lb_GPU(self, kT, agrid, dens, visc, gamma, timestep=0.01):
         print('GPU LB method is beeing initiated')
         self.sys.thermostat.turn_off()
-        self.sys.part[:].v = (0, 0, 0)
+        self.sys.part.all().v = (0, 0, 0)
         lbf = espressomd.lb.LBFluidGPU(
-            kT=1, seed=self.seed, agrid=agrid, dens=dens, visc=visc, tau=timestep)
+            kT=kT, seed=self.seed, agrid=agrid, dens=dens, visc=visc, tau=timestep)
         print(self.sys.actors.active_actors)
         if len(self.sys.actors.active_actors) == 2:
             self.sys.actors.remove(self.sys.actors.active_actors[-1])
         self.sys.actors.add(lbf)
-        # gamma_MD = 1/(1/(6*np.pi*0.25*(args.eta))-1/((args.eta)*25))
         gamma_MD = gamma
         print('gamma_MD: '+str(gamma_MD))
         self.sys.thermostat.set_lb(
@@ -229,8 +229,8 @@ class Simulation():
 
     def create_flow_channel(self, slip_vel=(0, 0, 0)):
         print("Setup LB boundaries.")
-        top_wall = espressomd.shapes.Wall(normal=[1, 0, 0], dist=1) # type: ignore
-        bottom_wall = espressomd.shapes.Wall( # type: ignore
+        top_wall = shapes.Wall(normal=[1, 0, 0], dist=1) # type: ignore
+        bottom_wall = shapes.Wall( # type: ignore
             normal=[-1, 0, 0], dist=-(self.sys.box_l[0] - 1))
 
         top_boundary = espressomd.lbboundaries.LBBoundary( # type: ignore

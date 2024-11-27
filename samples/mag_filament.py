@@ -13,6 +13,8 @@ sim_inst.set_sys()
 
 filaments = [Filament(sigma=sigma, n_parts=2, size=2, espresso_handle=sim_inst.sys) for x in range(5)]
 bond_hndl=espressomd.interactions.FeneBond(k=10, d_r_max=3*sigma, r_0=0)
+sim_inst.sys.bonded_inter.add(bond_hndl)
+
 sim_inst.store_objects(filaments)
 sim_inst.set_objects(filaments)
 for filament in filaments:

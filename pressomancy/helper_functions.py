@@ -44,8 +44,7 @@ class ManagedSimulation:
             self.instance.sys.part.clear()
             self.instance.sys.non_bonded_inter.reset()
             self.instance.sys.bonded_inter.clear()
-
-
+            self.instance.sys.thermostat.turn_off()
 
     def __getattr__(self, name):
         """Forward attribute access to the actual instance."""

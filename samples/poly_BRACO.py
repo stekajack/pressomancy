@@ -4,7 +4,6 @@ import os
 import sys as sysos
 import numpy as np
 N_avog = 6.02214076e23
-import gc
 
 sigma = 1.
 rho_si = 0.6*N_avog
@@ -24,10 +23,7 @@ part_per_ligand=2
 sim_inst = Simulation(box_dim=box_dim)
 sim_inst.set_sys()
 print('box_dim: ', sim_inst.sys.box_l)
-print(Quadriplex.numInstances)
-quadriplex_instances = [obj for obj in gc.get_objects() if isinstance(obj, Quadriplex)]
-for idx, instance in enumerate(quadriplex_instances, start=1):
-    print(f"Instance {idx}: {instance}")
+
 quartets = [Quartet(sigma=sigma, n_parts=25, type='solid', espresso_handle=sim_inst.sys, fene_k=10, fene_r0=1) for x in range(no_obj)]
 sim_inst.store_objects(quartets)
 
@@ -45,6 +41,8 @@ sim_inst.store_objects(filaments)
 sim_inst.set_objects(filaments)
 bond_pass = espressomd.interactions.FeneBond(
     k=Quadriplex.fene_k, r_0=Quadriplex.fene_r0, d_r_max=Quadriplex.fene_r0*1.5)
+sim_inst.sys.bonded_inter.add(bond_pass)
+
 for filament in filaments:        
     filament.bond_quadriplexes(bond_handle=bond_pass)
 
@@ -61,6 +59,7 @@ sim_inst.set_objects(filaments)
 
 bender_pass = espressomd.interactions.FeneBond(
     k=10, r_0=6, d_r_max=6*1.5)
+sim_inst.sys.bonded_inter.add(bender_pass)
 for filament in filaments:
     filament.bond_center_to_center(bond_handle=bender_pass,type_key='crowder')
     
