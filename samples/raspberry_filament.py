@@ -31,9 +31,6 @@ sim_inst.set_objects(filaments)
 for filament in filaments:
     filament.bond_nearest_part(bond_handle=bond_hndl,type_key='virt')
 
-lbb = sim_inst.init_lb_GPU(kT=0.1, agrid=1, dens=1, visc=1, gamma=6.23)
+lbb = sim_inst.init_lb(kT=0.1, agrid=1, dens=1, visc=1, gamma=6.23)
 sim_inst.create_flow_channel()
 sim_inst.sys.integrator.run(0)
-fp = open('trajectory.vtf', mode='w+t')
-vtf.writevsf(sim_inst.sys, fp)
-vtf.writevcf(sim_inst.sys, fp)

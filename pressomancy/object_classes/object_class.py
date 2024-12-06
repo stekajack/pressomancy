@@ -1,17 +1,17 @@
 from pressomancy.helper_functions import RoutineWithArgs, PartDictSafe, SinglePairDict
 import types
+from functools import partial
 
-def generic_type_exception(name, attribute_name, expected_type):
+def _generic_type_exception(scope, name, attribute_name, expected_type):
     raise NotImplementedError(
-                    f"The class attribute '{attribute_name}' is required in '{name}' but not defined. "
-                    f"Please define '{attribute_name}' as a '{expected_type.__name__}' in your subclass."
-                )
+        f"The {scope} attribute '{attribute_name}' is required in '{name}' but not defined. "
+        f"Please define '{attribute_name}' as a '{expected_type.__name__}' in your subclass."
+    )
 
-def generic_type_exception_inst(name, attribute_name, expected_type):
-    raise NotImplementedError(
-                    f"The instance attribute '{attribute_name}' is required in '{name}' but not defined. "
-                    f"Please define '{attribute_name}' as a '{expected_type.__name__}' in your subclass."
-                )
+# Create partials for class and instance exceptions
+generic_type_exception = partial(_generic_type_exception, "class")
+generic_type_exception_inst = partial(_generic_type_exception, "instance")
+
 def generic_modify_system_attribute(self, clas_self, attribute_name,action):
     raise NotImplementedError('the reference to a manager class has not been set')
 

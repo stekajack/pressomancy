@@ -209,11 +209,33 @@ class Simulation():
                 epsilon=eps, sigma=sgm, cutoff=lj_cut, shift=0)
         print('vdW interactions initiated!')
 
-    def init_lb_GPU(self, kT, agrid, dens, visc, gamma, timestep=0.01):
-        print('GPU LB method is beeing initiated')
+    def init_lb(self, kT, agrid, dens, visc, gamma, timestep=0.01):
         self.sys.thermostat.turn_off()
         self.sys.part.all().v = (0, 0, 0)
-        lbf = espressomd.lb.LBFluidGPU(
+        param_dict={'kT':kT, 'seed':self.seed, 'agrid':agrid, 'dens':dens, 'visc':visc, 'tau':timestep}
+        if 'CUDA' in espressomd.features():
+            print('GPU LB method is beeing initiated')
+
+            lbf = espressomd.lb.LBFluidGPU(**param_dict)
+        else:
+            print('CPU LB method is beeing initiated')
+
+            lbf = espressomd.lb.LBFluid(**param_dict)
+        if len(self.sys.actors.active_actors) == 2:
+            self.sys.actors.remove(self.sys.actors.active_actors[-1])
+        self.sys.actors.add(lbf)
+        gamma_MD = gamma
+        print('gamma_MD: '+str(gamma_MD))
+        self.sys.thermostat.set_lb(
+            LB_fluid=lbf, gamma=gamma_MD, seed=self.seed)
+        print(f'LBM is set with the params {lbf.get_params()}.')
+        return lbf
+    
+    def init_lb_CPU(self, kT, agrid, dens, visc, gamma, timestep=0.01):
+        print('CPU LB method is beeing initiated')
+        self.sys.thermostat.turn_off()
+        self.sys.part.all().v = (0, 0, 0)
+        lbf = espressomd.lb.LBFluid(
             kT=kT, seed=self.seed, agrid=agrid, dens=dens, visc=visc, tau=timestep)
         print(self.sys.actors.active_actors)
         if len(self.sys.actors.active_actors) == 2:
