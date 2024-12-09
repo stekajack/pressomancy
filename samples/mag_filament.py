@@ -25,4 +25,13 @@ for filament in filaments:
 sim_inst.set_vdW(key=('real',),lj_eps=3.)
 
 sim_inst.sys.thermostat.set_langevin(kT=1.0, gamma=1.0, seed=sim_inst.seed)
+sim_inst.set_H_ext()
+sim_inst.set_H_ext(H=(0,0,6.66))
+sim_inst.get_H_ext()
+
+# part_list, dip_magnitude, H_ext
+H_ext=sim_inst.get_H_ext()
+pats_to_magnetize=sim_inst.sys.part.select(lambda p:p.type==sim_inst.part_types['to_be_magnetized'])
 sim_inst.sys.integrator.run(0)
+sim_inst.magnetize(pats_to_magnetize,1.732,H_ext=H_ext)
+sim_inst.sys.integrator.run(1)
