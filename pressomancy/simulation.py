@@ -13,10 +13,103 @@ from pressomancy.helper_functions import *
 
 @ManagedSimulation
 class Simulation():
-    '''
-    Singleton class that is intended to manage a suspension of objects stored in a class dict() attribute self.objects = {}. Initialisation of class wraps the espresso system handle and general suspension level attributes. Therefore espresso system needs to be instatiated beforehand. From there one can set the system, store objects and manage them either trough simulation level methods that in general loop trough stored objects and defers any real work to the object class method.
+    """
+    A singleton class designed to manage and simulate a suspension of objects within the ESPResSo molecular dynamics framework.
 
-    '''
+    The `Simulation` class encapsulates the ESPResSo system and provides methods to configure the simulation, manage objects, and apply various interactions and constraints. It maintains a dictionary of simulation objects, tracks their properties, and delegates object-specific operations to the appropriate methods. 
+
+    Key features include:
+    - Managing particle types and their properties.
+    - Configuring interactions like Lennard-Jones (LJ), Weeks-Chandler-Andersen (WCA), and magnetic interactions.
+    - Supporting lattice Boltzmann (LB) fluid initialization and boundary setup.
+    - Storing, setting, and removing simulation objects.
+    - Providing utilities for avoiding instabilities, generating positions, and managing simulation data.
+
+    Attributes:
+        no_objects (int): The number of objects currently stored in the simulation.
+        objects (list): A list of objects stored in the simulation.
+        part_types (PartDictSafe): A dictionary-like object tracking particle types and their associated properties.
+        seed (int): A random seed for reproducibility, generated at initialization.
+        partitioned (bool): Indicates whether the simulation box is partitioned.
+        part_positions (list): A list of particle positions generated for the simulation.
+        volume_size (float): The size of the volume assigned to each object.
+        volume_centers (list): A list of centers of the partitioned volumes.
+
+    Methods:
+        __init__(box_dim):
+            Initializes the simulation class with a given box dimension.
+
+        set_sys(timestep, min_global_cut):
+            Configures the ESPResSo system's basic parameters, such as periodicity, time step, and cell system properties.
+
+        modify_system_attribute(requester, attribute_name, action):
+            Validates and modifies a system attribute if permitted by the object's permissions.
+
+        store_objects(iterable_list):
+            Stores simulation objects and updates particle types and attributes.
+
+        set_objects(objects):
+            Generates random positions and orientations for managed objects and sets them using object-specific methods.
+
+        unstore_objects(iterable_list):
+            Removes specified objects from the simulation and updates relevant attributes.
+
+        delete_objects():
+            Deletes all parts owned by stored objects by calling their delete method.
+
+        mark_for_collision_detection(object_type, part_type):
+            Marks specific objects for collision detection and prepares them for covalent bond marking.
+
+        init_magnetic_inter(actor_handle):
+            Initializes direct summation magnetic interactions in the simulation.
+
+        set_steric(key, wca_eps, sigma):
+            Configures WCA interactions between specified particle types.
+
+        set_steric_custom(pairs, wca_eps, sigma):
+            Configures custom WCA interactions for specific particle type pairs.
+
+        set_vdW(key, lj_eps, lj_size):
+            Sets Lennard-Jones interactions for specified particle types.
+
+        set_vdW_custom(pairs, lj_eps, lj_size):
+            Configures custom Lennard-Jones interactions for specific particle type pairs.
+
+        init_lb(kT, agrid, dens, visc, gamma, timestep):
+            Initializes a lattice Boltzmann fluid with the specified parameters.
+
+        create_flow_channel(slip_vel):
+            Sets up lattice Boltzmann boundaries for a flow channel.
+
+        avoid_explosion(F_TOL, MAX_STEPS, F_incr, I_incr):
+            Caps forces iteratively to avoid simulation instabilities due to initial overlaps.
+
+        magnetize(part_list, dip_magnitude, H_ext):
+            Applies Langevin magnetization to compute dipole moments of particles.
+
+        set_H_ext(H):
+            Configures an external homogeneous magnetic field in the simulation.
+
+        get_H_ext():
+            Retrieves the current external homogeneous magnetic field.
+
+        init_pickle_dump(path_to_dump):
+            Initializes a pickle file to store simulation data.
+
+        load_pickle_dump(path_to_dump):
+            Loads simulation data from a pickle dump file.
+
+        dump_to_init(path_to_dump, dungeon_witch_list, cnt):
+            Appends simulation data for a specific timestep to an existing pickle dump.
+
+        generate_positions(min_distance):
+            Generates random positions for objects while ensuring a minimum distance between them.
+
+    Notes:
+        - The class assumes that the ESPResSo system is already instantiated and wraps the system handle during initialization. The initialisation and lifetime is managed by the decorator class.
+        - Many methods rely on specific attributes or methods being implemented in the stored objects. This is why any object that is to be safely used by Simulation should use the SimulationObject metaclass.
+        - This class is designed to be extensible for different types of interactions and constraints.
+    """
     
     object_permissions=['part_types']
     _sys=espressomd.System
@@ -48,6 +141,11 @@ class Simulation():
     def modify_system_attribute(self, requester, attribute_name, action):
         """
         Validates and modifies a Simulation attribute if allowed by the permissions.
+
+        :param requester: The object requesting the modification.
+        :param attribute_name: str | The name of the attribute to modify.
+        :param action: callable | A function that takes the current attribute value as input and modifies it.
+        :return: None
         """
         if hasattr(self, attribute_name) and attribute_name in self.object_permissions:
             action(getattr(self,attribute_name))
@@ -134,6 +232,11 @@ class Simulation():
             print(f'{iterable_list[0].__class__.__name__}s removed')
     
     def delete_objects(self):
+        """
+        Deletes all parts owned by objects stored in self.objects by calling their delete_owned_parts() method.
+
+        :return: None
+        """
         for object in self.objects:
             object.delete_owned_parts()
 
@@ -169,13 +272,18 @@ class Simulation():
                                       ].wca.set_params(epsilon=wca_eps, sigma=sigma)
 
     def set_steric_custom(self, pairs=[(None, None),], wca_eps=[1.,], sigma=[1.,]):
-        '''
-        Custom WCA interactions setter that requoires each interaciton pair, epsilon and sigma to be specified .
-        :param pairs: list of tuples of keys from self.part_types | Default only nonmagn WCA
-        :param wca_epsilon: list of float | strength of the steric repulsion. 
-        :param sigma: list of float | interaction range. 
+        """
+        Configures custom Weeks-Chandler-Andersen (WCA) interactions for specified particle type pairs.
+
+        This method explicitly sets the WCA interaction parameters (epsilon and sigma) for each pair of particle types provided. 
+        It ensures that each interaction pair has corresponding epsilon and sigma values.
+
+        :param pairs: list of tuples | List of particle type pairs (keys from `self.part_types`) for which interactions are defined. Defaults to [(None, None)].
+        :param wca_eps: list of float | Strength of the WCA repulsion (epsilon) for each pair. Defaults to [1.0].
+        :param sigma: list of float | Interaction range (sigma) for each pair. Defaults to [1.0].
         :return: None
-        '''
+        :raises AssertionError: If the lengths of `pairs`, `wca_eps`, and `sigma` do not match.
+        """
         assert len(pairs) == len(wca_eps) and len(pairs) == len(
             sigma), 'epsilon and sigma must be specified explicitly for each type pair'
         print('WCA interactions initiated')
@@ -184,15 +292,18 @@ class Simulation():
                                       ].wca.set_params(epsilon=eps, sigma=sgm)
 
     def set_vdW(self, key=('nonmagn',), lj_eps=1., lj_size=1.):
-        '''
-        Set LJ central attraction between particles of types given in the key parameter.
-        :param key: tuple of keys from self.part_types | Default only nonmagn LJ
-        :param lj_epsilon: float | strength of the lj attraction. 
+        """
+        Configures Lennard-Jones (LJ) interactions for specified particle types.
 
+        This method sets the LJ interaction parameters (epsilon and sigma) for particle types listed in the `key` parameter. 
+        The interaction cutoff is automatically set to 2.5 times the LJ size (sigma).
+
+        :param key: tuple of str | Particle type keys from `self.part_types` for which interactions are defined. Defaults to ('nonmagn',).
+        :param lj_eps: float | Strength of the LJ attraction (epsilon). Defaults to 1.0.
+        :param lj_size: float | Interaction range (sigma). Defaults to 1.0.
         :return: None
+        """
 
-        Interaction length is allways determined from lj_size.
-        '''
         lj_cut = 2.5*lj_size
         for key_el, key_el2 in combinations_with_replacement(key, 2):
             self.sys.non_bonded_inter[self.part_types[key_el], self.part_types[key_el2]].lennard_jones.set_params(
@@ -200,6 +311,18 @@ class Simulation():
         print(f'vdW interactions initiated initiated for keys: {key}')
 
     def set_vdW_custom(self, pairs=[(None, None),], lj_eps=[1.,], lj_size=[1.,]):
+        """
+        Custom setter for Lennard-Jones (LJ) interactions between specified particle type pairs.
+
+        This method allows for the explicit definition of LJ interaction parameters (epsilon and sigma) for each pair of particle types in the simulation.
+
+        :param pairs: list of tuples | Each tuple specifies a pair of keys from `self.part_types` for which interactions are defined. Defaults to [(None, None)].
+        :param lj_eps: list of float | Strength of the LJ interaction for each pair. Defaults to [1.0].
+        :param lj_size: list of float | Interaction range (sigma) for each pair. Defaults to [1.0].
+        :return: None
+
+        :raises AssertionError: If the lengths of `pairs`, `lj_eps`, and `lj_size` are not equal.
+        """
 
         assert len(pairs) == len(lj_eps) and len(pairs) == len(
             lj_size), 'epsilon and sigma must be specified explicitly for each type pair'
@@ -210,6 +333,19 @@ class Simulation():
         print('vdW interactions initiated!')
 
     def init_lb(self, kT, agrid, dens, visc, gamma, timestep=0.01):
+        """
+        Initializes the lattice Boltzmann (LB) fluid for the simulation.
+
+        This method configures an LB fluid using either CPU or GPU resources, depending on availability. It disables the thermostat, initializes particle velocities to zero, and sets the LB fluid parameters. If another active LB actor exists, it removes it before adding the new LB fluid.
+
+        :param kT: float | Thermal energy (temperature) of the LB fluid.
+        :param agrid: int | Grid resolution for the LB method.
+        :param dens: float | Density of the LB fluid.
+        :param visc: float | Viscosity (kinematic) of the LB fluid.
+        :param gamma: float | Coupling constant for the thermostat.
+        :param timestep: float | Integration time step for the LB simulation. Default is 0.01.
+        :return: LBFluid | The configured lattice Boltzmann fluid object.
+        """
         self.sys.thermostat.turn_off()
         self.sys.part.all().v = (0, 0, 0)
         param_dict={'kT':kT, 'seed':self.seed, 'agrid':agrid, 'dens':dens, 'visc':visc, 'tau':timestep}
@@ -231,25 +367,14 @@ class Simulation():
         print(f'LBM is set with the params {lbf.get_params()}.')
         return lbf
     
-    def init_lb_CPU(self, kT, agrid, dens, visc, gamma, timestep=0.01):
-        print('CPU LB method is beeing initiated')
-        self.sys.thermostat.turn_off()
-        self.sys.part.all().v = (0, 0, 0)
-        lbf = espressomd.lb.LBFluid(
-            kT=kT, seed=self.seed, agrid=agrid, dens=dens, visc=visc, tau=timestep)
-        print(self.sys.actors.active_actors)
-        if len(self.sys.actors.active_actors) == 2:
-            self.sys.actors.remove(self.sys.actors.active_actors[-1])
-        self.sys.actors.add(lbf)
-        gamma_MD = gamma
-        print('gamma_MD: '+str(gamma_MD))
-        self.sys.thermostat.set_lb(
-            LB_fluid=lbf, gamma=gamma_MD, seed=self.seed)
-        print(lbf.get_params())
-        print('GPU LB method is set with the params above.')
-        return lbf
 
     def create_flow_channel(self, slip_vel=(0, 0, 0)):
+        """
+        Sets up LB boundaries for a flow channel.
+
+        :param slip_vel: tuple | Velocity of the slip boundary in the format (vx, vy, vz). Default is (0, 0, 0).
+        :return: None
+        """
         print("Setup LB boundaries.")
         top_wall = shapes.Wall(normal=[1, 0, 0], dist=1) # type: ignore
         bottom_wall = shapes.Wall( # type: ignore
@@ -263,6 +388,15 @@ class Simulation():
         self.sys.lbboundaries.add(bottom_boundary)
 
     def avoid_explosion(self, F_TOL, MAX_STEPS=10000, F_incr=100, I_incr=100):
+        """
+        Iteratively caps force to prevent simulation to explode due to overlapps in the initial configuration, adjusting parameters until teh relative force cahnge between try is smaller than F_TOL.
+
+        :param F_TOL: float | Tolerance for relative force change.
+        :param MAX_STEPS: int | Maximum number of integration steps. Default is 10000.
+        :param F_incr: int | Increment value for the force cap. Default is 100.
+        :param I_incr: int | Increment value for integration steps. Default is 100.
+        :return: None
+        """
         print('iterating with a force cap.')
         self.sys.integrator.run(0)
         while True:
@@ -302,23 +436,41 @@ class Simulation():
             inv_dip_tri = 1.0/(dip_tri)
             inv_tanh_dip_tri = 1.0/np.tanh(dip_tri)
             part.dip = dip_magnitude/tri*(inv_tanh_dip_tri-inv_dip_tri)*H_tot
+            print(part.dip)
 
     def set_H_ext(self, H=(0, 0, 1.)):
+        """
+        Sets an espressomd.constraints.HomogeneousMagneticField in the simulation. Will delete any other HomogeneousMagneticField constraint if present. Safe to use for rotating or AC magnetic fileds.
+
+        :param H: tuple | The external magnetic field vector. Default is (0, 0, 1).
+        :return: None
+        """
         for x in self.sys.constraints:
-            self.sys.constraints.remove(x)
-            print('Removed old H')
+            if isinstance(x,espressomd.constraints.HomogeneousMagneticField):
+                print('Removed old H',x)
+                self.sys.constraints.remove(x)
         ExtH = espressomd.constraints.HomogeneousMagneticField(H=list(H))
         self.sys.constraints.add(ExtH)
-        print('External field set: '+str(H))
-        for x in self.sys.constraints:
-            print(x)
+        print('External field set: ',ExtH.H)
 
     def get_H_ext(self):
-        for x in self.sys.constraints:
-            print(str(x.H))
-            return x.H
+        """
+        Retrieves the current external magnetic field. Assumes there is only one active applied field!
+
+        :return: tuple | The external magnetic field vector.
+        """
+        HFld=next(x for x in self.sys.constraints if isinstance(x,espressomd.constraints.HomogeneousMagneticField))
+        return HFld.H
 
     def init_pickle_dump(self, path_to_dump):
+        """
+        Initializes a pickle dump file to store simulation data.
+
+        This method creates a new compressed pickle file at the specified path and initializes it with an empty dictionary.
+
+        :param path_to_dump: str | Path where the pickle dump file should be created.
+        :return: tuple | A tuple containing the path to the dump file and an initial counter value (0).
+        """
         dict_of_god = {}
         f = gzip.open(path_to_dump, 'wb')
         pickle.dump(dict_of_god, f, pickle.HIGHEST_PROTOCOL)
@@ -326,12 +478,30 @@ class Simulation():
         return path_to_dump, 0
 
     def load_pickle_dump(self, path_to_dump):
+        """
+        Loads simulation data from a pickle dump file.
+
+        Reads a compressed pickle file from the specified path and returns the data along with the next timestep counter.
+
+        :param path_to_dump: str | Path to the pickle dump file.
+        :return: tuple | A tuple containing the path to the dump file and the next timestep counter based on the loaded data.
+        """
         f = gzip.open(path_to_dump, 'rb')
         dict_of_god = pickle.load(f)
         f.close()
         return path_to_dump, int(list(dict_of_god.keys())[-1].split('_')[-1])+1
 
     def dump_to_init(self, path_to_dump, dungeon_witch_list, cnt):
+        """
+        Appends simulation data for a given timestep to an existing pickle dump.
+
+        This method reads data from a compressed pickle file, adds new data for the specified timestep, and writes the updated data back to the file.
+
+        :param path_to_dump: str | Path to the pickle dump file.
+        :param dungeon_witch_list: list | A list of objects to be serialized and stored for the current timestep.
+        :param cnt: int | The current timestep counter to be used as a key in the dump.
+        :return: None
+        """
         f = gzip.open(path_to_dump, 'rb')
         dict_of_god = pickle.load(f)
         f.close()
@@ -342,6 +512,12 @@ class Simulation():
         f.close()
 
     def generate_positions(self, min_distance):
+        """
+        Generates random positions for objects in the simulation box, ensuring minimum distance between positions. Completely naive implementation
+
+        :param min_distance: float | The minimum allowed distance between objects.
+        :return: np.ndarray | Array of generated positions.
+        """
         object_positions = []
         while len(object_positions) < self.no_objects:
             new_position = np.random.random(3) * self.sys.box_l

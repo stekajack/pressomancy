@@ -4,7 +4,47 @@ from collections import defaultdict
 import inspect
 
 class ManagedSimulation:
+    """
+    A decorator class to manage a singleton instance of a simulation object.
+
+    The `ManagedSimulation` class enforces that only one instance of a decorated simulation class can exist at a time. It provides methods to initialize, reinitialize, and manage the instance, while maintaining a shared `espressomd.System` object. This class is especially useful for simulations where global state must be consistent across multiple components.
+
+    Attributes
+    ----------
+    aClass : type
+        The class being decorated and managed as a singleton.
+    instance : object, optional
+        The single instance of the decorated class. Initially set to `None`.
+    init_args : tuple
+        Arguments used during the initialization of the decorated class.
+    init_kwargs : dict
+        Keyword arguments used during the initialization of the decorated class.
+    _espressomd_system : espressomd.System
+        The shared ESPResSo system object, initialized during the first instantiation.
+    __name__ : str
+        The name of the singleton instance, including the decorated class name.
+    __qualname__ : str
+        The qualified name of the singleton instance, including the decorated class's qualified name.
+
+    Methods
+    -------
+    __call__(*args, **kwargs):
+        Creates and initializes the singleton instance, or raises an exception if it already exists.
+    reinitialize_instance():
+        Recreates the instance while preserving the shared ESPResSo system object and resets the system state.
+    __getattr__(name):
+        Forwards attribute access to the instance, raising an error if the instance is uninitialized.
+    """
+
     def __init__(self, aClass):
+        """
+        Initializes the ManagedSimulation decorator.
+
+        Parameters
+        ----------
+        aClass : type
+            The class to be decorated and managed as a singleton.
+        """
         self.aClass = aClass
         setattr(aClass, 'reinitialize_instance', self.reinitialize_instance)
         self.instance = None
@@ -15,30 +55,57 @@ class ManagedSimulation:
         self.__qualname__ = f"Singleton({aClass.__qualname__})"
 
     def __call__(self, *args, **kwargs):
-        """Return the Singleton itself instead of an instance of the class."""
+        """
+        Creates and initializes the singleton instance, or raises an exception if it already exists.
+
+        If the instance does not exist, initializes the shared ESPResSo system object and the decorated class.
+        If the instance already exists, raises a `SimulationExistsException`.
+
+        Parameters
+        ----------
+        *args : tuple
+            Positional arguments for the decorated class constructor.
+        **kwargs : dict
+            Keyword arguments for the decorated class constructor. Includes optional `box_dim` to specify the
+            simulation box dimensions.
+
+        Returns
+        -------
+        ManagedSimulation
+            The ManagedSimulation instance (not the decorated class instance).
+
+        Raises
+        ------
+        SimulationExistsException
+            If an instance of the decorated class already exists.
+        """
         if self.instance is None:
-            # Initialize the espressomd.System instance if it hasn't been done
+            # Initialize the ESPResSo system object
             if self._espressomd_system is None:
-                box_dim = kwargs.get('box_dim', [10, 10, 10])  # Default box_dim if not provided
+                box_dim = kwargs.get('box_dim', [10, 10, 10])  # Default box dimensions
                 self._espressomd_system = self.aClass._sys(box_l=box_dim)
 
-            # Instantiate the decorated class and set its sys attribute
+            # Instantiate the decorated class and set its system attribute
             self.instance = self.aClass(*args, **kwargs)
             self.instance.sys = self._espressomd_system
             self.init_args = args
             self.init_kwargs = kwargs
         else:
-            # Raise exception if trying to create a second instance
+            # Raise exception if a second instance is attempted
             frame = inspect.currentframe().f_back
             raise SimulationExistsException(
                 f"An instance of {self.aClass.__name__} already exists at {frame.f_code.co_filename}, line {frame.f_lineno}"
             )
-        return self  # Return the Singleton itself, not the instance
+        return self  # Return the ManagedSimulation instance
 
     def reinitialize_instance(self):
-        """Reinitialize the instance without affecting espressomd.System, no return."""
+        """
+        Recreates the singleton instance without affecting the shared ESPResSo system object.
+
+        This method resets the decorated class instance while preserving the ESPResSo system object.
+        It clears particles, interactions, and thermostat settings in the system, ensuring a clean state.
+        """
         if self.instance is not None:
-            # Recreate the instance while preserving the shared _sys instance            
             self.instance = self.aClass(*self.init_args, **self.init_kwargs)
             self.instance.sys = self._espressomd_system
             self.instance.sys.part.clear()
@@ -47,66 +114,235 @@ class ManagedSimulation:
             self.instance.sys.thermostat.turn_off()
 
     def __getattr__(self, name):
-        """Forward attribute access to the actual instance."""
+        """
+        Forwards attribute access to the singleton instance.
+
+        Parameters
+        ----------
+        name : str
+            The name of the attribute to access.
+
+        Returns
+        -------
+        object
+            The requested attribute from the instance.
+
+        Raises
+        ------
+        AttributeError
+            If the singleton instance has not been initialized.
+        """
         if self.instance is None:
             raise AttributeError(f"Instance of {self.aClass.__name__} has not been initialized.")
-        return getattr(self.instance, name) 
+        return getattr(self.instance, name)
 
 class SimulationExistsException(Exception):
     def __init__(self, message):
         super().__init__(message)
 
 class SinglePairDict(dict):
+    """
+    A dictionary wrapper that enforces unique key-value pairs across all instances.
+
+    The `SinglePairDict` class ensures that each key and value are unique globally across all instances of the class.
+    The dictionary is immutable after initialization, preventing modification or deletion of the stored key-value pair.
+
+    Attributes
+    ----------
+    _global_registry : dict
+        A class-level dictionary that tracks all key-value pairs globally across instances.
+
+    Methods
+    -------
+    get_all_pairs():
+        Returns a copy of the globally registered key-value pairs across all instances.
+
+    Properties
+    ----------
+    key : object
+        The single key stored in the dictionary.
+    value : object
+        The single value stored in the dictionary.
+
+    Examples
+    --------
+    Creating a new `SinglePairDict`:
+    >>> spd1 = SinglePairDict('key1', 'value1')
+    >>> spd1.key
+    'key1'
+    >>> spd1.value
+    'value1'
+
+    Attempting to reuse an existing key or value:
+    >>> spd2 = SinglePairDict('key1', 'value2')
+    ValueError: Key 'key1' already exists in another instance.
+
+    Retrieving all globally registered pairs:
+    >>> SinglePairDict.get_all_pairs()
+    {'key1': 'value1'}
+    """
+
     # Class-level dictionary to track all unique key-value pairs across instances
     _global_registry = {}
 
     def __init__(self, key, value):
+        """
+        Initializes the dictionary with a single key-value pair.
+
+        Parameters
+        ----------
+        key : object
+            The key to store in the dictionary. Must be globally unique.
+        value : object
+            The value to store in the dictionary. Must be globally unique.
+
+        Raises
+        ------
+        ValueError
+            If the key or value already exists in another instance.
+        """
         # Enforce global uniqueness for key and value
         if key in SinglePairDict._global_registry:
             raise ValueError(f"Key '{key}' already exists in another instance.")
         if value in SinglePairDict._global_registry.values():
             raise ValueError(f"Value '{value}' already exists in another instance.")
-        
+
         # Initialize as a single-item dictionary
         super().__init__({key: value})
 
         # Register the key-value pair globally
         SinglePairDict._global_registry[key] = value
 
-    # Override __setitem__ to prevent modifying the dictionary after initialization
     def __setitem__(self, key, value):
+        """
+        Overrides the default method to prevent modification of the dictionary.
+
+        Raises
+        ------
+        TypeError
+            Always raised because item assignment is not supported.
+        """
         raise TypeError("SinglePairDict does not support item assignment after initialization.")
 
-    # Override __delitem__ to prevent deletion
     def __delitem__(self, key):
+        """
+        Overrides the default method to prevent deletion from the dictionary.
+
+        Raises
+        ------
+        TypeError
+            Always raised because item deletion is not supported.
+        """
         raise TypeError("SinglePairDict does not support item deletion.")
 
     @property
     def key(self):
-        # Retrieve the single key
+        """
+        Retrieves the single key stored in the dictionary.
+
+        Returns
+        -------
+        object
+            The single key stored in the dictionary.
+        """
         return next(iter(self.keys()))
 
     @property
     def value(self):
-        # Retrieve the single value
+        """
+        Retrieves the single value stored in the dictionary.
+
+        Returns
+        -------
+        object
+            The single value stored in the dictionary.
+        """
         return next(iter(self.values()))
 
     @classmethod
     def get_all_pairs(cls):
-        """Return all registered key-value pairs across instances."""
+        """
+        Returns all globally registered key-value pairs across instances.
+
+        Returns
+        -------
+        dict
+            A copy of the globally registered key-value pairs.
+        """
         return cls._global_registry.copy()
 
     def __repr__(self):
+        """
+        Returns a string representation of the dictionary.
+
+        Returns
+        -------
+        str
+            A string representation in the format `SinglePairDict(key: value)`.
+        """
         return f"SinglePairDict({self.key!r}: {self.value!r})"
     
 class PartDictSafe(dict):
+    """
+    A safe dictionary wrapper to enforce consistency and uniqueness of keys and values.
+
+    `PartDictSafe` ensures that:
+    - Keys are unique and cannot be reassigned once set.
+    - Values are unique and cannot be associated with multiple keys.
+    - A default value is provided for missing keys using a customizable default factory.
+
+    This is especially useful for managing mappings where both the keys and values must remain consistent, 
+    such as particle types and their properties in simulations.
+
+    Attributes
+    ----------
+    default_factory : callable
+        A function that returns the default value for missing keys. Defaults to `list`.
+
+    Methods
+    -------
+    sanity_check(key, value):
+        Validates that the key and value do not violate uniqueness constraints.
+    set_default_factory(factory):
+        Updates the default factory used to generate default values for missing keys.
+    __setitem__(key, value):
+        Sets a key-value pair in the dictionary after passing a sanity check.
+    update(*args, **kwargs):
+        Updates the dictionary with key-value pairs from another dictionary or iterable, enforcing sanity checks.
+    __getitem__(key):
+        Retrieves the value for a key, initializing it with the default value if the key does not exist.
+    """
+
     def __init__(self, *args, **kwargs):
-        # Set a default factory, defaulting to an empty list
+        """
+        Initializes the dictionary with optional initial data and a default factory.
+
+        Parameters
+        ----------
+        *args : tuple
+            Positional arguments passed to the `dict` constructor.
+        **kwargs : dict
+            Keyword arguments passed to the `dict` constructor.
+        """
         self.default_factory = list
-        # Initialize the dictionary as usual
         super().__init__(*args, **kwargs)
 
     def sanity_check(self, key, value):
+        """
+        Ensures the key and value do not violate uniqueness constraints.
+
+        Parameters
+        ----------
+        key : object
+            The key to validate.
+        value : object
+            The value to validate.
+
+        Raises
+        ------
+        RuntimeError
+            If the key already exists with a different value or the value is already associated with another key.
+        """
         if value == self.default_factory():
             return
         current_value = self.get(key)
@@ -125,13 +361,42 @@ class PartDictSafe(dict):
                 f"Value '{value}' is already associated with key '{existing_key}' in `part_types`. "
                 f"New entries must have unique values."
             )
-            
+
     def __setitem__(self, key, value):
+        """
+        Sets a key-value pair in the dictionary after validating with a sanity check.
+
+        Parameters
+        ----------
+        key : object
+            The key to add or update.
+        value : object
+            The value to associate with the key.
+
+        Raises
+        ------
+        RuntimeError
+            If the key or value violates the uniqueness constraints.
+        """
         self.sanity_check(key, value)
         super().__setitem__(key, value)
 
     def update(self, *args, **kwargs):
-        # Handle positional args and keyword args as update normally would
+        """
+        Updates the dictionary with key-value pairs from another dictionary or iterable.
+
+        Parameters
+        ----------
+        *args : tuple
+            Positional arguments passed to the `dict.update` method.
+        **kwargs : dict
+            Keyword arguments passed to the `dict.update` method.
+
+        Raises
+        ------
+        RuntimeError
+            If any key-value pair violates the uniqueness constraints.
+        """
         if args:
             iterable = args[0]
             for key, value in (iterable.items() if isinstance(iterable, dict) else iterable):
@@ -143,29 +408,108 @@ class PartDictSafe(dict):
             super().__setitem__(key, value)
 
     def __getitem__(self, key):
-        # Use default factory if the key is not in the dictionary
+        """
+        Retrieves the value for a key, initializing it with the default value if the key does not exist.
+
+        Parameters
+        ----------
+        key : object
+            The key to retrieve.
+
+        Returns
+        -------
+        object
+            The value associated with the key or the default value if the key does not exist.
+        """
         if key not in self:
             self[key] = self.default_factory()
         return super().__getitem__(key)
 
     def set_default_factory(self, factory):
-        """Allow setting a different default factory if desired."""
+        """
+        Updates the default factory used to generate default values for missing keys.
+
+        Parameters
+        ----------
+        factory : callable
+            A function that returns the new default value for missing keys.
+        """
         self.default_factory = factory
 
 class RoutineWithArgs:
+    """
+    A wrapper class to manage callable routines with configurable arguments.
+
+    The `RoutineWithArgs` class provides a way to encapsulate a callable function,
+    allowing it to be called with predefined arguments. If no function is provided
+    during initialization, a default routine (`generic_routine_per_volume`) is used.
+
+    Attributes
+    ----------
+    func : callable
+        The function to be called. Defaults to `generic_routine_per_volume`.
+    num_monomers : int
+        The number of monomers or items to process within the routine.
+
+    Methods
+    -------
+    __call__(**kwargs)
+        Invokes the encapsulated function with the provided keyword arguments.
+    generic_routine_per_volume(**kwargs)
+        A default routine to generate points within a spherical volume. Must be
+        implemented by subclasses or overridden.
+    """
+
     def __init__(self, func=None, num_monomers=1):
+        """
+        Initializes the RoutineWithArgs instance.
+
+        Parameters
+        ----------
+        func : callable, optional
+            The function to encapsulate. If not provided, `generic_routine_per_volume` is used.
+        num_monomers : int, optional
+            The number of monomers or items to process. Defaults to 1.
+        """
         if func is None:
             self.func = self.generic_routine_per_volume
         else:
-            self.func=func
+            self.func = func
         self.num_monomers = num_monomers
-        
+
     def __call__(self, **kwargs):
-        # Call the function with bundled arguments
+        """
+        Invokes the encapsulated function with the provided keyword arguments.
+
+        Parameters
+        ----------
+        **kwargs : dict
+            The arguments to pass to the encapsulated function.
+
+        Returns
+        -------
+        object
+            The result of the encapsulated function call.
+        """
         return self.func(**kwargs)
-    
+    @staticmethod
     def generic_routine_per_volume(**kwargs):
-        raise NotImplementedError("Implement point generation method within a sphere") 
+        """
+        A placeholder for a default routine to generate points within a spherical volume.
+
+        This method must be implemented by subclasses or overridden by specific instances.
+
+        Parameters
+        ----------
+        **kwargs : dict
+            The arguments required for the routine.
+
+        Raises
+        ------
+        NotImplementedError
+            If the method is called without being overridden.
+        """
+        raise NotImplementedError("Implement point generation method within a sphere.")
 
 def load_coord_file(file_path):
     '''
@@ -225,19 +569,24 @@ def get_neighbours_cross_lattice(lattice1, lattice2, volume_side, cuttoff=1.):
 
 def calculate_pairwise_distances(points_a, points_b, box_length=None):
     """
-    Calculate the pairwise distances between two sets of points, considering periodic boundary conditions if provided.
+    Calculate the pairwise distances between two sets of points, considering 
+    periodic boundary conditions if provided.
 
-    Parameters:
-    - points_a: np.array
-        An array of points (shape: [N, 3]) where N is the number of points in the first set.
-    - points_b: np.array
-        An array of points (shape: [M, 3]) where M is the number of points in the second set.
-    - box_length: float, optional
-        The length of the box (assumed cubic). If provided, periodic boundary conditions are applied.
+    Parameters
+    ----------
+    points_a : np.array of shape (N, 3)
+        An array of points where N is the number of points in the first set.
+    points_b : np.array of shape (M, 3)
+        An array of points where M is the number of points in the second set.
+    box_length : float, optional
+        The length of the cubic box. If provided, periodic boundary conditions
+        are applied.
 
-    Returns:
-    - distances: np.array
-        A 2D array of pairwise distances between each point in `points_a` and each point in `points_b`.
+    Returns
+    -------
+    distances : np.array of shape (N, M)
+        A 2D array of pairwise distances between each point in `points_a` and 
+        each point in `points_b`.
     """
     
     # Ensure inputs are numpy arrays
@@ -305,58 +654,59 @@ def make_centered_rand_orient_point_array(center=np.array([0,0,0]),sphere_radius
 
 def partition_cubic_volume(box_length, num_spheres, sphere_diameter, routine_per_volume=RoutineWithArgs(),flag='rand'):
     """
-    Partitions a cubic volume into spherical regions and generates points within each spherical region
-    using a routine provided by the user or a default routine.
+    Partition a cubic volume into spherical regions and generate points within 
+    each spherical region using a routine provided by the user or a default routine.
 
-    Parameters:
+    Parameters
     ----------
     box_length : float
-        The length of the cubic box (assumed to be equal on all sides) in which the spheres are placed.
-    
+        The length of the cubic box (assumed to be equal on all sides) in which 
+        the spheres are placed.
     num_spheres : int
-        The number of spherical regions that need to be placed within the cubic volume.
-    
+        The number of spherical regions to be placed within the cubic volume.
     sphere_diameter : float
-        The diameter of each spherical region. The radius will be calculated as half of this value.
-    
+        The diameter of each spherical region. The radius is calculated as half 
+        of this value.
     routine_per_volume : RoutineWithArgs or callable, optional
-        A function or callable object responsible for generating points within each spherical volume.
-        If not provided, a default `RoutineWithArgs` is used. The callable is expected to take the
-        following parameters:
+        A function or callable object responsible for generating points within 
+        each spherical volume. If not provided, a default `RoutineWithArgs` is used. 
+        The callable is expected to accept the following parameters:
             - center: array-like, coordinates of the center of the sphere.
             - num_monomers: int, the number of points to generate within the sphere.
             - sphere_radius: float, the radius of the sphere.
 
-    Returns:
+    Returns
     -------
     sphere_centers : ndarray
-        An array of shape `(num_spheres, 3)` representing the coordinates of the centers of the spherical volumes.
-    
+        An array of shape `(num_spheres, 3)` representing the coordinates of the 
+        centers of the spherical volumes.
     result : ndarray
-        An array of shape `(num_spheres, num_monomers, 3)` representing the generated points inside each spherical region.
-        Each `num_monomers` corresponds to the points inside one spherical volume.
-    
-    Raises:
-    -------
-    AssertionError:
-        If the number of available spherical centers (volumes) is less than the number of required spheres.
-        This is addressed by dynamically scaling the lattice to ensure enough space for all spheres.
-    
-    ValueError:
+        An array of shape `(num_spheres, num_monomers, 3)` representing the generated 
+        points inside each spherical region. Each `num_monomers` corresponds to the 
+        points inside one spherical volume.
+
+    Raises
+    ------
+    AssertionError
+        If the number of available spherical centers (volumes) is less than the number 
+        of required spheres. This is addressed by dynamically scaling the lattice to 
+        ensure enough space for all spheres.
+    ValueError
         If `routine_per_volume.num_monomers` is not provided, or if it is zero or negative.
-    
-    Notes:
+
+    Notes
     -----
-    The function uses an FCC (face-centered cubic) lattice to place the centers of the spheres within the cubic box. 
-    It dynamically adjusts the lattice scaling if the initial placement does not provide enough spherical regions to meet `num_spheres`.
+    The function uses an FCC (face-centered cubic) lattice to place the centers of the 
+    spheres within the cubic box. It dynamically adjusts the lattice scaling if the 
+    initial placement does not provide enough spherical regions to meet `num_spheres`.
 
-    The routine provided by `routine_per_volume` is responsible for generating the internal structure (i.e., monomer points) 
-    within each spherical volume. The function ensures that these points do not overlap with points in neighboring spheres
-    by applying periodic boundary conditions and checking the distances between points.
+    The routine provided by `routine_per_volume` is responsible for generating the 
+    internal structure (i.e., monomer points) within each spherical volume. The function 
+    ensures that these points do not overlap with points in neighboring spheres by 
+    applying periodic boundary conditions and checking the distances between points.
 
-    The minimum image distance calculation is done using the `min_img_dist` function, which ensures proper handling of 
-    periodic boundary conditions.
-    
+    Minimum image distance calculations are done using the `min_img_dist` function, which 
+    ensures proper handling of periodic boundary conditions.
     """
     
     # Calculate the radius of each sphere
@@ -425,9 +775,54 @@ def partition_cubic_volume(box_length, num_spheres, sphere_diameter, routine_per
     return sphere_centers, result, orientations
 
 def partition_cubic_volume_oriented_rectangles(big_box_dim, num_spheres, small_box_dim, num_monomers):
+    """
+    Partition a cubic volume into smaller rectangular regions and generate oriented points within each region.
+
+    This function divides a larger cubic box into smaller rectangular volumes based on the dimensions of the 
+    smaller boxes provided. It then generates a specified number of points within each smaller volume, ensuring 
+    they are oriented along a random direction.
+
+    Parameters
+    ----------
+    big_box_dim : array-like of shape (3,)
+        Dimensions of the larger cubic box (lengths along x, y, and z axes).
+    num_spheres : int
+        Number of smaller rectangular volumes to generate within the larger box.
+    small_box_dim : array-like of shape (3,)
+        Dimensions of the smaller boxes (lengths along x, y, and z axes).
+    num_monomers : int
+        Number of points to generate within each smaller box.
+
+    Returns
+    -------
+    sphere_centers : ndarray of shape (num_spheres, 3)
+        Coordinates of the centers of the selected rectangular volumes.
+    result : ndarray of shape (num_spheres, num_monomers, 3)
+        Generated points within each rectangular volume, oriented along a random direction.
+
+    Raises
+    ------
+    AssertionError
+        If the number of available rectangular volumes is less than `num_spheres`.
+
+    Notes
+    -----
+    - The function uses the dimensions of `small_box_dim` to determine the number of partitions along each axis.
+    - When there are fewer partitions along an axis (e.g., one partition), alternate boxes along that axis are 
+      adjusted to ensure even distribution.
+    - The generated points within each smaller box are spaced along a single direction determined by a random angle.
+
+    Examples
+    --------
+    Partition a 10x10x10 box into smaller 2x2x2 volumes and generate 5 points in each volume:
+    >>> big_box_dim = np.array([10.0, 10.0, 10.0])
+    >>> small_box_dim = np.array([2.0, 2.0, 2.0])
+    >>> num_spheres = 10
+    >>> num_monomers = 5
+    >>> centers, points = partition_cubic_volume_oriented_rectangles(big_box_dim, num_spheres, small_box_dim, num_monomers)
+    """
     _, _, sphere_diameter = small_box_dim
-    sphere_radius = sphere_diameter*0.5
-    volumes_to_fill = 0
+    sphere_radius = sphere_diameter * 0.5
 
     x_partitions, y_partitions, z_partitions = (
         big_box_dim // small_box_dim).astype(int)
@@ -455,10 +850,9 @@ def partition_cubic_volume_oriented_rectangles(big_box_dim, num_spheres, small_b
     if z_partitions == 1:
         for i in range(1, len(sphere_centers), 2):
             sphere_centers[i, 2] = big_box_dim[2] - 0.5 * z_len
-    volumes_to_fill = len(sphere_centers)
 
     assert len(sphere_centers) >= num_spheres, \
-        'must be enough possible volumes. intriduce a scaling factor'
+        'Must be enough possible volumes. Introduce a scaling factor.'
 
     take_index = np.arange(len(sphere_centers))
     np.random.shuffle(take_index)
