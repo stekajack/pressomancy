@@ -29,6 +29,10 @@ To install **Pressomancy**, use pip ( -e flag for edit mode):
 ```bash
 pip install pressomancy
 ```
+To test **Pressomancy**, use:
+```bash
+$path_to_espresso/build/pypresso -m unittest discover -s test
+```
 
 ### Requirements
 - Python 3.x
