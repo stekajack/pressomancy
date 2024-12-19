@@ -124,7 +124,7 @@ class Simulation():
         self.volume_centers=[]
         # self.sys=espressomd.System(box_l=box_dim) is added and managed by the singleton decrator!
 
-    def set_sys(self, timestep=0.01, min_global_cut=3.0):
+    def set_sys(self, timestep=0.01, min_global_cut=3.0,have_quaternion=False):
         '''
         Set espresso cellsystem params, and import virtual particle scheme. Run automatically on initialisation of the System class.
         '''
@@ -134,7 +134,7 @@ class Simulation():
         self.sys.time_step = timestep
         self.sys.cell_system.skin = 0.5
         self.sys.min_global_cut = min_global_cut
-        self.sys.virtual_sites = VirtualSitesRelative(have_quaternion=False)
+        self.sys.virtual_sites = VirtualSitesRelative(have_quaternion=have_quaternion)
         assert type(self.sys.virtual_sites) is VirtualSitesRelative, 'VirtualSitesRelative must be set. If not, anything involving virtual particles will not work correctly, but it might be very hard to figure out why. I have wasted days debugging issues only to remember i commented out this line!!!'
         print(f'System params have been autoset. The values of min_global_cut and skin are not guaranteed to be optimal for your simualtion and should be tuned by hand!!!')
 
