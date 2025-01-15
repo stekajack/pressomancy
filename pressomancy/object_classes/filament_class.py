@@ -35,6 +35,7 @@ class Filament(metaclass=Simulation_Object):
     '''
     Class that contains filament relevant paramaters and methods. At construction one must pass an espresso handle becaouse the class manages parameters that are both internal and external to espresso. It is assumed that in any simulation instanse there will be only one type of a Filament. Therefore many relevant parameters are class specific, not instance specific.
     '''
+    required_features=list()	
     numInstances = 0
     sigma = 1
     n_parts = 1

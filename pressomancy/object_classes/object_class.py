@@ -116,6 +116,7 @@ class Simulation_Object(type):
         cls.__eq__ = Simulation_Object._eq
         cls.__hash__ = Simulation_Object._hash
         required_attributes = {
+            "required_features": list,
             "numInstances": int,
             "n_parts": int,
             "size": float,

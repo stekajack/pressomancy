@@ -153,6 +153,13 @@ class Simulation():
         else:
             print("Requester does not have permission to modify attributes.")
 
+    def sanity_check(self,object):
+        '''
+        Method that checks if the object has the required features to be stored in the simulation. If the object has the required features it is stored in the self.objects list.
+        '''
+        if not all(feature in espressomd.features() for feature in object.required_features):
+            raise MissingFeature
+
     def store_objects(self, iterable_list):
         '''
         Method stores objects in the self.objects dict, if the object has a n_part and part_types attributes,
@@ -165,6 +172,7 @@ class Simulation():
         assert not set(iterable_list).intersection(self.objects), "Lists have common elements!"
         temp_dict={}
         for element in iterable_list:
+            self.sanity_check(element)
             element.modify_system_attribute = self.modify_system_attribute
             self.objects.append(element)
             for key, val in element.part_types.items():

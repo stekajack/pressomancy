@@ -13,7 +13,7 @@ class Quartet(metaclass=Simulation_Object):
     '''
     Class that contains quartet relevant paramaters and methods. At construction one must pass an espresso handle becaouse the class manages parameters that are both internal and external to espresso. It is assumed that in any simulation instanse there will be only one type of a Quartet. Therefore many relevant parameters are class specific, not instance specific.
     '''
-
+    required_features=list()	
     numInstances = 0
     sigma = 1.
     _resources_dir = os.path.join( os.path.dirname(__file__), '..', 'resources')
@@ -142,6 +142,7 @@ class Quadriplex(metaclass=Simulation_Object):
     '''
     Class that contains quadriplex relevant paramaters and methods. At construction one must pass an espresso handle becaouse the class manages parameters that are both internal and external to espresso. It is assumed that in any simulation instanse there will be only one type of a Quadriplex. Therefore many relevant parameters are class specific, not instance specific.
     '''
+    required_features=list()	
     numInstances = 0
     sigma = 5
     fene_handle = None

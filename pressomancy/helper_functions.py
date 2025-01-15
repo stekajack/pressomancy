@@ -3,6 +3,9 @@ from itertools import product
 from collections import defaultdict
 import inspect
 
+class MissingFeature(Exception):
+    pass
+
 class ManagedSimulation:
     """
     A decorator class to manage a singleton instance of a simulation object.
