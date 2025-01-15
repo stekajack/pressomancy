@@ -4,4 +4,4 @@ tests.ipynb
 .vscode
 technical_description.txt
 .coverage
-doc
+doc/sphinx/build

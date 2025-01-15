@@ -1,0 +1,38 @@
+name: Deploy Documentation
+
+on:
+  push:
+    branches:
+      - main  # Adjust this to your primary branch for deployments
+
+jobs:
+  deploy-docs:
+    runs-on: ubuntu-latest
+
+    steps:
+      # Step 1: Check out the repository
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # Step 2: Pull the custom Docker image
+      - name: Pull Docker image
+        run: docker pull stekajack/ubuntults_with_espresso_magnetodynamics_wip
+
+      # Step 3: Build documentation in the Docker container
+      - name: Build documentation
+        run: |
+          docker run --rm \
+          -v "${{ github.workspace }}:/workspace" \
+          -w /workspace/doc/sphinx \
+          stekajack/ubuntults_with_espresso_magnetodynamics_wip \
+          bash -c "
+            python3 -m sphinx.cmd.build -b html source build &&
+            cp -r build /workspace/doc/sphinx/build
+          "
+
+      # Step 4: Deploy to GitHub Pages
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: doc/sphinx/build
