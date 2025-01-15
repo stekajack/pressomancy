@@ -32,16 +32,14 @@ jobs:
             python3 -m sphinx.cmd.build -b html source build
           "
 
-      # Step 4: Deploy to GitHub Pages
+      # Step 4: Upload documentation artifact
+      - name: Upload documentation artifact
+        uses: actions/upload-pages-artifact@v1
+        with:
+          path: doc/sphinx/build
+
+      # Step 5: Deploy to GitHub Pages
       - name: Deploy to GitHub Pages
-        run: |
-          git config --global user.name "GitHub Actions"
-          git config --global user.email "actions@github.com"
-          git fetch origin gh-pages || git checkout --orphan gh-pages
-          git switch gh-pages
-          rm -rf *  # Remove all files in the gh-pages branch
-          cp -r doc/sphinx/build/* .  # Copy the new documentation to the root of the gh-pages branch
-          touch .nojekyll  # Disable Jekyll processing on GitHub Pages
-          git add .
-          git commit -m "Deploy updated documentation [skip ci]"
-          git push -f origin gh-pages
+        uses: actions/deploy-pages@v1
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
