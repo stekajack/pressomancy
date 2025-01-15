@@ -13,12 +13,11 @@ class RaspberrySphere(metaclass=Simulation_Object):
     numInstances = 0
     sigma = 1
     n_parts=153
-    current_dir = os.path.dirname(__file__)
-    resources_dir = os.path.join(current_dir, '..', 'resources')
-    resource_file = os.path.join(resources_dir, 'dungeon_witch_raspberry.txt')
-    referece_sheet = load_coord_file(resource_file)
+    _resources_dir = os.path.join(os.path.dirname(__file__), '..', 'resources')
+    _resource_file = os.path.join(_resources_dir, 'dungeon_witch_raspberry.txt')
+    _referece_sheet = load_coord_file(_resource_file)
     size=0.
-    print('reference sheet: ', len(referece_sheet))
+    print('reference sheet: ', len(_referece_sheet))
     simulation_type= SinglePairDict('raspberry', 69)
     part_types = PartDictSafe({'real': 1,'virt':2})
 
@@ -46,7 +45,7 @@ class RaspberrySphere(metaclass=Simulation_Object):
         :return: None
 
         '''
-        positions = RaspberrySphere.referece_sheet+pos
+        positions = RaspberrySphere._referece_sheet+pos
         particles=[self.add_particle(type_name='virt',pos=pos) for pos in positions]
         
         self.change_part_type(particles[0],'real')

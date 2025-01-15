@@ -19,7 +19,10 @@ class OTP(metaclass=Simulation_Object):
     n_parts = 3
     long_side=(None,0.719194480723940)
     short_side=(None,0.483)
-    referece_sheet=None
+    _resources_dir = os.path.join( os.path.dirname(__file__), '..', 'resources')
+    _resource_file = os.path.join(_resources_dir, 'otp_coordinates.txt')
+    _referece_sheet = load_coord_file(_resource_file)[1:]
+    _referece_sheet-=np.mean(_referece_sheet, axis=0)
     size=0.
     simulation_type= SinglePairDict('otp', 6)
     part_types = PartDictSafe(simulation_type)
@@ -41,12 +44,6 @@ class OTP(metaclass=Simulation_Object):
             OTP.size=OTP.long_side[1]+OTP.sigma
         else:
             OTP.size=size
-        current_dir = os.path.dirname(__file__)
-        resources_dir = os.path.join(current_dir, '..', 'resources')
-        resource_file = os.path.join(resources_dir, 'otp_coordinates.txt')
-        if OTP.referece_sheet is None:
-            OTP.referece_sheet = load_coord_file(resource_file)[1:]
-            OTP.referece_sheet=OTP.referece_sheet-np.mean(OTP.referece_sheet, axis=0)
         self.associated_objects=associated_objects
         self.type_part_dict=PartDictSafe({key: [] for key in OTP.part_types.keys()})
 
@@ -60,7 +57,7 @@ class OTP(metaclass=Simulation_Object):
         '''
         
         random_rotation = R.random()
-        rotated_rigid_body = random_rotation.apply(OTP.referece_sheet)+np.tile(pos, (OTP.n_parts,1)) # type: ignore
+        rotated_rigid_body = random_rotation.apply(OTP._referece_sheet)+np.tile(pos, (OTP.n_parts,1)) # type: ignore
         parts = list(OTP.sys.part.add(
             type=[OTP.part_types['otp'],]*OTP.n_parts, pos=rotated_rigid_body))
         parts[0].add_bond((OTP.long_side[0], parts[1]))

@@ -16,11 +16,10 @@ class Quartet(metaclass=Simulation_Object):
 
     numInstances = 0
     sigma = 1.
-    current_dir = os.path.dirname(__file__)
-    resources_dir = os.path.join(current_dir, '..', 'resources')
-    resource_file = os.path.join(resources_dir, 'g_quartet_mesh_coordinates.txt')
+    _resources_dir = os.path.join( os.path.dirname(__file__), '..', 'resources')
+    _resource_file = os.path.join(_resources_dir, 'g_quartet_mesh_coordinates.txt')
+    _referece_sheet = load_coord_file(_resource_file)
     n_parts=25
-    referece_sheet = load_coord_file(resource_file)
     type = 'solid'
     fene_handle = None
     size=0.
@@ -69,7 +68,7 @@ class Quartet(metaclass=Simulation_Object):
         :return: None
 
         '''
-        positions = Quartet.referece_sheet+pos
+        positions = Quartet._referece_sheet+pos
         particles=[self.add_particle(type_name='virt',pos=pos) for pos in positions]
         diag = np.sqrt(2)*4
         self.corner_particles = [part for part0, part in product(
