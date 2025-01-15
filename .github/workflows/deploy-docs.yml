@@ -3,7 +3,7 @@ name: Deploy Documentation
 on:
   push:
     branches:
-      - main  # Adjust this to your primary branch for deployments
+      - main
 
 jobs:
   deploy-docs:
@@ -18,16 +18,23 @@ jobs:
       - name: Pull Docker image
         run: docker pull stekajack/ubuntults_with_espresso_magnetodynamics_wip
 
-      # Step 3: Build documentation in the Docker container
-      - name: Build documentation
+      # Step 3: Build and deploy documentation
+      - name: Build and deploy documentation
         run: |
           docker run --rm \
           -v "${{ github.workspace }}:/workspace" \
-          -w /workspace/doc/sphinx \
+          -w /workspace \
           stekajack/ubuntults_with_espresso_magnetodynamics_wip \
           bash -c "
+            # Install the pressomancy package and Sphinx dependencies
+            pip3 install -e . &&
             pip3 install sphinx sphinx_rtd_theme &&
+            
+            # Navigate to the Sphinx docs directory and build documentation
+            cd doc/sphinx &&
             python3 -m sphinx.cmd.build -b html source build &&
+            
+            # Copy the built HTML files back to the workspace
             cp -r build /workspace/doc/sphinx/build
           "
 
@@ -38,8 +45,8 @@ jobs:
           git config --global user.email "actions@github.com"
           git fetch origin gh-pages || git checkout --orphan gh-pages
           git switch gh-pages
-          rm -rf *  # Clear the current content of gh-pages
-          cp -r doc/sphinx/build/* .  # Copy new HTML files
+          rm -rf *  # Clear old content
+          cp -r doc/sphinx/build/* .  # Copy new documentation
           touch .nojekyll  # Disable Jekyll processing
           git add .
           git commit -m "Deploy updated documentation [skip ci]"
