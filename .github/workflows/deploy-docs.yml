@@ -26,20 +26,21 @@ jobs:
           -w /workspace/doc/sphinx \
           stekajack/ubuntults_with_espresso_magnetodynamics_wip \
           bash -c "
+            pip3 install sphinx sphinx_rtd_theme &&
             python3 -m sphinx.cmd.build -b html source build &&
             cp -r build /workspace/doc/sphinx/build
           "
 
-      # Step 4: Commit and push documentation to the gh-pages branch
+      # Step 4: Deploy documentation to GitHub Pages
       - name: Deploy to GitHub Pages
         run: |
           git config --global user.name "GitHub Actions"
           git config --global user.email "actions@github.com"
           git fetch origin gh-pages || git checkout --orphan gh-pages
           git switch gh-pages
-          rm -rf *
-          cp -r doc/sphinx/build/* .
-          touch .nojekyll  # Disable Jekyll on GitHub Pages
+          rm -rf *  # Clear the current content of gh-pages
+          cp -r doc/sphinx/build/* .  # Copy new HTML files
+          touch .nojekyll  # Disable Jekyll processing
           git add .
-          git commit -m "Deploy documentation [skip ci]"
+          git commit -m "Deploy updated documentation [skip ci]"
           git push -f origin gh-pages
