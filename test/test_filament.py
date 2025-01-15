@@ -1,11 +1,9 @@
 import numpy as np
-import unittest
 import pressomancy.object_classes
-from create_system import sim_inst
+from create_system import sim_inst , BaseTestCase
 import espressomd
-import gc
 
-class FilamentTest(unittest.TestCase):
+class FilamentTest(BaseTestCase):
     num_vol_all=14
     num_vol_side=5
 

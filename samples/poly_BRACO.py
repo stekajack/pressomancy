@@ -1,8 +1,7 @@
 from pressomancy.simulation import Simulation, Crowder, Filament, Quartet, Quadriplex
 import espressomd
-import os
-import sys as sysos
 import numpy as np
+import logging
 N_avog = 6.02214076e23
 
 sigma = 1.
@@ -22,7 +21,7 @@ part_per_ligand=2
 
 sim_inst = Simulation(box_dim=box_dim)
 sim_inst.set_sys()
-print('box_dim: ', sim_inst.sys.box_l)
+logging.info('box_dim: ', sim_inst.sys.box_l)
 
 quartets = [Quartet(sigma=sigma, n_parts=25, type='solid', espresso_handle=sim_inst.sys, fene_k=10, fene_r0=1) for x in range(no_obj)]
 sim_inst.store_objects(quartets)

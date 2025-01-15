@@ -1,6 +1,7 @@
 from pressomancy.helper_functions import RoutineWithArgs, PartDictSafe, SinglePairDict
 import types
 from functools import partial
+import logging
 
 def _generic_type_exception(scope, name, attribute_name, expected_type):
     raise NotImplementedError(
@@ -193,7 +194,7 @@ class Simulation_Object(type):
         NotImplementedError
             If the method is not overridden by a subclass.
         """
-        print(f"Self is: {self}")
+        logging.info(f"Self is: {self}")
         raise NotImplementedError("The 'set_object' method must be implemented in subclasses.")
     
     def delete_owned_parts(self):

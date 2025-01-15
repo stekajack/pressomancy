@@ -6,6 +6,7 @@ import os
 from pressomancy.helper_functions import load_coord_file, PartDictSafe, SinglePairDict
 from pressomancy.object_classes.object_class import Simulation_Object 
 import warnings
+import logging
 
 
 class Quartet(metaclass=Simulation_Object):
@@ -56,7 +57,7 @@ class Quartet(metaclass=Simulation_Object):
                 Quartet.fene_handle = espressomd.interactions.FeneBond(
                     k=Quartet.fene_k, r_0=Quartet.fene_r0, d_r_max=Quartet.fene_r0*1.5)
                 Quartet.sys.bonded_inter.add(Quartet.fene_handle)
-                print('Quartet set fene bond, should only happen once!!!')
+                logging.info('Quartet set fene bond, should only happen once!!!')
         self.type_part_dict=PartDictSafe({key: [] for key in Quartet.part_types.keys()})
         self.associated_objects=associated_objects
 
@@ -135,7 +136,7 @@ class Quartet(metaclass=Simulation_Object):
     def mark_covalent_corner(self, part_type=666):
         random_part = random.choice(self.corner_particles)
         random_part.type = part_type
-        print(f'covalent corners marked for {self.__class__.__name__}s with part_type {part_type}')
+        logging.info(f'covalent corners marked for {self.__class__.__name__}s with part_type {part_type}')
 
 class Quadriplex(metaclass=Simulation_Object):
 
@@ -169,14 +170,14 @@ class Quadriplex(metaclass=Simulation_Object):
             Quadriplex.size = size
 
 
-        # print('Qudariplex bonding mode: ', bonding_mode)
+        # logging.info('Qudariplex bonding mode: ', bonding_mode)
         if Quadriplex.fene_handle is None:
             Quadriplex.fene_k = fene_k
             Quadriplex.fene_r0 = fene_r0
             Quadriplex.fene_handle = espressomd.interactions.FeneBond(
                 k=Quadriplex.fene_k, r_0=Quadriplex.fene_r0, d_r_max=Quadriplex.fene_r0*1.5)
             Quadriplex.sys.bonded_inter.add(Quadriplex.fene_handle)
-            print('Quadriplex set fene bond, should only happen once!!!')
+            logging.info('Quadriplex set fene bond, should only happen once!!!')
         if bending_k:
             if Quadriplex.bending_handle is None:
                 Quadriplex.bending_k = bending_k
@@ -184,7 +185,7 @@ class Quadriplex(metaclass=Simulation_Object):
                 Quadriplex.bending_handle = espressomd.interactions.AngleHarmonic(
                     bend=Quadriplex.bending_k, phi0=Quadriplex.bending_angle)
                 Quadriplex.sys.bonded_inter.add(Quadriplex.bending_handle)
-                print('Quadriplex set bending potential, should only happen once!!!')
+                logging.info('Quadriplex set bending potential, should only happen once!!!')
 
         self.who_am_i = Quadriplex.numInstances
         Quadriplex.numInstances += 1

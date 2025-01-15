@@ -10,6 +10,7 @@ import pickle
 from itertools import combinations_with_replacement
 from pressomancy.object_classes import *
 from pressomancy.helper_functions import *
+import logging
 
 @ManagedSimulation
 class Simulation():
@@ -129,14 +130,14 @@ class Simulation():
         Set espresso cellsystem params, and import virtual particle scheme. Run automatically on initialisation of the System class.
         '''
         np.random.seed(seed=self.seed)
-        print('core.seed: ', self.seed)
+        logging.info(f'core.seed: {self.seed}')
         self.sys.periodicity = (True, True, True)
         self.sys.time_step = timestep
         self.sys.cell_system.skin = 0.5
         self.sys.min_global_cut = min_global_cut
         self.sys.virtual_sites = VirtualSitesRelative(have_quaternion=have_quaternion)
         assert type(self.sys.virtual_sites) is VirtualSitesRelative, 'VirtualSitesRelative must be set. If not, anything involving virtual particles will not work correctly, but it might be very hard to figure out why. I have wasted days debugging issues only to remember i commented out this line!!!'
-        print(f'System params have been autoset. The values of min_global_cut and skin are not guaranteed to be optimal for your simualtion and should be tuned by hand!!!')
+        logging.info(f'System params have been autoset. The values of min_global_cut and skin are not guaranteed to be optimal for your simualtion and should be tuned by hand!!!')
 
     def modify_system_attribute(self, requester, attribute_name, action):
         """
@@ -151,7 +152,7 @@ class Simulation():
             action(getattr(self,attribute_name))
 
         else:
-            print("Requester does not have permission to modify attributes.")
+            logging.info("Requester does not have permission to modify attributes.")
 
     def sanity_check(self,object):
         '''
@@ -179,7 +180,7 @@ class Simulation():
                 temp_dict[key]=val            
             self.no_objects += 1
         self.part_types.update(temp_dict)
-        print(f'{iterable_list[0].__class__.__name__}s stored')
+        logging.info(f'{iterable_list[0].__class__.__name__}s stored')
 
     def set_objects(self, objects):
             '''
@@ -209,7 +210,7 @@ class Simulation():
                 try:
                     next(logic)
                 except StopIteration:
-                    print(f'{objects[0].__class__.__name__} set!!!')
+                    logging.info(f'{objects[0].__class__.__name__} set!!!')
                     break
 
     def unstore_objects(self, iterable_list=None):
@@ -222,7 +223,7 @@ class Simulation():
         
             self.objects.clear()
             self.no_objects = 0
-            print(f'all objects removed')
+            logging.info(f'all objects removed')
         
         else:
             assert all(ob in self.objects for ob in iterable_list), "Some objects to be removed are not in the stored list!"
@@ -237,7 +238,7 @@ class Simulation():
             for key in temp_dict:
                 self.part_types.pop(key, None)
             
-            print(f'{iterable_list[0].__class__.__name__}s removed')
+            logging.info(f'{iterable_list[0].__class__.__name__}s removed')
     
     def delete_objects(self):
         """
@@ -259,7 +260,7 @@ class Simulation():
             obj_el.mark_covalent_bonds(part_type=part_type)
 
     def init_magnetic_inter(self, actor_handle):
-        print('direct summation magnetic interactions initiated')
+        logging.info('direct summation magnetic interactions initiated')
         dds = actor_handle
         self.sys.actors.add(dds)
 
@@ -273,8 +274,8 @@ class Simulation():
 
         Interaction length is allways determined from sigma.
         '''
-        print(f'part types available {self.part_types.keys()} ')
-        print(f'WCA interactions initiated for keys: {key}')
+        logging.info(f'part types available {self.part_types.keys()} ')
+        logging.info(f'WCA interactions initiated for keys: {key}')
         for key_el, key_el2 in combinations_with_replacement(key, 2):
             self.sys.non_bonded_inter[self.part_types[key_el], self.part_types[key_el2]
                                       ].wca.set_params(epsilon=wca_eps, sigma=sigma)
@@ -294,7 +295,7 @@ class Simulation():
         """
         assert len(pairs) == len(wca_eps) and len(pairs) == len(
             sigma), 'epsilon and sigma must be specified explicitly for each type pair'
-        print('WCA interactions initiated')
+        logging.info('WCA interactions initiated')
         for (key_el, key_el2), eps, sgm in zip(pairs, wca_eps, sigma):
             self.sys.non_bonded_inter[self.part_types[key_el], self.part_types[key_el2]
                                       ].wca.set_params(epsilon=eps, sigma=sgm)
@@ -316,7 +317,7 @@ class Simulation():
         for key_el, key_el2 in combinations_with_replacement(key, 2):
             self.sys.non_bonded_inter[self.part_types[key_el], self.part_types[key_el2]].lennard_jones.set_params(
                 epsilon=lj_eps, sigma=lj_size, cutoff=lj_cut, shift=0)
-        print(f'vdW interactions initiated initiated for keys: {key}')
+        logging.info(f'vdW interactions initiated initiated for keys: {key}')
 
     def set_vdW_custom(self, pairs=[(None, None),], lj_eps=[1.,], lj_size=[1.,]):
         """
@@ -338,7 +339,7 @@ class Simulation():
             lj_cut = 1.5*sgm
             self.sys.non_bonded_inter[self.part_types[key_el], self.part_types[key_el2]].lennard_jones.set_params(
                 epsilon=eps, sigma=sgm, cutoff=lj_cut, shift=0)
-        print('vdW interactions initiated!')
+        logging.info('vdW interactions initiated!')
 
     def init_lb(self, kT, agrid, dens, visc, gamma, timestep=0.01):
         """
@@ -358,21 +359,21 @@ class Simulation():
         self.sys.part.all().v = (0, 0, 0)
         param_dict={'kT':kT, 'seed':self.seed, 'agrid':agrid, 'dens':dens, 'visc':visc, 'tau':timestep}
         if 'CUDA' in espressomd.features():
-            print('GPU LB method is beeing initiated')
+            logging.info('GPU LB method is beeing initiated')
 
             lbf = espressomd.lb.LBFluidGPU(**param_dict)
         else:
-            print('CPU LB method is beeing initiated')
+            logging.info('CPU LB method is beeing initiated')
 
             lbf = espressomd.lb.LBFluid(**param_dict)
         if len(self.sys.actors.active_actors) == 2:
             self.sys.actors.remove(self.sys.actors.active_actors[-1])
         self.sys.actors.add(lbf)
         gamma_MD = gamma
-        print('gamma_MD: '+str(gamma_MD))
+        logging.info(f'gamma_MD: {gamma_MD}')
         self.sys.thermostat.set_lb(
             LB_fluid=lbf, gamma=gamma_MD, seed=self.seed)
-        print(f'LBM is set with the params {lbf.get_params()}.')
+        logging.info(f'LBM is set with the params {lbf.get_params()}.')
         return lbf
     
 
@@ -383,7 +384,7 @@ class Simulation():
         :param slip_vel: tuple | Velocity of the slip boundary in the format (vx, vy, vz). Default is (0, 0, 0).
         :return: None
         """
-        print("Setup LB boundaries.")
+        logging.info("Setup LB boundaries.")
         top_wall = shapes.Wall(normal=[1, 0, 0], dist=1) # type: ignore
         bottom_wall = shapes.Wall( # type: ignore
             normal=[-1, 0, 0], dist=-(self.sys.box_l[0] - 1))
@@ -405,7 +406,7 @@ class Simulation():
         :param I_incr: int | Increment value for integration steps. Default is 100.
         :return: None
         """
-        print('iterating with a force cap.')
+        logging.info('iterating with a force cap.')
         self.sys.integrator.run(0)
         while True:
             try:
@@ -415,7 +416,7 @@ class Simulation():
                 self.sys.integrator.run(I_incr)
                 force = np.max(np.linalg.norm(self.sys.part.all().f, axis=1))
                 rel_force = np.abs((force - old_force) / old_force)
-                print(f'rel. force change: {rel_force:.2e}')
+                logging.info(f'rel. force change: {rel_force:.2e}')
                 if (rel_force < F_TOL) or (I_incr >= MAX_STEPS):
                     raise ValueError
                 I_incr += I_incr
@@ -423,7 +424,7 @@ class Simulation():
 
             except ValueError:
                 self.sys.force_cap = 0
-                print('explosions avoided sucessfully!')
+                logging.info('explosions avoided sucessfully!')
                 break
 
     def magnetize(self, part_list, dip_magnitude, H_ext):
@@ -444,7 +445,7 @@ class Simulation():
             inv_dip_tri = 1.0/(dip_tri)
             inv_tanh_dip_tri = 1.0/np.tanh(dip_tri)
             part.dip = dip_magnitude/tri*(inv_tanh_dip_tri-inv_dip_tri)*H_tot
-            print(part.dip)
+            logging.info(part.dip)
 
     def set_H_ext(self, H=(0, 0, 1.)):
         """
@@ -455,11 +456,11 @@ class Simulation():
         """
         for x in self.sys.constraints:
             if isinstance(x,espressomd.constraints.HomogeneousMagneticField):
-                print('Removed old H',x)
+                logging.info(f'Removed old H: {x}')
                 self.sys.constraints.remove(x)
         ExtH = espressomd.constraints.HomogeneousMagneticField(H=list(H))
         self.sys.constraints.add(ExtH)
-        print('External field set: ',ExtH.H)
+        logging.info(f'External field set: {ExtH.H}')
 
     def get_H_ext(self):
         """
@@ -532,7 +533,6 @@ class Simulation():
             if all(np.linalg.norm(new_position - pos) >= min_distance for pos in self.sys.part.all().pos):
                 if all(np.linalg.norm(new_position - existing_position) >= min_distance for existing_position in object_positions):
                     object_positions.append(new_position)
-            print('position casing progress: ', len(
-                object_positions)/self.no_objects)
+            logging.info(f'position casing progress: {len(object_positions)/self.no_objects}')
 
         return np.array(object_positions)

@@ -4,6 +4,7 @@ import random
 from itertools import product, pairwise
 from pressomancy.object_classes.object_class import Simulation_Object 
 from pressomancy.helper_functions import RoutineWithArgs, make_centered_rand_orient_point_array, PartDictSafe, SinglePairDict
+import logging
 
 def rule_maker(choice_id, offset, n=3):
     top = [26, 45, 49, 30]
@@ -132,7 +133,7 @@ class Filament(metaclass=Simulation_Object):
                     self.backs_indices.append(p_hndl_back.id)
                 except StopIteration:
                     break
-            # print(f'anchors added for Filament {self.who_am_i}')
+            # logging.info(f'anchors added for Filament {self.who_am_i}')
 
     def bond_overlapping_virtualz(self, bond_handle, crit=0.):
         '''
@@ -150,7 +151,7 @@ class Filament(metaclass=Simulation_Object):
             try:
                 next(logic)
             except StopIteration:
-                # print('virts are bonded')
+                # logging.info('virts are bonded')
                 break
 
     def add_dipole_to_embedded_virt(self,type_name, dip_magnitude=1.):
@@ -174,7 +175,7 @@ class Filament(metaclass=Simulation_Object):
                 self.magnetizable_virts.append(p_hndl.id)
 
             except StopIteration:
-                # print(f'added embedded virtuals with dipole moments on Filament {self.who_am_i}')
+                # logging.info(f'added embedded virtuals with dipole moments on Filament {self.who_am_i}')
                 break
 
     def add_dipole_to_type(self,type_name, dip_magnitude=1.):
@@ -198,7 +199,7 @@ class Filament(metaclass=Simulation_Object):
         for elem in list_parts:
             elem.pos = elem.pos-shift
         Filament.sys.integrator.run(steps=0)
-        print('center_filament() moved parts')
+        logging.info('center_filament() moved parts')
 
     def bond_center_to_center(self, bond_handle, type_key):
         
@@ -285,9 +286,9 @@ class Filament(metaclass=Simulation_Object):
             candidates1.extend(monomer.associated_objects[2].corner_particles)
             if monomer == self.associated_objects[0]:
                 start_part_id = random.choice(candidates1).id
-            print('begin print', start_part_id)
+            logging.info(f'begin print {start_part_id}')
             res, free_end = rule_maker(start_part_id, monomer.who_am_i*75)
-            print(res, free_end)
+            logging.info(f'res, free_end {res, free_end}')
             for id1, id2 in res:
                 self.sys.part.by_id(id1).add_bond(
                     (diag_bond, id2))
@@ -312,7 +313,7 @@ class Filament(metaclass=Simulation_Object):
                     candidates2[index].add_bond(
                         (bond_handle, free_end))
                 else:
-                    print('alt filter')
+                    logging.info('alt filter')
                     pair_distances = np.linalg.norm(
                         candidate_pos-self.sys.part.by_id(start_part_id).pos, axis=-1)
                     filtered = np.isclose(
@@ -321,10 +322,10 @@ class Filament(metaclass=Simulation_Object):
                     candidates2[index].add_bond(
                         (bond_handle, start_part_id))
 
-                print(index, start_part_id)
+                logging.info(f'index, start_part_id {res, free_end}')
 
                 start_part_id = candidates2[index].id
-                print('end print', start_part_id)
+                logging.info(f'end print {start_part_id}')
             except IndexError:
-                print('end of chain rached')
+                logging.info('end of chain rached')
                 continue

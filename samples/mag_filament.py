@@ -1,13 +1,14 @@
 import espressomd
 from pressomancy.simulation import Simulation, Filament
 import numpy as np
+import logging
 
 
 sigma = 1.
 n_part_tot = 10
 density=0.001
 box_dim = np.power((4*n_part_tot*np.pi*np.power(sigma/2, 3))/(3*density), 1/3)*np.ones(3)
-print('box_dim: ', box_dim)
+logging.info('box_dim: ', box_dim)
 sim_inst = Simulation(box_dim=box_dim)
 sim_inst.set_sys()
 

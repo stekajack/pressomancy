@@ -2,6 +2,7 @@ import numpy as np
 from itertools import product
 from collections import defaultdict
 import inspect
+import logging
 
 class MissingFeature(Exception):
     pass
@@ -723,9 +724,9 @@ def partition_cubic_volume(box_length, num_spheres, sphere_diameter, routine_per
     while volumes_to_fill < num_spheres:
         sphere_centers = fcc_lattice(radius=sphere_radius, volume_side=box_length, scaling_factor=scaling)
         volumes_to_fill = len(sphere_centers)
-        print('num_spheres_needed, num_spheres_got ', num_spheres, volumes_to_fill)
+        logging.info(f'num_spheres_needed, num_spheres_got: {num_spheres, volumes_to_fill}')
         scaling -= 0.1
-    print('scaling used: ', scaling + 0.1)
+    logging.info(f'scaling used: {scaling + 0.1}')
     # Randomly shuffle the available centers and select the required number of centers
     take_index = np.arange(len(sphere_centers))
     if flag=='rand':

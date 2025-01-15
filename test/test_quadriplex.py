@@ -1,10 +1,11 @@
 import numpy as np
-import unittest
 import pressomancy.object_classes
-from create_system import sim_inst
 import espressomd
+from create_system import sim_inst , BaseTestCase
 
-class QuadriplexTest(unittest.TestCase):
+
+
+class QuadriplexTest(BaseTestCase):
     num_vol_all=14
     num_vol_side=5
 

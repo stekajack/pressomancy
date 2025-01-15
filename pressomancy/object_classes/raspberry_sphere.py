@@ -17,7 +17,6 @@ class RaspberrySphere(metaclass=Simulation_Object):
     _resource_file = os.path.join(_resources_dir, 'dungeon_witch_raspberry.txt')
     _referece_sheet = load_coord_file(_resource_file)
     size=0.
-    print('reference sheet: ', len(_referece_sheet))
     simulation_type= SinglePairDict('raspberry', 69)
     part_types = PartDictSafe({'real': 1,'virt':2})
 

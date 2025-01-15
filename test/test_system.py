@@ -1,11 +1,9 @@
-import numpy as np
-import unittest
 import pressomancy.object_classes
 import inspect
-from create_system import sim_inst
+import logging
+from create_system import sim_inst, BaseTestCase
 
-
-class SimulationTest(unittest.TestCase):
+class SimulationTest(BaseTestCase):
     num_vol_all=14
     num_vol_side=5
 
@@ -21,7 +19,7 @@ class SimulationTest(unittest.TestCase):
         try:
             return [cls(espresso_handle=sim_inst.sys, sigma=1.)]
         except TypeError as e:
-            print(f"Skipped test for {cls.__name__}. Instantiation raised {e}")
+            logging.warning(f"Skipped test for {cls.__name__}. Instantiation raised {e}")
             return None
     
     def test_store_objects(self):

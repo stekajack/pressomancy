@@ -1,8 +1,7 @@
 from pressomancy.simulation import partition_cubic_volume, get_neighbours, get_neighbours_cross_lattice
-import unittest
+from create_system import BaseTestCase
 
-
-class PartitioningTest(unittest.TestCase):
+class PartitioningTest(BaseTestCase):
     box_len=2.5
     num_vol_all=14
     num_vol_side=5

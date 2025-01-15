@@ -2,7 +2,7 @@
 import numpy as np
 import espressomd
 import espressomd.interactions
-
+import logging
 from pressomancy.simulation import Simulation, OTP
 
 lj_eps = 1.8350838581351132
@@ -14,9 +14,9 @@ n_part =10*3
 density=2.775
 
 box_l=pow(n_part/density,1/3.)
-print('density: ', density)
-print('box_l: ', box_l)
-print('vol_fract [%]: ', (n_part*np.pi*pow(lj_sig,3)*pow(6,-1)/pow(box_l,3))*100)
+logging.info('density: ', density)
+logging.info('box_l: ', box_l)
+logging.info('vol_fract [%]: ', (n_part*np.pi*pow(lj_sig,3)*pow(6,-1)/pow(box_l,3))*100)
 
 sim_inst = Simulation(box_dim=box_l*np.ones(3))
 sim_inst.set_sys(timestep=0.001)

@@ -1,15 +1,14 @@
-import unittest
 import importlib
 import pkgutil
-import warnings
+import logging
 import samples 
-from create_system import sim_inst
+from create_system import sim_inst, BaseTestCase
 from unittest import mock
 from pressomancy.object_classes import Quadriplex
 from pressomancy.helper_functions import MissingFeature
-import gc
 
-class SampleScriptTest(unittest.TestCase):
+
+class SampleScriptTest(BaseTestCase):
     def tearDown(self) -> None:
         sim_inst.reinitialize_instance()
         # gc.collect()
@@ -25,7 +24,7 @@ class SampleScriptTest(unittest.TestCase):
                     try:
                         module = importlib.import_module(f"samples.{module_name}")
                     except MissingFeature:
-                        warnings.warn(f"Skipping {module_name} because it requires a feature that is not available.")
+                        logging.warning(f"Skipping {module_name} because it requires a feature that is not available.")
                         continue
             sim_inst.reinitialize_instance()
             self.assertEqual(len(sim_inst.objects), 0)
