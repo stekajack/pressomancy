@@ -213,41 +213,6 @@ class Simulation():
                     logging.info(f'{objects[0].__class__.__name__} set!!!')
                     break
 
-    def unstore_objects(self, iterable_list=None):
-        '''
-        Method removes specified objects from the self.objects list.
-        Updates the self.part_types attribute by removing types associated with these objects.
-        Adjusts other relevant attributes like self.no_objects and self.n_parts_per_obj.
-        '''
-        if iterable_list==None:
-        
-            self.objects.clear()
-            self.no_objects = 0
-            logging.info(f'all objects removed')
-        
-        else:
-            assert all(ob in self.objects for ob in iterable_list), "Some objects to be removed are not in the stored list!"
-            temp_dict = {}
-            for element in iterable_list:
-                self.objects.remove(element)            
-                self.no_objects -= 1
-
-                for key, val in element.part_types.items():
-                    temp_dict[key] = val
-
-            for key in temp_dict:
-                self.part_types.pop(key, None)
-            
-            logging.info(f'{iterable_list[0].__class__.__name__}s removed')
-    
-    def delete_objects(self):
-        """
-        Deletes all parts owned by objects stored in self.objects by calling their delete_owned_parts() method.
-
-        :return: None
-        """
-        for object in self.objects:
-            object.delete_owned_parts()
 
     def mark_for_collision_detection(self, object_type=Quadriplex, part_type=666):
         assert any(isinstance(ele, object_type) for ele in self.objects), "method assumes simulation holds correct type object"
