@@ -950,3 +950,40 @@ def get_cross_lattice_noninterceting_volumes(sphere_centers_long, sph_diam_log,s
                 mask.append(all([x>0.5*sph_diam_short for x in res if not np.isclose(x,0.)])) 
         aranged_cross_lattice_options[vol_id]=mask
     return aranged_cross_lattice_options
+
+def align_vectors(v1, v2):
+    """
+    Compute the rotation matrix that aligns vector v1 to vector v2.
+
+    Args:
+        v1 (numpy.ndarray): The initial vector to align.
+        v2 (numpy.ndarray): The target vector to align with.
+
+    Returns:
+        numpy.ndarray: A 3x3 rotation matrix that aligns v1 with v2.
+
+    The function handles special cases where the vectors are already aligned or are opposite.
+    It uses Rodrigues' rotation formula for general cases.
+    """
+    v1 = v1 / np.linalg.norm(v1)
+    v2 = v2 / np.linalg.norm(v2)
+    cross_prod = np.cross(v1, v2)
+    sin_theta = np.linalg.norm(cross_prod)
+    cos_theta = np.dot(v1, v2)
+    if np.isclose(cos_theta, 1.0):
+        return np.eye(3)
+    if np.isclose(cos_theta, -1.0):
+        orthogonal_vector = np.array([1, 0, 0]) if not np.isclose(v1[0], 1.0) else np.array([0, 1, 0])
+        orthogonal_vector -= v1 * np.dot(orthogonal_vector, v1)
+        orthogonal_vector /= np.linalg.norm(orthogonal_vector)
+        return -np.eye(3) + 2 * np.outer(orthogonal_vector, orthogonal_vector)
+    cross_prod_matrix = np.array([
+        [0, -cross_prod[2], cross_prod[1]],
+        [cross_prod[2], 0, -cross_prod[0]],
+        [-cross_prod[1], cross_prod[0], 0]
+    ])
+    rotation_matrix = (
+        np.eye(3) + cross_prod_matrix + 
+        (np.dot(cross_prod_matrix, cross_prod_matrix) * ((1 - cos_theta) / (sin_theta ** 2)))
+    )
+    return rotation_matrix
