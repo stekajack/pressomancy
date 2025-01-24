@@ -11,14 +11,13 @@ from pressomancy.helper_functions import MissingFeature
 class SampleScriptTest(BaseTestCase):
     def tearDown(self) -> None:
         sim_inst.reinitialize_instance()
-        # gc.collect()
 
     def test_sample_scripts(self):
         def get_current_sim_instance(*args, **kwargs):
             """Helper function to return the latest `sim_inst`."""
             return sim_inst        
         for _, module_name, _ in pkgutil.iter_modules(samples.__path__):
-            Quadriplex.fene_handle=None
+            Quadriplex.numInstances=0
             with self.subTest(script=module_name):
                 with mock.patch("pressomancy.simulation.Simulation", side_effect=get_current_sim_instance):
                     try:

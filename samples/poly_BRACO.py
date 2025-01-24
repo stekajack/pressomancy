@@ -21,16 +21,16 @@ part_per_ligand=2
 
 sim_inst = Simulation(box_dim=box_dim)
 sim_inst.set_sys()
-logging.info('box_dim: ', sim_inst.sys.box_l)
+logging.info(f'box_dim: {sim_inst.sys.box_l}')
 
-quartets = [Quartet(sigma=sigma, n_parts=25, type='solid', espresso_handle=sim_inst.sys, fene_k=10, fene_r0=1) for x in range(no_obj)]
+quartets = [Quartet(sigma=sigma, n_parts=25, type='solid', espresso_handle=sim_inst.sys) for x in range(no_obj)]
 sim_inst.store_objects(quartets)
 
 grouped_quartets = [quartets[i:i+sheets_per_quad]
                     for i in range(0, len(quartets), sheets_per_quad)]
-
-quadriplex = [Quadriplex(sigma=np.sqrt(Quartet.n_parts)*Quartet.sigma, quartet_grp=elem,
-                         espresso_handle=sim_inst.sys, fene_k=10, fene_r0=2., bending_k=0, bending_angle=np.pi, bonding_mode='ftf', size=6.) for elem in grouped_quartets]
+bond_quad = espressomd.interactions.FeneBond(k=10., r_0=2., d_r_max=2*1.5)
+sim_inst.sys.bonded_inter.add(bond_quad)
+quadriplex = [Quadriplex(sigma=np.sqrt(Quartet.n_parts)*Quartet.sigma, quartet_grp=elem, espresso_handle=sim_inst.sys,bond_handle=bond_quad, bonding_mode='ftf', size=6.) for elem in grouped_quartets]
 sim_inst.store_objects(quadriplex)
 grouped_quadriplexes = [quadriplex[i:i+part_per_filament:]
                         for i in range(0, len(quadriplex), part_per_filament)]
@@ -38,8 +38,7 @@ filaments = [Filament(sigma=6, n_parts=part_per_filament,
                         espresso_handle=sim_inst.sys, associated_objects=elem, size=6*part_per_filament) for elem in grouped_quadriplexes]
 sim_inst.store_objects(filaments)
 sim_inst.set_objects(filaments)
-bond_pass = espressomd.interactions.FeneBond(
-    k=Quadriplex.fene_k, r_0=Quadriplex.fene_r0, d_r_max=Quadriplex.fene_r0*1.5)
+bond_pass = espressomd.interactions.FeneBond(k=10., r_0=2., d_r_max=2*1.5)
 sim_inst.sys.bonded_inter.add(bond_pass)
 
 for filament in filaments:        

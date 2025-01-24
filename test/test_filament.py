@@ -1,4 +1,3 @@
-import numpy as np
 import pressomancy.object_classes
 from create_system import sim_inst , BaseTestCase
 import espressomd
@@ -13,7 +12,6 @@ class FilamentTest(BaseTestCase):
     def tearDown(self) -> None:
         sim_inst.reinitialize_instance()
         self.assertEqual(len(sim_inst.sys.part),0)
-        # gc.collect() 
 
     def test_set_object_generic(self):
         instance=pressomancy.object_classes.Filament(sigma=1, n_parts=10,espresso_handle=sim_inst.sys)

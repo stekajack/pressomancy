@@ -1,9 +1,8 @@
 import espressomd
 import os
-from pressomancy.helper_functions import load_coord_file, PartDictSafe, SinglePairDict
+from pressomancy.helper_functions import load_coord_file, PartDictSafe, SinglePairDict, align_vectors
 import numpy as np
 from pressomancy.object_classes.object_class import Simulation_Object 
-from scipy.spatial.transform import Rotation as R
 
 
 class OTP(metaclass=Simulation_Object):
@@ -55,9 +54,8 @@ class OTP(metaclass=Simulation_Object):
         :return: None
 
         '''
-        
-        random_rotation = R.random()
-        rotated_rigid_body = random_rotation.apply(OTP._referece_sheet)+np.tile(pos, (OTP.n_parts,1)) # type: ignore
+        rotation_matrix = align_vectors(np.array([0,0,1]),ori) # 0,0,1 is the default director in espressomd
+        rotated_rigid_body = np.dot(OTP._referece_sheet,rotation_matrix.T) + np.tile(pos, (OTP.n_parts,1))
         parts = list(OTP.sys.part.add(
             type=[OTP.part_types['otp'],]*OTP.n_parts, pos=rotated_rigid_body))
         parts[0].add_bond((OTP.long_side[0], parts[1]))

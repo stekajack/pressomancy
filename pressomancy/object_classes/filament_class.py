@@ -154,7 +154,7 @@ class Filament(metaclass=Simulation_Object):
                 # logging.info('virts are bonded')
                 break
 
-    def add_dipole_to_embedded_virt(self,type_name, dip_magnitude=1.):
+    def add_dipole_to_embedded_virt(self, type_name, dip_magnitude=1.):
         '''
         Adds virtual particles to the center of each particle whose index is stored in self.realz_indices. It is critical that said virtuals do not have a director and have disabled rotation!
 
@@ -178,7 +178,7 @@ class Filament(metaclass=Simulation_Object):
                 # logging.info(f'added embedded virtuals with dipole moments on Filament {self.who_am_i}')
                 break
 
-    def add_dipole_to_type(self,type_name, dip_magnitude=1.):
+    def add_dipole_to_type(self, type_name, dip_magnitude=1.):
         '''
         Adds dupoles to real particels
 
@@ -244,7 +244,7 @@ class Filament(metaclass=Simulation_Object):
         monomer_pairs = zip(self.associated_objects,
                             self.associated_objects[1:])
         for pair in monomer_pairs:
-            fene_r0 = pair[0].fene_r0
+            fene_r0 = pair[0].bond_handle.r_0
             candidate1, candidate2, pair_distances = [], [], []
             candidate1.extend(pair[0].associated_objects[1].corner_particles)
             candidate1.extend(pair[0].associated_objects[2].corner_particles)
@@ -280,7 +280,7 @@ class Filament(metaclass=Simulation_Object):
         bond_handle, diag_bond = bond_handles
         for iid in range(len(self.associated_objects)):
             monomer = self.associated_objects[iid]
-            fene_r0 = monomer.fene_r0
+            fene_r0 = monomer.bond_handle.r_0
             candidates1 = []
             candidates1.extend(monomer.associated_objects[1].corner_particles)
             candidates1.extend(monomer.associated_objects[2].corner_particles)
