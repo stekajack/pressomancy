@@ -168,16 +168,18 @@ class Simulation():
         Populates the self.part_types attribute with types found in the objects that are stored.
         All objects that are stored should have the same types stored, but this is not checked explicitly
         '''
-        assert all((hasattr(ob, 'n_parts') and hasattr(ob, 'part_types'))
-                   for ob in iterable_list), "method requiers that stored objects have n_parts attribute"
-        assert not set(iterable_list).intersection(self.objects), "Lists have common elements!"
         temp_dict={}
         for element in iterable_list:
+            if element.params['associated_objects'] != None:
+                check=all(associated in self.objects for associated in element.params['associated_objects'])
+                if not check:
+                    self.store_objects(element.params['associated_objects'])
+            assert element not in self.objects, "Lists have common elements!"
             self.sanity_check(element)
             element.modify_system_attribute = self.modify_system_attribute
             self.objects.append(element)
             for key, val in element.part_types.items():
-                temp_dict[key]=val            
+                temp_dict[key]=val
             self.no_objects += 1
         self.part_types.update(temp_dict)
         logging.info(f'{iterable_list[0].__class__.__name__}s stored')
@@ -192,14 +194,14 @@ class Simulation():
             # positions= generate_positions(len(objects), self.sys.box_l, 7.)
             if not self.part_positions:
                 centeres, positions, orientations = partition_cubic_volume(box_length=self.sys.box_l[0], num_spheres=len(
-                objects), sphere_diameter=objects[0].size,routine_per_volume=objects[0].build_function)
+                objects), sphere_diameter=objects[0].params['size'],routine_per_volume=objects[0].build_function)
                 self.volume_centers.extend(centeres)
                 self.part_positions.extend(positions)
-                self.volume_size=objects[0].size
+                self.volume_size=objects[0].params['size']
             else:
                 centeres, positions, orientations = partition_cubic_volume(box_length=self.sys.box_l[0], num_spheres=len(
-                objects), sphere_diameter=objects[0].size,routine_per_volume=objects[0].build_function)
-                res=get_cross_lattice_noninterceting_volumes(centeres,objects[0].size,self.volume_centers,self.part_positions,self.volume_size,self.sys.box_l[0])
+                objects), sphere_diameter=objects[0].params['size'],routine_per_volume=objects[0].build_function)
+                res=get_cross_lattice_noninterceting_volumes(centeres,objects[0].params['size'],self.volume_centers,self.part_positions,self.volume_size,self.sys.box_l[0])
                 mask=[key for key,val in res.items() if all(val)]
                 positions=positions[mask]
                 orientations=orientations[mask]

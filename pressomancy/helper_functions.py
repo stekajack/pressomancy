@@ -987,3 +987,33 @@ def align_vectors(v1, v2):
         (np.dot(cross_prod_matrix, cross_prod_matrix) * ((1 - cos_theta) / (sin_theta ** 2)))
     )
     return rotation_matrix
+
+class BondWrapper:
+    def __init__(self, bond_handle):
+        # Store the bond_handle instance
+        self._bond_handle = bond_handle
+
+    def __getattr__(self, name):
+        # Delegate attribute access to the wrapped object
+        return getattr(self._bond_handle, name)
+
+    def __setattr__(self, name, value):
+        # Ensure that _bond_handle is set on the wrapper, not on the wrapped object
+        if name == "_bond_handle":
+            super().__setattr__(name, value)
+        else:
+            setattr(self._bond_handle, name, value)
+
+    def __delattr__(self, name):
+        # Delegate deletion of attributes to the wrapped object
+        delattr(self._bond_handle, name)
+
+    def __repr__(self):
+        # Customize how the wrapper is printed
+        return f"BondWrapper({repr(self._bond_handle)})"
+    
+    def get_raw_handle(self):
+        """
+        Returns the raw object being wrapped.
+        """
+        return self._bond_handle

@@ -1,5 +1,5 @@
 import espressomd
-from pressomancy.object_classes.object_class import Simulation_Object 
+from pressomancy.object_classes.object_class import Simulation_Object, ObjectConfigParams 
 from pressomancy.helper_functions import PartDictSafe, SinglePairDict
 
 class EGGPart(metaclass=Simulation_Object):
@@ -9,29 +9,23 @@ class EGGPart(metaclass=Simulation_Object):
     '''
     required_features=['MAGNETODYNAMICS_EGG_MODEL',]	
     numInstances = 0
-    sigma = 1
-    n_parts = 1
-    size=0.
     simulation_type= SinglePairDict('egg_part', 74)
     part_types = PartDictSafe({'real': 1,'virt': 2})
+    config = ObjectConfigParams(
+         dipm=1., 
+         egg_gamma=2., 
+         aniso_energy=1.
+    )
 
-    def __init__(self, sigma, espresso_handle, dipm, egg_gamma, aniso_energy, associated_objects=None,size=None):
+    def __init__(self, config: ObjectConfigParams):
         '''
         Initialisation of a EGGPart object requires the specification of particle size and a handle to the espresso system
         '''
-        assert isinstance(espresso_handle, espressomd.System)
+        self.sys=config['espresso_handle']
+        self.params=config
         EGGPart.numInstances += 1
-        EGGPart.sigma = sigma
-        if size==None:
-            EGGPart.size = EGGPart.sigma
-        else:
-            EGGPart.size = size
-        EGGPart.sys = espresso_handle
-        self.egg_gamma=egg_gamma
-        self.aniso_energy=aniso_energy
-        self.dipm=dipm
         self.who_am_i = EGGPart.numInstances
-        self.associated_objects=associated_objects
+        self.associated_objects=config['associated_objects']
         self.type_part_dict=PartDictSafe({key: [] for key in EGGPart.part_types.keys()})
 
     def set_object(self,  pos, ori):
@@ -44,7 +38,7 @@ class EGGPart(metaclass=Simulation_Object):
         '''
         particl_real=self.add_particle(type_name='real', pos=pos, rotation=(True, True, True), director=ori)
 
-        particl_virt=self.add_particle(type_name='virt', pos=pos, rotation=(True, True, True), dipm=self.dipm, egg_model_params = (True, self.egg_gamma,self.aniso_energy))
+        particl_virt=self.add_particle(type_name='virt', pos=pos, rotation=(True, True, True), dipm=self.params['dipm'], egg_model_params = (True, self.params['egg_gamma'],self.params['aniso_energy']))
         particl_virt.vs_auto_relate_to(particl_real)
 
         return self

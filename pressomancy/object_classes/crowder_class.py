@@ -1,5 +1,5 @@
 import espressomd
-from pressomancy.object_classes.object_class import Simulation_Object 
+from pressomancy.object_classes.object_class import Simulation_Object, ObjectConfigParams 
 from pressomancy.helper_functions import PartDictSafe, SinglePairDict
 
 class Crowder(metaclass=Simulation_Object):
@@ -9,26 +9,19 @@ class Crowder(metaclass=Simulation_Object):
     '''
     required_features=list()	
     numInstances = 0
-    sigma = 1
-    n_parts = 1
-    size=0.
     simulation_type= SinglePairDict('crowder', 5)
     part_types = PartDictSafe({'crowder': 5})
+    config = ObjectConfigParams()
 
-    def __init__(self, sigma, espresso_handle, associated_objects=None,size=None):
+    def __init__(self, config: ObjectConfigParams):
         '''
         Initialisation of a crowder object requires the specification of particle size and a handle to the espresso system
         '''
-        assert isinstance(espresso_handle, espressomd.System)
+        self.sys=config['espresso_handle']
+        self.params=config
+        self.associated_objects=self.params['associated_objects']
         Crowder.numInstances += 1
-        Crowder.sigma = sigma
-        if size==None:
-            Crowder.size = Crowder.sigma
-        else:
-            Crowder.size = size
-        Crowder.sys = espresso_handle
         self.who_am_i = Crowder.numInstances
-        self.associated_objects=associated_objects
         self.type_part_dict=PartDictSafe({key: [] for key in Crowder.part_types.keys()})
 
     def set_object(self,  pos, ori):

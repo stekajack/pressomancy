@@ -1,8 +1,8 @@
 import espressomd
 import os
-from pressomancy.helper_functions import load_coord_file, PartDictSafe, SinglePairDict, align_vectors
+from pressomancy.helper_functions import load_coord_file, PartDictSafe, SinglePairDict, align_vectors,BondWrapper
 import numpy as np
-from pressomancy.object_classes.object_class import Simulation_Object 
+from pressomancy.object_classes.object_class import Simulation_Object, ObjectConfigParams 
 
 
 class OTP(metaclass=Simulation_Object):
@@ -12,38 +12,34 @@ class OTP(metaclass=Simulation_Object):
     '''
     required_features=list()	
     numInstances = 0
-    sigma: float = 1. # particle size used mostly by the Filament class rn
 
-    last_index_used = 0
-    n_parts = 3
-    long_side=(None,0.719194480723940)
-    short_side=(None,0.483)
     _resources_dir = os.path.join( os.path.dirname(__file__), '..', 'resources')
     _resource_file = os.path.join(_resources_dir, 'otp_coordinates.txt')
     _referece_sheet = load_coord_file(_resource_file)[1:]
     _referece_sheet-=np.mean(_referece_sheet, axis=0)
-    size=0.
     simulation_type= SinglePairDict('otp', 6)
     part_types = PartDictSafe(simulation_type)
+    config = ObjectConfigParams(
+        n_parts=len(_referece_sheet),
+        sigma=0.483,
+        long_side=0.7191944807239401,
+        rig_bond_long = BondWrapper(espressomd.interactions.RigidBond(r=0.7191944807239401, ptol=1e-12, vtol=1e-12)), 
+        rig_bond_short = BondWrapper(espressomd.interactions.RigidBond(r=0.483, ptol=1e-12, vtol=1e-12))
+    ) 
 
-    def __init__(self, sigma, long_side, short_side, espresso_handle,associated_objects=None, size=None):
+
+    def __init__(self, config: ObjectConfigParams):
         '''
         Initialisation of a crowder object requires the specification of particle size and a handle to the espresso system
         '''
-        assert isinstance(espresso_handle, espressomd.System)
+        assert config['n_parts'] == len(OTP._referece_sheet), 'n_parts must be equal to the number of parts in the reference sheet!!!'
+        self.sys=config['espresso_handle']
+        self.params=config
         OTP.numInstances += 1
-        OTP.sigma = sigma
-        OTP.sys = espresso_handle
         self.who_am_i = OTP.numInstances
-        OTP.long_side=long_side
-        OTP.short_side=short_side
         self.realz_indices = []
         self.virts_indices = []
-        if size==None:
-            OTP.size=OTP.long_side[1]+OTP.sigma
-        else:
-            OTP.size=size
-        self.associated_objects=associated_objects
+        self.associated_objects=self.params['associated_objects']        
         self.type_part_dict=PartDictSafe({key: [] for key in OTP.part_types.keys()})
 
     def set_object(self,  pos, ori):
@@ -55,15 +51,13 @@ class OTP(metaclass=Simulation_Object):
 
         '''
         rotation_matrix = align_vectors(np.array([0,0,1]),ori) # 0,0,1 is the default director in espressomd
-        rotated_rigid_body = np.dot(OTP._referece_sheet,rotation_matrix.T) + np.tile(pos, (OTP.n_parts,1))
-        parts = list(OTP.sys.part.add(
-            type=[OTP.part_types['otp'],]*OTP.n_parts, pos=rotated_rigid_body))
-        parts[0].add_bond((OTP.long_side[0], parts[1]))
-        parts[0].add_bond((OTP.short_side[0], parts[-1]))
-        parts[1].add_bond((OTP.short_side[0], parts[-1]))
+        rotated_rigid_body = np.dot(OTP._referece_sheet,rotation_matrix.T) + np.tile(pos, (self.params['n_parts'],1))
+        parts = [self.add_particle(type_name='otp', pos=el_pos) for el_pos in rotated_rigid_body]
+        self.bond_owned_part_pair(parts[0],parts[1], bond_handle=self.params['rig_bond_long'])
+        self.bond_owned_part_pair(parts[0],parts[-1], bond_handle=self.params['rig_bond_short'])
+        self.bond_owned_part_pair(parts[1],parts[-1], bond_handle=self.params['rig_bond_short'])
         parts[0].add_exclusion(parts[1])
         parts[0].add_exclusion(parts[2])
         parts[1].add_exclusion(parts[2])
-        OTP.last_index_used += OTP.n_parts
         self.realz_indices.extend([particle.id for particle in parts])
         return [particle.id for particle in parts]

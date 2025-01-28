@@ -2,6 +2,7 @@ import numpy as np
 import pressomancy.object_classes
 import espressomd
 from create_system import sim_inst , BaseTestCase
+from pressomancy.object_classes.quadriplex_class import *
 
 
 
@@ -13,11 +14,7 @@ class QuadriplexTest(BaseTestCase):
     sph_rad=0.5*sph_diam
 
     def setUp(self) -> None:
-        self.quartets = [pressomancy.object_classes.Quartet(sigma=1., n_parts=25, espresso_handle=sim_inst.sys) for x in range(3)]
-        sim_inst.store_objects(self.quartets)
-        bond_hndl=espressomd.interactions.FeneBond(k=10., r_0=2., d_r_max=1.5*2)
-        sim_inst.sys.bonded_inter.add(bond_hndl)
-        self.instance=pressomancy.object_classes.Quadriplex(sigma=1.,espresso_handle=sim_inst.sys,quartet_grp=self.quartets,bonding_mode='ftf',bond_handle=bond_hndl)
+        self.instance=Quadriplex(config=Quadriplex.config.specify(espresso_handle=sim_inst.sys))
         sim_inst.store_objects([self.instance,])
         
     def tearDown(self) -> None:
@@ -41,20 +38,15 @@ class QuadriplexTest(BaseTestCase):
         int_nhdl=espressomd.interactions.AngleHarmonic(bend=1, phi0=np.pi)
         sim_inst.sys.bonded_inter.add(int_nhdl)
         self.instance.add_bending_potential(bending_potential_handle=int_nhdl)
-        bond_hndl=espressomd.interactions.FeneBond(k=10., r_0=2., d_r_max=1.5*2)
-        sim_inst.sys.bonded_inter.add(bond_hndl)
-        instance=pressomancy.object_classes.Quadriplex(sigma=1.,espresso_handle=sim_inst.sys,quartet_grp=self.quartets,bonding_mode='ctc',bond_handle=bond_hndl)
+        instance=Quadriplex(config=Quadriplex.config.specify(espresso_handle=sim_inst.sys, bonding_mode='ctc'))
+        sim_inst.store_objects([instance,])
         instance.set_object(pos=np.array([0,0,0]),ori=np.array([0,0,1]))
         instance.add_bending_potential(bending_potential_handle=int_nhdl)
     
     def test_set_object_broken(self):
-        bond_hndl=espressomd.interactions.FeneBond(k=10., r_0=1., d_r_max=1.5)
-        sim_inst.sys.bonded_inter.add(bond_hndl)
-        quartets = [pressomancy.object_classes.Quartet(sigma=1., n_parts=25,type='broken', bond_handle=bond_hndl, espresso_handle=sim_inst.sys) for x in range(3)]
+        quartets = [Quartet(config=Quartet.config.specify(espresso_handle=sim_inst.sys,type='broken')) for x in range(3)]
         sim_inst.store_objects(quartets)
-        bond_hndl=espressomd.interactions.FeneBond(k=10., r_0=2., d_r_max=1.5*2)
-        sim_inst.sys.bonded_inter.add(bond_hndl)
-        instance=pressomancy.object_classes.Quadriplex(sigma=1.,espresso_handle=sim_inst.sys,quartet_grp=quartets, bonding_mode='ftf',bond_handle=bond_hndl)
+        instance=Quadriplex(Quadriplex.config.specify(espresso_handle=sim_inst.sys, associated_objects=quartets, bonding_mode='ctc'))
         sim_inst.store_objects([instance,])
         instance.set_object(pos=np.array([0,0,0]),ori=np.array([0,0,1]))
 

@@ -1,8 +1,8 @@
 import espressomd
+from pressomancy.helper_functions import BondWrapper
 from pressomancy.simulation import Simulation, Filament
 import numpy as np
 import logging
-
 
 sigma = 1.
 n_part_tot = 10
@@ -11,16 +11,15 @@ box_dim = np.power((4*n_part_tot*np.pi*np.power(sigma/2, 3))/(3*density), 1/3)*n
 logging.info('box_dim: ', box_dim)
 sim_inst = Simulation(box_dim=box_dim)
 sim_inst.set_sys()
-
-filaments = [Filament(sigma=sigma, n_parts=2, size=2, espresso_handle=sim_inst.sys) for x in range(5)]
-bond_hndl=espressomd.interactions.FeneBond(k=10, d_r_max=3*sigma, r_0=0)
-sim_inst.sys.bonded_inter.add(bond_hndl)
+bond_hndl=BondWrapper(espressomd.interactions.FeneBond(k=10, d_r_max=3*sigma, r_0=0))
+configuration=Filament.config.specify(sigma=sigma, size=2.,n_parts=2, espresso_handle=sim_inst.sys,bond_handle=bond_hndl)
+filaments = [Filament(config=configuration) for x in range(5)]
 
 sim_inst.store_objects(filaments)
 sim_inst.set_objects(filaments)
 for filament in filaments:
     filament.add_anchors(type_key='real')
-    filament.bond_overlapping_virtualz(bond_hndl)
+    filament.bond_overlapping_virtualz()
     filament.add_dipole_to_embedded_virt(type_name='real',dip_magnitude=1.)
 
 sim_inst.set_vdW(key=('real',),lj_eps=3.)

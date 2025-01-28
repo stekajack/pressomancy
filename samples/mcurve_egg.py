@@ -12,13 +12,11 @@ n_part = 100
 
 dt = 0.004
 
- 
-
 box_l = (np.pi/6. * n_part / vol_frac)**(1./3) 
 sim_inst = Simulation(box_dim=box_l*np.ones(3))
 sim_inst.set_sys(timestep=dt,have_quaternion=True)
 
-egg_parts=[EGGPart(sigma=sigma,espresso_handle=sim_inst.sys,dipm=dipm,egg_gamma=2,aniso_energy=sigma) for _ in range(n_part)]
+egg_parts=[EGGPart(config=EGGPart.config.specify(espresso_handle=sim_inst.sys)) for _ in range(n_part)]
 sim_inst.store_objects(egg_parts)
 sim_inst.set_objects(egg_parts)
 

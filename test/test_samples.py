@@ -28,4 +28,3 @@ class SampleScriptTest(BaseTestCase):
             sim_inst.reinitialize_instance()
             self.assertEqual(len(sim_inst.objects), 0)
             self.assertEqual(len(sim_inst.sys.part), 0)
-

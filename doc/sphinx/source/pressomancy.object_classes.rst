@@ -68,6 +68,14 @@ pressomancy.object\_classes.egg\_model\_part module
    :undoc-members:
    :show-inheritance:
 
+pressomancy.object\_classes.tel\_sequence module
+----------------------------------------------------------
+
+.. automodule:: pressomancy.object_classes.tel_sequence
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 Module contents
 ---------------
 

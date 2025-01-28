@@ -1,5 +1,5 @@
 import espressomd
-from pressomancy.object_classes.object_class import Simulation_Object 
+from pressomancy.object_classes.object_class import Simulation_Object, ObjectConfigParams
 from pressomancy.helper_functions import PartDictSafe, SinglePairDict, load_coord_file
 import os
 import numpy as np
@@ -11,29 +11,26 @@ class RaspberrySphere(metaclass=Simulation_Object):
     '''
     required_features=list()	
     numInstances = 0
-    sigma = 1
-    n_parts=153
     _resources_dir = os.path.join(os.path.dirname(__file__), '..', 'resources')
     _resource_file = os.path.join(_resources_dir, 'dungeon_witch_raspberry.txt')
     _referece_sheet = load_coord_file(_resource_file)
-    size=0.
     simulation_type= SinglePairDict('raspberry', 69)
     part_types = PartDictSafe({'real': 1,'virt':2})
+    config=ObjectConfigParams(
+        n_parts=len(_referece_sheet),
+    )
 
-    def __init__(self, sigma, espresso_handle, associated_objects=None,size=None):
+    def __init__(self, config: ObjectConfigParams):
         '''
         Initialisation of a RaspberrySphere object requires the specification of particle size and a handle to the espresso system
         '''
-        assert isinstance(espresso_handle, espressomd.System)
+     
+        assert config['n_parts'] == len(RaspberrySphere._referece_sheet), 'n_parts must be equal to the number of parts in the resource file!!!'
+        self.sys=config['espresso_handle']
+        self.params=config
+        self.associated_objects=config['associated_objects']
         RaspberrySphere.numInstances += 1
-        RaspberrySphere.sigma = sigma
-        if size==None:
-            RaspberrySphere.size = RaspberrySphere.sigma
-        else:
-            RaspberrySphere.size = size
-        RaspberrySphere.sys = espresso_handle
         self.who_am_i = RaspberrySphere.numInstances
-        self.associated_objects=associated_objects
         self.type_part_dict=PartDictSafe({key: [] for key in RaspberrySphere.part_types.keys()})
 
     def set_object(self,  pos, ori):

@@ -2,6 +2,7 @@ from pressomancy.helper_functions import RoutineWithArgs, PartDictSafe, SinglePa
 import types
 from functools import partial
 import logging
+import espressomd
 
 def _generic_type_exception(scope, name, attribute_name, expected_type):
     raise NotImplementedError(
@@ -38,12 +39,10 @@ class Simulation_Object(type):
 
     Class-Level Required Attributes
     --------------------------------
+    - `required_features` : list
+        List of required features for the simulation object.
     - `numInstances` : int
         Tracks the number of instances of the class.
-    - `n_parts` : int
-        Number of particles managed by the object.
-    - `size` : float
-        Physical size of the object.
     - `part_types` : PartDictSafe
         Dictionary-like object mapping particle types to their identifiers.
     - `simulation_type` : SinglePairDict
@@ -119,10 +118,9 @@ class Simulation_Object(type):
         required_attributes = {
             "required_features": list,
             "numInstances": int,
-            "n_parts": int,
-            "size": float,
             "part_types": PartDictSafe,
-            "simulation_type": SinglePairDict
+            "simulation_type": SinglePairDict,
+            "config": ObjectConfigParams,
         }
         for attr, expected_type in required_attributes.items():
             if not hasattr(cls, attr):
@@ -159,11 +157,12 @@ class Simulation_Object(type):
         helper_set_attribute(instance,"build_function",RoutineWithArgs())
         helper_set_attribute(instance,"set_object",Simulation_Object.set_object)
         helper_set_attribute(instance,"add_particle",Simulation_Object.add_particle)
+        helper_set_attribute(instance,"bond_owned_part_pair",Simulation_Object.bond_owned_part_pair)
         helper_set_attribute(instance,"change_part_type",Simulation_Object.change_part_type)
         helper_set_attribute(instance,"modify_system_attribute",generic_modify_system_attribute)
         helper_set_attribute(instance,"delete_owned_parts",Simulation_Object.delete_owned_parts)
 
-        required_attributes = {"who_am_i": int,'type_part_dict'  :PartDictSafe,'associated_objects': list}
+        required_attributes = {"who_am_i": int,'type_part_dict'  :PartDictSafe,'associated_objects': list, "sys": espressomd.System}
         for attr, expected_type in required_attributes.items():
             # Check for required instance attribute `who_am_i`
             if not hasattr(instance, attr):
@@ -172,16 +171,45 @@ class Simulation_Object(type):
 
     @staticmethod
     def _eq(self, other):
+        """
+        Compares two instances for equality based on their `who_am_i` attribute.
+
+        Parameters
+        ----------
+        other : object
+            The other instance to compare with.
+
+        Returns
+        -------
+        bool
+            True if the instances are equal, False otherwise.
+        """
         if not isinstance(other, self.__class__):
             return False
         return getattr(self, "who_am_i", None) == getattr(other, "who_am_i", None)
 
     @staticmethod
     def _hash(self):
+        """
+        Generates a unique hash for the instance based on its class and `who_am_i` attribute.
+
+        Returns
+        -------
+        int
+            The hash value of the instance.
+        """
         return hash((self.__class__, getattr(self, "who_am_i", None)))
 
     @staticmethod
     def _cusiter(self):
+        """
+        Returns an iterator for the object, enabling it to be used in loops.
+
+        Returns
+        -------
+        iterator
+            An iterator for the object.
+        """
         """Return an iterator for the internal list, making the object iterable."""
         return iter([self])
 
@@ -204,12 +232,13 @@ class Simulation_Object(type):
         Iterates through `type_part_dict` to remove particles from the simulation.
         If `associated_objects` is defined, recursively deletes their owned particles.
         """
-        for key,elem in self.type_part_dict.items():
-            for prt in elem:
-                prt.remove()
         if self.associated_objects!= None:
             for obj in self.associated_objects:
                 obj.delete_owned_parts()
+        for key,elem in self.type_part_dict.items():
+            for prt in elem:
+                prt.remove()
+        
                 
     def add_particle(self, type_name, pos, **kwargs):
         """
@@ -246,6 +275,29 @@ class Simulation_Object(type):
         self.modify_system_attribute(self,'part_types', lambda current_value: current_value.update({type_name: part_params['type']}))
         return part_hndl
     
+    def bond_owned_part_pair(self,p1,p2, bond_handle=None):
+        """
+        Bonds the particle pair (p1,p2).
+
+        Adds the bond to the system if not already present.
+
+        Parameters
+        ----------
+        p1 : espressomd.particle.ParticleHandle
+            The partner particle to bond with.
+        p2 : espressomd.particle.ParticleHandle
+            The partner particle to bond with.
+        """
+        if bond_handle is None:
+            bond=self.params['bond_handle'].get_raw_handle()
+        else:
+            bond=bond_handle.get_raw_handle()
+
+        if bond not in self.sys.bonded_inter:
+            self.sys.bonded_inter.add(bond)
+            logging.info(f'bond handle added to system for Object {self.__class__,self.who_am_i}')
+        p1.add_bond((bond, p2))
+    
     def change_part_type(self, particle, new_type_name):
         """
         Changes the type of an existing particle.
@@ -272,4 +324,76 @@ class Simulation_Object(type):
         self.modify_system_attribute(self,'part_types', lambda current_value: current_value.update({new_type_name: self.part_types[new_type_name]}))
 
 
+class ObjectConfigParams(dict):
+    """
+    Configuration parameters for simulation objects.
+
+    The `ObjectConfigParams` class extends the dictionary to provide a structured way to manage
+    configuration parameters for simulation objects. It includes validation and merging with
+    class-level configurations.
+
+    Attributes
+    ----------
+    common_keys : dict
+        Common configuration keys with default values.
+
+    Methods
+    -------
+    validate_and_join(class_config):
+        Validates the current configuration against the class-level configuration and updates
+        the instance with missing values from the class configuration.
+    """
+    common_keys = {'sigma': 1, 'espresso_handle': None, 'associated_objects': None, 'size': 1, 'n_parts': 1}
+
+    def __init__(self, **kwargs):
+        # Merge common_keys with kwargs; kwargs overwrite common_keys
+        initial_data = {**self.common_keys, **kwargs}
+        super().__init__(initial_data)
+        self._allowed_keys = set(initial_data.keys())  # Track allowed keys
+
+
+    def __setitem__(self, key, value):
+        if key not in self._allowed_keys:
+            raise KeyError(f"Cannot add new key '{key}' after initialization.")
+        super().__setitem__(key, value)
+
+    def __delitem__(self, key):
+        raise KeyError(f"Cannot delete key '{key}' from configuration.")
+
+    def specify(self, **overrides):
+        """
+        Create a new instance configuration based on the class-level configuration,
+        with specified overrides applied.
+
+        Parameters
+        ----------
+        overrides : dict
+            Key-value pairs to override in the configuration.
+
+        Returns
+        -------
+        ObjectConfigParams
+            A new ObjectConfigParams instance with the specified overrides.
+        """
+        # Ensure that the overrides only include allowed keys
+        override_keys = set(overrides.keys())
+        invalid_keys = override_keys - self._allowed_keys
+        if invalid_keys:
+            raise ValueError(f"Invalid keys in overrides: {invalid_keys}")
+
+        # Create a new configuration with overrides applied
+        new_config = ObjectConfigParams(**self)
+        for key, value in overrides.items():
+            new_config[key] = value
+        return new_config
         
+    def __repr__(self):
+        """
+        Returns a string representation of the ObjectConfigParams instance.
+
+        Returns
+        -------
+        str
+            String representation of the instance.
+        """
+        return f"ObjectConfigParams({super().__repr__()})"

@@ -5,5 +5,6 @@ from pressomancy.object_classes.otp_molecule_class import OTP
 from pressomancy.object_classes.stoner_wohlfarth_part import SWPart
 from pressomancy.object_classes.egg_model_part import EGGPart
 from pressomancy.object_classes.raspberry_sphere import RaspberrySphere
+from pressomancy.object_classes.tel_sequence import TelSeq
 
 

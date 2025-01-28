@@ -4,10 +4,10 @@ from itertools import combinations, product
 import random
 import os
 from pressomancy.helper_functions import load_coord_file, PartDictSafe, SinglePairDict, align_vectors
-from pressomancy.object_classes.object_class import Simulation_Object 
+from pressomancy.object_classes.object_class import Simulation_Object, ObjectConfigParams
 import warnings
 import logging
-
+from pressomancy.helper_functions import BondWrapper
 
 class Quartet(metaclass=Simulation_Object):
 
@@ -16,42 +16,37 @@ class Quartet(metaclass=Simulation_Object):
     '''
     required_features=list()	
     numInstances = 0
-    sigma = 1.
     _resources_dir = os.path.join( os.path.dirname(__file__), '..', 'resources')
     _resource_file = os.path.join(_resources_dir, 'g_quartet_mesh_coordinates.txt')
     _referece_sheet = load_coord_file(_resource_file)
-    n_parts=25
-    size=0.
     simulation_type=SinglePairDict('quartet', 11)
     part_types = PartDictSafe({'real': 1, 'virt': 2})
+    config = ObjectConfigParams(
+        n_parts=len(_referece_sheet),
+        type='solid', 
+        bond_handle=BondWrapper(espressomd.interactions.FeneBond(k=0, r_0=0, d_r_max=0))
+    )
 
-    def __init__(self, sigma, espresso_handle, associated_objects=None, n_parts=n_parts, type='solid', bond_handle=None, size=None):
+    def __init__(self,config: ObjectConfigParams):
         '''
         Initialisation of a quartet object requires the specification of particle size, number of parts and a handle to the espresso system
         '''
-        assert isinstance(espresso_handle, espressomd.System)
-        assert type == 'solid' or type == 'broken'
-        self.type = type
-        self.bond_handle = bond_handle
-        if self.type == 'broken':
-            assert self.bond_handle != None, 'broken quartets require a bond to be set!!!'
+
+        assert config['type'] == 'solid' or config['type'] == 'broken', 'type must be either solid or broken!!!'
+        assert config['n_parts'] == len(Quartet._referece_sheet), 'n_parts must be equal to the number of parts in the reference sheet!!!'
+        Quartet.numInstances += 1
+        self.sys=config['espresso_handle']
+        self.params=config
+        if self.params['type'] == 'broken':
+            assert self.params['bond_handle'] != None, 'broken quartets require a bond to be set!!!'
             Quartet.part_types.update({'circ': 28,
                   'squareA': 24, 'squareB': 25, 'cation': 27})
-   
-        Quartet.sigma = sigma
-        Quartet.n_parts = n_parts
-        if size==None:
-            Quartet.size = np.sqrt(2)*np.sqrt( Quartet.n_parts)*Quartet.sigma
-        else:
-            Quartet.size = size
-        Quartet.sys = espresso_handle
+       
         self.who_am_i = Quartet.numInstances
-        Quartet.numInstances += 1
         self.orientor = np.empty(shape=3, dtype=float)
-        self.triplets_associated = None
         self.corner_particles = []
         self.type_part_dict=PartDictSafe({key: [] for key in Quartet.part_types.keys()})
-        self.associated_objects=associated_objects
+        self.associated_objects=self.params['associated_objects']
 
     def set_object(self,  pos, ori, triplet=None):
         '''
@@ -67,7 +62,7 @@ class Quartet(metaclass=Simulation_Object):
         diag = np.sqrt(2)*4
         self.corner_particles = [part for part0, part in product(
             particles, particles) if np.isclose(np.linalg.norm(part0.pos - part.pos), diag, atol=1e-06)]
-        if self.type == 'solid':
+        if self.params['type'] == 'solid':
             self.change_part_type(particles[0],'real')
             w, d, h = 4, 4, 0
             rot_inertia_x = 1/12*(h**2+d**2)
@@ -81,7 +76,7 @@ class Quartet(metaclass=Simulation_Object):
             np.vectorize(lambda real, virts: virts.vs_auto_relate_to(real))(
                 particles[0], particles[1:])
 
-        if self.type == 'broken':
+        if self.params['type'] == 'broken':
             self.change_part_type(particles[0],'real')
             particles[0].q = 5
 
@@ -97,12 +92,11 @@ class Quartet(metaclass=Simulation_Object):
                 self.change_part_type(part,'circ')
                 part.q = -1.25
 
-            if self.bond_handle != None:
+            if self.params['bond_handle'] != None:
                 for part1, part2 in zip(particles[np.array(recepie_dict['squareA'])], particles[np.array(recepie_dict['squareB'])]):
                     self.change_part_type(part1,'squareA')
                     self.change_part_type(part2,'squareB')
-                    self.sys.part.by_id(part1.id).add_bond(
-                        (self.bond_handle, self.sys.part.by_id(part2.id)))
+                    self.bond_owned_part_pair(part1, part2)
             else:
                 for part in particles[np.array(recepie_dict['squareA'])]:
                     self.change_part_type(part,'squareA')
@@ -115,8 +109,6 @@ class Quartet(metaclass=Simulation_Object):
                     particles[key], particles[values])
                 for ii, jj in combinations([particles[key].id,]+[x.id for x in particles[values]], 2):
                     self.sys.part.by_id(ii).add_exclusion(jj)
-        if triplet is not None:
-            self.triplets_associated = triplet
         return self
 
     def exclude_self_interactions(self):
@@ -137,32 +129,32 @@ class Quadriplex(metaclass=Simulation_Object):
     '''
     required_features=list()	
     numInstances = 0
-    sigma = 5
-    size=0.
-    n_parts=3
     part_types = PartDictSafe()
     simulation_type=SinglePairDict('quadriplex',22)
+    config = ObjectConfigParams(
+        n_parts=3,
+        size=6.,
+        bonding_mode='ftf',
+        bond_handle=BondWrapper(espressomd.interactions.FeneBond(k=0, r_0=0, d_r_max=0)),
+    )
 
-    def __init__(self, sigma, quartet_grp, espresso_handle, bonding_mode, bond_handle, size=None):
+    def __init__(self, config: ObjectConfigParams):
         '''
         Initialisation of a quadriplex object requires the specification of particle size, number of parts and a handle to the espresso system
         '''
-        assert isinstance(espresso_handle, espressomd.System)
+        
+        self.sys=config['espresso_handle']
+        self.params=config
+        if self.params['associated_objects']==None:
+            warnings.warn('no associated_objects have been passed explicity. Creating objects required to initialise object implicitly!')
+            configuration=Quartet.config.specify(espresso_handle=self.sys)
+            self.params['associated_objects']=[Quartet(config=configuration) for _ in range(3)]
+        self.associated_objects=self.params['associated_objects']
+        assert config['n_parts'] == len(config['associated_objects']), f'n_parts must be equal to the number of associated objects!!! {config["n_parts"], len(config["associated_objects"])}'
         self.has_been_set=False
-        Quadriplex.sigma = sigma
-        Quadriplex.sys = espresso_handle
-        self.bonding_mode = bonding_mode
-        self.bond_handle = bond_handle
-        if size==None:
-            Quadriplex.size = np.sqrt(3)*Quadriplex.sigma
-        else:
-            Quadriplex.size = size
-
         self.who_am_i = Quadriplex.numInstances
         Quadriplex.numInstances += 1
-        self.associated_objects = quartet_grp
         self.orientor = np.empty(shape=3, dtype=float)
-        Quadriplex.n_parts = len(quartet_grp)
         self.type_part_dict=PartDictSafe({key: [] for key in Quadriplex.part_types.keys()})
 
     def set_object(self,  pos, ori):
@@ -175,19 +167,19 @@ class Quadriplex(metaclass=Simulation_Object):
         '''
         if self.has_been_set:
             raise RuntimeError(f'object {self.__class__.__name__} wiht id {self.who_am_i} was attempted to be set but it already exists!!!')
-        assert Quadriplex.n_parts == 3, "a quadriplex can only be created from 3 quartets!!! "
+        assert self.params['n_parts'] == 3, "a quadriplex can only be created from 3 quartets!!! "
         assert all([x.simulation_type==self.associated_objects[0].simulation_type for x in self.associated_objects[1:]]), 'all objects must have the same simulation type!'
         type_str=self.associated_objects[0].simulation_type.key
 
         p_central = self.associated_objects[0].set_object(
             pos, ori, triplet=self.who_am_i)
-        p_top = self.associated_objects[1].set_object(pos+self.bond_handle.r_0*ori,
+        p_top = self.associated_objects[1].set_object(pos+self.params['bond_handle'].r_0*ori,
                                                        ori, triplet=self.who_am_i)
-        p_bottom = self.associated_objects[2].set_object(pos-self.bond_handle.r_0*ori,
+        p_bottom = self.associated_objects[2].set_object(pos-self.params['bond_handle'].r_0*ori,
                                                           ori, triplet=self.who_am_i)
-        if self.bonding_mode == 'ctc':
+        if self.params['bonding_mode'] == 'ctc':
             self.bond_quartets_center_to_center()
-        if self.bonding_mode == 'ftf':
+        if self.params['bonding_mode'] == 'ftf':
             self.bond_quartets_corner_to_corner()
         self.has_been_set=True
         return self
@@ -206,16 +198,15 @@ class Quadriplex(metaclass=Simulation_Object):
     def bond_quartets_center_to_center(self):
         assert len(
             self.associated_objects) == 3, "a quadriplex can only be created from 3 quartets!!! "
-        assert self.bonding_mode == 'ctc', 'this method is only valid for center to center bonding!!!'
-        self.sys.part.by_id(self.associated_objects[0].type_part_dict['real'][0].id).add_bond(
-            (self.bond_handle, self.sys.part.by_id(self.associated_objects[1].type_part_dict['real'][0].id)))
-        self.sys.part.by_id(self.associated_objects[0].type_part_dict['real'][0].id).add_bond(
-            (self.bond_handle, self.sys.part.by_id(self.associated_objects[2].type_part_dict['real'][0].id)))
+        assert self.params['bonding_mode'] == 'ctc', 'this method is only valid for center to center bonding!!!'
+        self.bond_owned_part_pair(self.associated_objects[0].type_part_dict['real'][0], self.associated_objects[1].type_part_dict['real'][0])   
+
+        self.bond_owned_part_pair(self.associated_objects[0].type_part_dict['real'][0], self.associated_objects[2].type_part_dict['real'][0])
 
     def bond_quartets_corner_to_corner(self):
         assert len(
             self.associated_objects) == 3, "a quadriplex can only be created from 3 quartets!!! "
-        assert self.bonding_mode == 'ftf', 'this method is only valid for corner to corner bonding!!!'
+        assert self.params['bonding_mode'] == 'ftf', 'this method is only valid for corner to corner bonding!!!'
         candidate1, candidate2, candidate3, pair_distances = self.associated_objects[
             0].corner_particles, self.associated_objects[1].corner_particles, self.associated_objects[2].corner_particles, []
 
@@ -229,34 +220,31 @@ class Quadriplex(metaclass=Simulation_Object):
         pair_distances = np.linalg.norm(
             pos1[index_combinations[:, 0]] - pos2[index_combinations[:, 1]], axis=-1)
         filtered_indices = index_combinations[np.isclose(
-            pair_distances, self.bond_handle.r_0)]
+            pair_distances, self.params['bond_handle'].r_0)]
         for index_pair in filtered_indices:
             p1_id, p2_id = index_pair
-            self.sys.part.by_id(candidate1[p1_id].id).add_bond(
-                (self.bond_handle, self.sys.part.by_id(candidate2[p2_id].id)))
+            self.bond_owned_part_pair(candidate1[p1_id], candidate2[p2_id])
 
         pair_distances = np.linalg.norm(
             pos1[index_combinations[:, 0]] - pos3[index_combinations[:, 1]], axis=-1)
         filtered_indices = index_combinations[np.isclose(
-            pair_distances, self.bond_handle.r_0)]
+            pair_distances, self.params['bond_handle'].r_0)]
         for index_pair in filtered_indices:
             p1_id, p2_id = index_pair
-            self.sys.part.by_id(candidate1[p1_id].id).add_bond(
-                (self.bond_handle, self.sys.part.by_id(candidate3[p2_id].id)))
+            self.bond_owned_part_pair(candidate1[p1_id], candidate3[p2_id])
 
     def add_bending_potential(self, bending_potential_handle):
         assert len(
             self.associated_objects) == 3, "a quadriplex can only be created from 3 quartets!!! "
         self.bending_potential_handle=bending_potential_handle
         logging.info(f'adding bending potential to {self.__class__.__name__} with id {self.who_am_i}')
-        if self.bonding_mode == 'ctc':
-            
+        if self.params['bonding_mode'] == 'ctc':
             central = self.associated_objects[0].type_part_dict['real'][0]
             top = self.associated_objects[1].type_part_dict['real'][0]
             bottom = self.associated_objects[2].type_part_dict['real'][0]
             central.add_bond((self.bending_potential_handle, top,  bottom))
 
-        if self.bonding_mode == 'ftf':
+        if self.params['bonding_mode'] == 'ftf':
             center_corners = self.associated_objects[0].corner_particles
             top_corners = self.associated_objects[1].corner_particles
             bottom_corners = self.associated_objects[-1].corner_particles

@@ -1,7 +1,6 @@
 import numpy as np
 from pressomancy.simulation import Simulation, SWPart
 
-
 n_part=100
 vol_frac=0.01
 xi=5
@@ -24,8 +23,9 @@ tau0_inv=735412234.8230474
 
 sim_inst = Simulation(box_dim=box_l)
 sim_inst.set_sys()
+configuration=SWPart.config.specify(sigma=LJ_SIGMA, size=LJ_SIGMA, kT_KVm_inv=kT_KVm_inv, dipm=dipole_moment, dt_incr=t_*tstp, tau0_inv=tau0_inv, HK_inv=HK_inv, espresso_handle=sim_inst.sys)
 
-sw_parts=[SWPart(sigma=LJ_SIGMA,kT_KVm_inv=kT_KVm_inv,dipm=dipole_moment,dt_incr=t_*tstp,tau0_inv=tau0_inv,HK_inv=HK_inv,espresso_handle=sim_inst.sys) for _ in range(n_part)]
+sw_parts=[SWPart(config=configuration) for _ in range(n_part)]
 sim_inst.store_objects(sw_parts)
 sim_inst.set_objects(sw_parts)
 
