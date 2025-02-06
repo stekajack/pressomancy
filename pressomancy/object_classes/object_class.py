@@ -3,6 +3,7 @@ import types
 from functools import partial
 import logging
 import espressomd
+import itertools
 
 def _generic_type_exception(scope, name, attribute_name, expected_type):
     raise NotImplementedError(
@@ -157,6 +158,7 @@ class Simulation_Object(type):
         helper_set_attribute(instance,"build_function",RoutineWithArgs())
         helper_set_attribute(instance,"set_object",Simulation_Object.set_object)
         helper_set_attribute(instance,"add_particle",Simulation_Object.add_particle)
+        helper_set_attribute(instance,"get_owned_part",Simulation_Object.get_owned_part)
         helper_set_attribute(instance,"bond_owned_part_pair",Simulation_Object.bond_owned_part_pair)
         helper_set_attribute(instance,"change_part_type",Simulation_Object.change_part_type)
         helper_set_attribute(instance,"modify_system_attribute",generic_modify_system_attribute)
@@ -238,8 +240,36 @@ class Simulation_Object(type):
         for key,elem in self.type_part_dict.items():
             for prt in elem:
                 prt.remove()
+
+    def get_owned_part(self):
+        """
+        Returns a tuple:
+        - tot_part: a flat list of all particle handles.
+        - particle_chains: a list (same length as tot_part) where each element
+                            is a list of (class_name, who_am_i) tuples representing
+                            the chain of objects from 'self' to the object that directly
+                            holds the particle.
+        """
+        tot_part = []
+        particle_chains = []
+
+        def worker(obj, chain):
+            # Update the chain with the current object's identity.
+            new_chain = chain + [(obj.__class__.__name__, obj.who_am_i)]
+            # Get all the particle handles from the current object.
+            parts = list(itertools.chain.from_iterable(obj.type_part_dict.values()))
+            # For each particle, record both the particle and its chain.
+            for part in parts:
+                tot_part.append(part)
+                particle_chains.append(new_chain)
+            # Recurse into any associated objects.
+            if obj.associated_objects is not None:
+                for sub_obj in obj.associated_objects:
+                    worker(sub_obj, new_chain)
+                    
+        worker(self, [])
+        return tot_part, particle_chains
         
-                
     def add_particle(self, type_name, pos, **kwargs):
         """
         Adds a particle to the simulation box.

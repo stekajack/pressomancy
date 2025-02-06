@@ -10,7 +10,8 @@ setup(
     test_suite="test",
     include_package_data=True,  # Include non-Python files like those in the resources folder
     install_requires=[
-        "numpy",  # Add any pip-installable dependencies here
+        "numpy", 
+         "h5py", # Add any pip-installable dependencies here
         # Don't include espresso since it's run via pypresso
     ],
     classifiers=[

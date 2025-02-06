@@ -34,15 +34,15 @@ class Quartet(metaclass=Simulation_Object):
 
         assert config['type'] == 'solid' or config['type'] == 'broken', 'type must be either solid or broken!!!'
         assert config['n_parts'] == len(Quartet._referece_sheet), 'n_parts must be equal to the number of parts in the reference sheet!!!'
-        Quartet.numInstances += 1
         self.sys=config['espresso_handle']
         self.params=config
         if self.params['type'] == 'broken':
             assert self.params['bond_handle'] != None, 'broken quartets require a bond to be set!!!'
             Quartet.part_types.update({'circ': 28,
                   'squareA': 24, 'squareB': 25, 'cation': 27})
-       
         self.who_am_i = Quartet.numInstances
+        Quartet.numInstances += 1
+
         self.orientor = np.empty(shape=3, dtype=float)
         self.corner_particles = []
         self.type_part_dict=PartDictSafe({key: [] for key in Quartet.part_types.keys()})

@@ -21,12 +21,12 @@ class Filament(metaclass=Simulation_Object):
         '''
         Initialisation of a filament object requires the specification of particle size, number of parts and a handle to the espresso system
         '''
-        Filament.numInstances += 1
         self.sys=config['espresso_handle']
         self.params=config
         self.associated_objects=self.params['associated_objects']
         self.build_function=RoutineWithArgs(func=make_centered_rand_orient_point_array,num_monomers=self.params['n_parts'])
         self.who_am_i = Filament.numInstances
+        Filament.numInstances += 1
         self.orientor = np.empty(shape=3, dtype=float)
         self.type_part_dict=PartDictSafe({key: [] for key in Filament.part_types.keys()})
 
