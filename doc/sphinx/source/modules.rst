@@ -2,6 +2,8 @@ pressomancy
 ===========
 
 .. toctree::
-   :maxdepth: 4
+   :maxdepth: 2
 
    pressomancy
+   pressomancy.object_classes
+   pressomancy.analysis

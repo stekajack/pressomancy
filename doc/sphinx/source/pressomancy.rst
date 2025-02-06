@@ -33,6 +33,14 @@ pressomancy.simulation module
    :undoc-members:
    :show-inheritance:
 
+pressomancy.analysis module
+---------------------------
+
+.. automodule:: pressomancy.analysis
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 Module contents
 ---------------
 
