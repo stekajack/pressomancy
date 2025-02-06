@@ -215,7 +215,6 @@ class Simulation():
                     logging.info(f'{objects[0].__class__.__name__} set!!!')
                     break
 
-
     def mark_for_collision_detection(self, object_type=Quadriplex, part_type=666):
         assert any(isinstance(ele, object_type) for ele in self.objects), "method assumes simulation holds correct type object"
 
@@ -503,3 +502,92 @@ class Simulation():
             logging.info(f'position casing progress: {len(object_positions)/self.no_objects}')
 
         return np.array(object_positions)
+    
+    def collect_class_names(self, objects_to_register):
+        '''
+        Get a sorted set of class names in and within objects_to_register iterable
+
+        :param self: Description
+        :type self: 
+        :param objects_to_register: iterable containing objects using the SimulationObject metaclass
+        :type objects_to_register: 
+        :return: Description
+        :rtype: list[Any]'''
+        all_types = set()
+        def traverse(obj):
+            if obj.associated_objects is not None:
+                for sub_obj in obj.associated_objects:
+                    class_name = obj.__class__.__name__
+                    all_types.add(class_name)
+                    traverse(sub_obj)
+            else:
+                class_name = obj.__class__.__name__
+                all_types.add(class_name)
+
+        for obj in objects_to_register:
+            traverse(obj)
+
+        return sorted(all_types)
+
+    def inscribe_part_group_to_h5(self, group_type=None, h5_file=None):
+        """
+        Creates the HDF5 structure for this Crowder object.
+        """
+        group_type_name=group_type.__name__
+        logging.info(f"Inscribe: Creating group {group_type_name}")
+        properties=[('id',1), ('type',1), ('pos',3), ('f',3),('dip',3)]
+        par_grp = h5_file.require_group(f"particles")
+        data_grp = par_grp.require_group(group_type_name)
+        objects_to_register=[obj for obj in self.objects if isinstance(obj,group_type)]
+        connect_grp = h5_file.require_group(f"connectivity")
+        sorted_map=self.collect_class_names(objects_to_register)
+
+        all_part,coordstuff=[],[]
+        for cr in objects_to_register:
+            part,coord=cr.get_owned_part()
+            all_part.extend(part)
+            coordstuff.extend(coord)
+
+        total_part_num=len(all_part)
+        for name in sorted_map:
+            connect_grp.create_dataset(f"ParticleHandle_to_{name}", shape=(total_part_num, 2), maxshape=(total_part_num, 2), dtype=np.int32)
+        iid=0
+        for part,name_iid in zip(all_part,coordstuff):
+            for el in name_iid:
+                dataset = connect_grp[f"ParticleHandle_to_{el[0]}"]
+                dataset[iid, :] = (part.id, el[1])
+            iid+=1
+        
+        for prop,dim in properties:
+            prop_group = data_grp.require_group(prop)
+            prop_group.create_dataset("step", shape=(0,), maxshape=(None,), dtype=np.int32)
+            prop_group.create_dataset("time", shape=(0,), maxshape=(None,), dtype=np.float32)
+            prop_group.create_dataset(
+                "value",
+                shape=(0, total_part_num, dim),  # Store all particles in a single dataset
+                maxshape=(None, total_part_num, dim),
+                dtype=np.float32,
+                chunks=(1, total_part_num, dim),
+                compression="gzip",
+                compression_opts=4
+            )
+        hot_potato= group_type_name, all_part, [name for name, _ in properties]
+        return hot_potato
+
+    def write_part_group_to_h5(self, config=None, time_step=None, h5_file=None):
+        group_type_name, all_part, properties = config
+        particles_group = h5_file["particles"]
+        data_grp = particles_group[group_type_name]
+
+        for prop in properties:
+            dataset_val = data_grp[f"{prop}/value"]
+            step_dataset = data_grp[f"{prop}/step"]
+            time_dataset = data_grp[f"{prop}/time"]
+            step_dataset.resize((dataset_val.shape[0] + 1,))
+            time_dataset.resize((dataset_val.shape[0] + 1,))
+            dataset_val.resize((dataset_val.shape[0] + 1, dataset_val.shape[1], dataset_val.shape[2]))
+            step_dataset[-1] = time_step
+            time_dataset[-1] = time_step
+            dataset_val[-1, :, :] = np.array([np.atleast_1d(getattr(part, prop)) for part in all_part], dtype=np.float32)
+
+        logging.info(f"Successfully wrote timestep for {group_type_name}.")

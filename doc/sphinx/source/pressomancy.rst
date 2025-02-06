@@ -9,6 +9,11 @@ Subpackages
 
    pressomancy.object_classes
 
+.. toctree::
+   :maxdepth: 4
+
+   pressomancy.analysis
+
 Submodules
 ----------
 
