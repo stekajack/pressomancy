@@ -186,6 +186,7 @@ class Filament(metaclass=Simulation_Object):
         :param type_key: Description
         :type type_key:  '''
         assert all([type_key in x.part_types.keys() for x in self.associated_objects]), 'type key must exist in the part_types of all associated monomers!'
+        assert self.associated_objects != None, 'self.associated_objects must not be None for this method ot work correctly'
         len_sq=pow(self.associated_objects[0].params['n_parts'],2)
         for el1,el2 in pairwise(self.associated_objects):
             el1_pos=np.mean([x.pos for x in el1.type_part_dict['real']],axis=0)
@@ -196,6 +197,21 @@ class Filament(metaclass=Simulation_Object):
 
             x, y = small_spheres1[0], small_spheres2[0]
             self.bond_owned_part_pair(x,y)
+    
+    def add_bending_potential(self, type_key, bond_handle):
+        flat_part_list=[]
+        if self.associated_objects!=None:
+            for obj in self.associated_objects:
+                flat_part_list.extend(obj.type_part_dict[type_key])
+        else:
+            flat_part_list.extend(self.type_part_dict[type_key])
+
+        if bond_handle not in self.sys.bonded_inter:
+            self.sys.bonded_inter.add(bond_handle)
+            logging.info(f'bond handle added to system for Object {self.__class__,self.who_am_i}')
+
+        for iid in range(1,len(flat_part_list)-1):
+            flat_part_list[iid].add_bond((bond_handle, flat_part_list[iid+1],  flat_part_list[iid-1]))
         
     def bond_quadriplexes(self, mode='hinge'):
         '''
