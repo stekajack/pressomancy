@@ -50,7 +50,7 @@ class OTP(metaclass=Simulation_Object):
         :return: None
 
         '''
-        rotation_matrix = align_vectors(np.array([0,0,1]),ori) # 0,0,1 is the default director in espressomd
+        rotation_matrix = align_vectors(np.array([0.0,0.0,1.0]),ori) # 0,0,1 is the default director in espressomd
         rotated_rigid_body = np.dot(OTP._referece_sheet,rotation_matrix.T) + np.tile(pos, (self.params['n_parts'],1))
         parts = [self.add_particle(type_name='otp', pos=el_pos) for el_pos in rotated_rigid_body]
         self.bond_owned_part_pair(parts[0],parts[1], bond_handle=self.params['rig_bond_long'])

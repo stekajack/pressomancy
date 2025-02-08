@@ -973,7 +973,7 @@ def align_vectors(v1, v2):
     if np.isclose(cos_theta, 1.0):
         return np.eye(3)
     if np.isclose(cos_theta, -1.0):
-        orthogonal_vector = np.array([1, 0, 0]) if not np.isclose(v1[0], 1.0) else np.array([0, 1, 0])
+        orthogonal_vector = np.array([1.0, 0.0, 0.0]) if not np.isclose(v1[0], 1.0) else np.array([0.0, 1.0, 0.0])
         orthogonal_vector -= v1 * np.dot(orthogonal_vector, v1)
         orthogonal_vector /= np.linalg.norm(orthogonal_vector)
         return -np.eye(3) + 2 * np.outer(orthogonal_vector, orthogonal_vector)

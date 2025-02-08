@@ -56,7 +56,7 @@ class Quartet(metaclass=Simulation_Object):
         :return: None
 
         '''
-        rotation_matrix = align_vectors(np.array([0,0,1]),ori) # 0,0,1 is the default director in espressomd
+        rotation_matrix = align_vectors(np.array([0.0,0.0,1.0]),ori) # 0,0,1 is the default director in espressomd
         positions = np.dot(Quartet._referece_sheet,rotation_matrix.T) + pos 
         particles=[self.add_particle(type_name='virt',pos=pos) for pos in positions]
         diag = np.sqrt(2)*4
