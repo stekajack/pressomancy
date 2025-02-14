@@ -70,11 +70,10 @@ class IOTest(BaseTestCase):
         with tempfile.TemporaryDirectory() as tmpdirname:
             # Build a temporary filename inside the directory
             h5_filename = os.path.join(tmpdirname, "testfile.h5")
-            with h5py.File(h5_filename, "w") as f:
-                hot_potato=sim_inst.inscribe_part_group_to_h5(group_type=Filament, h5_file=f)
-                for bookkeeper in range(10):
-                    sim_inst.sys.integrator.run(1)
-                    sim_inst.write_part_group_to_h5(config=hot_potato,time_step=0,h5_file=f)
-                    self.get_and_check(f,bookkeeper)
+            GLOBAL_COUNTER=sim_inst.inscribe_part_group_to_h5(group_type=Filament, h5_data_path=h5_filename)
+            for bookkeeper in range(10):
+                sim_inst.sys.integrator.run(1)
+                sim_inst.write_part_group_to_h5(time_step=GLOBAL_COUNTER)
+                self.get_and_check(sim_inst.io_dict['h5_file'], bookkeeper)
 
         
