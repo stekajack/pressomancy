@@ -84,14 +84,8 @@ class TelSeq(metaclass=Simulation_Object):
         assert self.params['n_parts'] == len(
             self.associated_objects), " there doest seem to be enough monomers stored!!! "
         assert all([x.simulation_type==self.associated_objects[0].simulation_type for x in self.associated_objects[1:]]), 'all objects must have the same simulation type!'
-        logic = (obj_el.set_object(pos_el, self.orientor)
-                    for obj_el, pos_el in zip(self.associated_objects, pos))
-
-        while True:
-            try:
-                parts = next(logic)
-            except StopIteration:
-                break
+        for obj_el, pos_el in zip(self.associated_objects, pos):
+            _=obj_el.set_object(pos_el, self.orientor)
         return self
 
     def wrap_into_Tel(self):

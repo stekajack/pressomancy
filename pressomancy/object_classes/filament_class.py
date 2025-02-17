@@ -53,12 +53,8 @@ class Filament(metaclass=Simulation_Object):
             type_str=self.associated_objects[0].simulation_type.key
             logic = (obj_el.set_object(pos_el, self.orientor)
                         for obj_el, pos_el in zip(self.associated_objects, pos))
-
-        while True:
-            try:
-                parts = next(logic)
-            except StopIteration:
-                break
+        for part in logic:
+            pass
         return self
 
     def add_anchors(self,type_key):
@@ -81,20 +77,14 @@ class Filament(metaclass=Simulation_Object):
                 pp.director = director
             logic_front = ((self.add_particle(type_name='virt', pos=pp.pos + 0.5 * self.params['sigma'] * director, rotation=(False, False, False)), pp) for pp in handles)
             logic_back = ((self.add_particle(type_name='virt', pos=pp.pos - 0.5 * self.params['sigma'] * director, rotation=(False, False, False)), pp) for pp in handles)
-            while True:
-                try:
-                    p_hndl_front, pp = next(logic_front)
+
+            for p_hndl_front, pp in logic_front:
                     p_hndl_front.vs_auto_relate_to(pp)
                     self.fronts_indices.append(p_hndl_front.id)
-                except StopIteration:
-                    break
-            while True:
-                try:
-                    p_hndl_back, pp = next(logic_back)
+
+            for p_hndl_back, pp in logic_back:
                     p_hndl_back.vs_auto_relate_to(pp)
                     self.backs_indices.append(p_hndl_back.id)
-                except StopIteration:
-                    break
             # logging.info(f'anchors added for Filament {self.who_am_i}')
 
     def bond_overlapping_virtualz(self, crit=0.):
@@ -106,15 +96,10 @@ class Filament(metaclass=Simulation_Object):
         '''
         handles_font = list(self.sys.part.by_ids(self.fronts_indices))
         handles_back = list(self.sys.part.by_ids(self.backs_indices))
-
-        logic = (self.bond_owned_part_pair(pp_f,pp_b) for pp_f, pp_b in product(
-            handles_font, handles_back) if np.isclose(np.linalg.norm(pp_f.pos-pp_b.pos), crit))
-        while True:
-            try:
-                next(logic)
-            except StopIteration:
-                # logging.info('virts are bonded')
-                break
+        for pp_f, pp_b in product(handles_font, handles_back):
+            if np.isclose(np.linalg.norm(pp_f.pos-pp_b.pos), crit):
+                self.bond_owned_part_pair(pp_f,pp_b)
+        
 
     def add_dipole_to_embedded_virt(self, type_name, dip_magnitude=1.):
         '''
@@ -127,18 +112,10 @@ class Filament(metaclass=Simulation_Object):
         self.magnetizable_virts=[]
         Filament.dip_magnitude = dip_magnitude
         handles = self.type_part_dict[type_name]
-        logic = (
-            (self.add_particle(type_name='to_be_magnetized', pos=pp.pos,
-                dip=Filament.dip_magnitude*self.orientor, rotation=(False, False, False)), pp) for pp in handles)
-        while True:
-            try:
-                p_hndl, pp = next(logic)
+        for pp in handles:
+            p_hndl=self.add_particle(type_name='to_be_magnetized', pos=pp.pos,dip=Filament.dip_magnitude*self.orientor, rotation=(False, False, False))
                 p_hndl.vs_auto_relate_to(pp)
                 self.magnetizable_virts.append(p_hndl.id)
-
-            except StopIteration:
-                # logging.info(f'added embedded virtuals with dipole moments on Filament {self.who_am_i}')
-                break
 
     def add_dipole_to_type(self, type_name, dip_magnitude=1.):
         '''
