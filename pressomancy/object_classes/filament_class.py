@@ -114,8 +114,8 @@ class Filament(metaclass=Simulation_Object):
         handles = self.type_part_dict[type_name]
         for pp in handles:
             p_hndl=self.add_particle(type_name='to_be_magnetized', pos=pp.pos,dip=Filament.dip_magnitude*self.orientor, rotation=(False, False, False))
-                p_hndl.vs_auto_relate_to(pp)
-                self.magnetizable_virts.append(p_hndl.id)
+            p_hndl.vs_auto_relate_to(pp)
+            self.magnetizable_virts.append(p_hndl.id)
 
     def add_dipole_to_type(self, type_name, dip_magnitude=1.):
         '''
