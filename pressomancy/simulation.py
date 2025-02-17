@@ -187,35 +187,70 @@ class Simulation():
         logging.info(f'{iterable_list[0].__class__.__name__}s stored')
 
     def set_objects(self, objects):
-            '''
-            Method that genrates random positions and orientations for the managed objects (3 sheets per quadriplex), loops trough the stored Quadriplexes in self.objects and calls Quadriplex specific set_quadriplex() method. Note that the positions generated need not necessarely be in the simulation box so this should only be used with PBC.
-            '''
-            assert all(isinstance(item, type(objects[0])) for item in objects), "Not all items have the same type!"
-            # centeres, polymer_positions = partition_cubic_volume_oriented_rectangles(big_box_dim=self.sys.box_l, num_spheres=len(
-            #     filaments), small_box_dim=np.array([filaments[0].sigma, filaments[0].sigma, filaments[0].size]), num_monomers=filaments[0].n_parts)
-            # positions= generate_positions(len(objects), self.sys.box_l, 7.)
-            if not self.part_positions:
-                centeres, positions, orientations = partition_cubic_volume(box_length=self.sys.box_l[0], num_spheres=len(
-                objects), sphere_diameter=objects[0].params['size'],routine_per_volume=objects[0].build_function)
-                self.volume_centers.extend(centeres)
-                self.part_positions.extend(positions)
-                self.volume_size=objects[0].params['size']
-            else:
-                centeres, positions, orientations = partition_cubic_volume(box_length=self.sys.box_l[0], num_spheres=len(
-                objects), sphere_diameter=objects[0].params['size'],routine_per_volume=objects[0].build_function)
-                res=get_cross_lattice_noninterceting_volumes(centeres,objects[0].params['size'],self.volume_centers,self.part_positions,self.volume_size,self.sys.box_l[0])
-                mask=[key for key,val in res.items() if all(val)]
-                positions=positions[mask]
-                orientations=orientations[mask]
+        
+        """
+        Positions may lie outside the simulation box, so this should be used with PBC (Periodic Boundary Conditions).
 
-            logic = (object_el.set_object(pos_el, orient_el)
-                    for object_el, pos_el, orient_el in zip(objects, positions, orientations))
-            while True:
-                try:
-                    next(logic)
-                except StopIteration:
-                    logging.info(f'{objects[0].__class__.__name__} set!!!')
-                    break
+        Raises
+        ------
+        AssertionError
+            If not all items in the objects list are of the same type.
+
+        Notes
+        -----
+        - On the first placement, it generates exactly len(objects) positions.
+        - On subsequent placements, it searches for positions without overlaps.
+        - If not enough valid placements are found, it increases the search space and retries.
+        """
+        # Ensure all objects are of the same type.
+        assert all(isinstance(item, type(objects[0])) for item in objects), "Not all items have the same type!"
+
+        if not self.part_positions:
+            # First placement: generate exactly len(objects) positions.
+            gen_hndl = partition_cubic_volume(
+                box_length=self.sys.box_l[0],
+                num_spheres=len(objects),
+                sphere_diameter=objects[0].params['size'],
+                routine_per_volume=objects[0].build_function
+            )
+            results = [next(gen_hndl) for _ in range(len(objects))]
+            centeres, positions, orientations = zip(*results)
+            self.volume_centers = centeres
+            self.part_positions = positions
+            self.volume_size = objects[0].params['size']
+        else:
+            # Subsequent placements: search for positions without overlaps.
+            factor = 1.0
+            positions, orientations = [], []
+            while len(positions) < len(objects):
+                gen_hndl = partition_cubic_volume(
+                    box_length=self.sys.box_l[0],
+                    num_spheres=len(objects) * factor,
+                    sphere_diameter=objects[0].params['size'],
+                    routine_per_volume=objects[0].build_function
+                )
+                for cent, pos, ori in gen_hndl:
+                    res = next(get_cross_lattice_nonintersecting_volumes(
+                        [cent],
+                        objects[0].params['size'],
+                        self.volume_centers,
+                        self.part_positions,
+                        self.volume_size,
+                        self.sys.box_l[0]
+                    ))
+                    if all(res):
+                        positions.append(pos)
+                        orientations.append(ori)
+                        if len(positions) >= len(objects):
+                            break
+                if len(positions) < len(objects):
+                    logging.warning(f'Failed to find enough space; (found, needed): {(len(positions), len(objects))}')
+                    factor *= 2
+                    positions, orientations = [], []  # Reset if not enough valid placements found.
+
+        for obj, pos, ori in zip(objects, positions, orientations):
+            obj.set_object(pos, ori)
+        logging.info(f'{objects[0].__class__.__name__} set!!!')
 
     def mark_for_collision_detection(self, object_type=Quadriplex, part_type=666):
         assert any(isinstance(ele, object_type) for ele in self.objects), "method assumes simulation holds correct type object"

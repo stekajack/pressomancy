@@ -559,8 +559,8 @@ def get_neighbours(lattice_points: np.ndarray, volume_side: float, cuttoff: floa
 
 def get_neighbours_cross_lattice(lattice1, lattice2, volume_side, cuttoff=1.):
     grouped_indices = defaultdict(list)
-    points_a = np.array(lattice1)
-    points_b = np.array(lattice2)
+    points_a = np.atleast_2d(lattice1)
+    points_b = np.atleast_2d(lattice2)
     num_b = len(points_b)
     indices_b = np.arange(num_b)
     box_dim=np.ones(3) * volume_side
@@ -571,7 +571,7 @@ def get_neighbours_cross_lattice(lattice1, lattice2, volume_side, cuttoff=1.):
     
     return grouped_indices
 
-def calculate_pairwise_distances(points_a, points_b, box_length=None):
+def calculate_pairwise_distances(points_a, points_b, box_length):
     """
     Calculate the pairwise distances between two sets of points, considering 
     periodic boundary conditions if provided.
@@ -594,8 +594,8 @@ def calculate_pairwise_distances(points_a, points_b, box_length=None):
     """
     
     # Ensure inputs are numpy arrays
-    points_a = np.array(points_a)
-    points_b = np.array(points_b)
+    points_a = np.atleast_2d(points_a)
+    points_b = np.atleast_2d(points_b)
     
     # Get the number of points in each set
     num_a = len(points_a)
@@ -658,106 +658,65 @@ def make_centered_rand_orient_point_array(center=np.array([0,0,0]),sphere_radius
 
 def partition_cubic_volume(box_length, num_spheres, sphere_diameter, routine_per_volume=RoutineWithArgs(),flag='rand'):
     """
-    Partition a cubic volume into spherical regions and generate points within 
-    each spherical region using a routine provided by the user or a default routine.
-
+    Partitions a cubic volume into spherical regions and generates points within them.
+    This function creates a face-centered cubic (FCC) lattice of spheres within a cubic volume and optionally generates points within each sphere according to a specified routine.
+    
     Parameters
     ----------
     box_length : float
-        The length of the cubic box (assumed to be equal on all sides) in which 
-        the spheres are placed.
+        The length of the cubic volume's side.
     num_spheres : int
-        The number of spherical regions to be placed within the cubic volume.
+        The desired number of spherical regions to create.
     sphere_diameter : float
-        The diameter of each spherical region. The radius is calculated as half 
-        of this value.
-    routine_per_volume : RoutineWithArgs or callable, optional
-        A function or callable object responsible for generating points within 
-        each spherical volume. If not provided, a default `RoutineWithArgs` is used. 
-        The callable is expected to accept the following parameters:
-            - center: array-like, coordinates of the center of the sphere.
-            - num_monomers: int, the number of points to generate within the sphere.
-            - sphere_radius: float, the radius of the sphere.
-
-    Returns
-    -------
-    sphere_centers : ndarray
-        An array of shape `(num_spheres, 3)` representing the coordinates of the 
-        centers of the spherical volumes.
-    result : ndarray
-        An array of shape `(num_spheres, num_monomers, 3)` representing the generated 
-        points inside each spherical region. Each `num_monomers` corresponds to the 
-        points inside one spherical volume.
-
-    Raises
+        The diameter of each spherical region.
+    routine_per_volume : RoutineWithArgs, optional
+        A callable object that generates points within each sphere. Default is empty RoutineWithArgs.
+    flag : str, optional
+        Determines the arrangement of sphere centers. 'rand' for random shuffling. Default is 'rand'.
+    Yields
     ------
-    AssertionError
-        If the number of available spherical centers (volumes) is less than the number 
-        of required spheres. This is addressed by dynamically scaling the lattice to 
-        ensure enough space for all spheres.
-    ValueError
-        If `routine_per_volume.num_monomers` is not provided, or if it is zero or negative.
-
+    tuple
+        A tuple containing:
+        - center (array-like): The coordinates of the sphere's center
+        - points (array-like): The generated points within the sphere (or center if no routine)
+        - orientation (array-like): The orientation vector for the sphere
     Notes
     -----
-    The function uses an FCC (face-centered cubic) lattice to place the centers of the 
-    spheres within the cubic box. It dynamically adjusts the lattice scaling if the 
-    initial placement does not provide enough spherical regions to meet `num_spheres`.
-
-    The routine provided by `routine_per_volume` is responsible for generating the 
-    internal structure (i.e., monomer points) within each spherical volume. The function 
-    ensures that these points do not overlap with points in neighboring spheres by 
-    applying periodic boundary conditions and checking the distances between points.
-
-    Minimum image distance calculations are done using the `min_img_dist` function, which 
-    ensures proper handling of periodic boundary conditions.
+    The function adjusts the scaling of the FCC lattice to ensure at least the requested number of spherical regions can be accommodated. It also handles periodic boundary conditions when calculating distances between points.
+    The points generated within each sphere are checked for overlaps with points in neighboring spheres to ensure valid placement.
     """
     
-    # Calculate the radius of each sphere
-    sphere_radius = sphere_diameter * 0.5
-    
-    # Initialize variables for dynamic scaling of lattice
+    sphere_radius = sphere_diameter * 0.5    
     volumes_to_fill = 0
     scaling = 1.0
     
-    # Continue adjusting the lattice scaling until enough volumes (spheres) are available
+    # Continue adjusting scaling until enough volumes are available
+    sphere_centers=[]
     while volumes_to_fill < num_spheres:
         sphere_centers = fcc_lattice(radius=sphere_radius, volume_side=box_length, scaling_factor=scaling)
         volumes_to_fill = len(sphere_centers)
         logging.info(f'num_spheres_needed, num_spheres_got: {num_spheres, volumes_to_fill}')
         scaling -= 0.1
     logging.info(f'scaling used: {scaling + 0.1}')
-    # Randomly shuffle the available centers and select the required number of centers
-    take_index = np.arange(len(sphere_centers))
+  
     if flag=='rand':
-        np.random.shuffle(take_index)
-    take_index = take_index[:num_spheres]
-    sphere_centers=sphere_centers[take_index]
-    #grouped_volumes is a dictionary that contains all neighouring lattice sites sphere_diameter
-    grouped_volumes=get_neighbours(sphere_centers,volume_side=box_length,cuttoff=sphere_diameter)
-
-    # Ensure that we have enough spherical regions to accommodate the required number of spheres
-    assert len(sphere_centers) >= num_spheres, 'Not enough volumes available. Consider introducing a scaling factor.'
+        np.random.shuffle(sphere_centers)
     
-    # Initialize an array to store the generated points inside each spherical region
-    result = np.empty((num_spheres, routine_per_volume.num_monomers, 3))
-    orientations=np.empty((num_spheres,3))
-
     # Perform the point generation routine if `num_monomers` not 0
     if routine_per_volume.num_monomers>1:
+        grouped_volumes=(get_neighbours_cross_lattice(lattice1=point,lattice2=sphere_centers,volume_side=box_length,cuttoff=sphere_diameter) for point in sphere_centers)
         grouped_positions = defaultdict(list)
-        
         # For each selected center, generate points using the provided routine
-        for i, center in enumerate(sphere_centers):
+        for i, (center, grp_vol_loc) in enumerate(zip(sphere_centers,grouped_volumes)):
             valid_placement = False
-            
             # Ensure the points do not overlap with points in neighboring volumes
+            points, orientation=[],[]
             while not valid_placement:
                 orientation, points = routine_per_volume(center=center, num_monomers=routine_per_volume.num_monomers, sphere_radius=sphere_radius)
                 should_proceed = True
                 
                 # Check for overlaps with points in neighboring spheres
-                for volume_id in grouped_volumes[i]:
+                for volume_id in grp_vol_loc:
                     if grouped_positions[volume_id]:
                         distances=calculate_pairwise_distances(points,grouped_positions[volume_id],box_length=box_length)
                         if np.any(distances < sphere_diameter / routine_per_volume.num_monomers):
@@ -767,16 +726,12 @@ def partition_cubic_volume(box_length, num_spheres, sphere_diameter, routine_per
                 # If no overlaps were detected, finalize the placement of the points
                 if should_proceed:
                     grouped_positions[i].extend(points)
-                    result[i] = points
-                    orientations[i] = orientation
-
                     valid_placement = True
+            yield center, points, orientation
     else:
-        shpsd=sphere_centers
-        result=shpsd
         orientations=generate_random_unit_vectors(len(sphere_centers))
-        
-    return sphere_centers, result, orientations
+        for center,ori in zip(sphere_centers,orientations):
+            yield center, center, ori
 
 def partition_cubic_volume_oriented_rectangles(big_box_dim, num_spheres, small_box_dim, num_monomers):
     """
@@ -936,20 +891,42 @@ def get_orientation_vec(pos):
     pr_comp /= np.linalg.norm(pr_comp)
     return np.array(pr_comp, float)
 
-def get_cross_lattice_noninterceting_volumes(sphere_centers_long, sph_diam_log,sphere_centers_short, grouped_part_pos_short,sph_diam_short,box_len):
-    # assume lattice doesn need to use scaling and it fits in the box for now!!!
+def get_cross_lattice_nonintersecting_volumes(sphere_centers_long, sph_diam_log,sphere_centers_short, grouped_part_pos_short,sph_diam_short,box_len):
+    """
+    Calculate non-intersecting volumes between two different lattices of spheres.
 
+    This function identifies volumes in two different lattices (long and short) that do not intersect with each other based on sphere diameters and positions.
+
+    Parameters
+    ----------
+    sphere_centers_long : array-like
+        Centers of spheres in the first (long) lattice
+    sph_diam_log : float
+        Diameter of spheres in the long lattice
+    sphere_centers_short : array-like
+        Centers of spheres in the second (short) lattice
+    grouped_part_pos_short : array-like
+        Grouped positions of particles in the short lattice
+    sph_diam_short : float
+        Diameter of spheres in the short lattice
+    box_len : float
+        Length of the simulation box
+
+    Yields
+    ------
+    list
+        Boolean mask indicating which volumes do not intersect. True indicates
+        non-intersecting volumes, False indicates intersecting volumes.
+    """
     neigh=get_neighbours_cross_lattice(sphere_centers_long,sphere_centers_short,
     box_len,cuttoff=(sph_diam_log+sph_diam_short)*0.5)
-    aranged_cross_lattice_options={}
     for vol_id,associated_vol_ids in neigh.items():
         mask=[]
         if associated_vol_ids:
             for as_vol_id in associated_vol_ids:
-                res=calculate_pairwise_distances([sphere_centers_long[vol_id]], grouped_part_pos_short[as_vol_id], box_length=box_len)
+                res=calculate_pairwise_distances(sphere_centers_long[vol_id], grouped_part_pos_short[as_vol_id], box_length=box_len)
                 mask.append(all([x>0.5*sph_diam_short for x in res if not np.isclose(x,0.)])) 
-        aranged_cross_lattice_options[vol_id]=mask
-    return aranged_cross_lattice_options
+        yield mask
 
 def align_vectors(v1, v2):
     """
