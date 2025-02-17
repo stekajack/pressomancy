@@ -79,12 +79,12 @@ class Filament(metaclass=Simulation_Object):
             logic_back = ((self.add_particle(type_name='virt', pos=pp.pos - 0.5 * self.params['sigma'] * director, rotation=(False, False, False)), pp) for pp in handles)
 
             for p_hndl_front, pp in logic_front:
-                    p_hndl_front.vs_auto_relate_to(pp)
-                    self.fronts_indices.append(p_hndl_front.id)
+                p_hndl_front.vs_auto_relate_to(pp)
+                self.fronts_indices.append(p_hndl_front.id)
 
             for p_hndl_back, pp in logic_back:
-                    p_hndl_back.vs_auto_relate_to(pp)
-                    self.backs_indices.append(p_hndl_back.id)
+                p_hndl_back.vs_auto_relate_to(pp)
+                self.backs_indices.append(p_hndl_back.id)
             # logging.info(f'anchors added for Filament {self.who_am_i}')
 
     def bond_overlapping_virtualz(self, crit=0.):
