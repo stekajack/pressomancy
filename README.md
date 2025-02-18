@@ -54,9 +54,10 @@ from pressomancy.objects import Filament
 # Initialize EsoressoMD instace and set system parameters
 sim_inst = Simulation(box_dim=(10,10,10))
 sim_inst.set_sys()
-
+# Make a custom configuration (object aware)
+configuration=Filament.config.specify(params....)
 # Add simulation objects
-filaments = [Filament(params=...) for x in range(#)]
+filaments = [Filament(configuration) for x in range(#)]
 # Register objects  in the simulation instance
 sim_inst.store_objects(filaments)
 # Create objects inside the EspressoMD instance
