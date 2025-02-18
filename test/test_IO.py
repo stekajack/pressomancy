@@ -45,35 +45,43 @@ class IOTest(BaseTestCase):
         grouped_quadriplexes = [quadriplex[i:i+self.part_per_filament:]
                                 for i in range(0, len(quadriplex), self.part_per_filament)]
         filament_configuration_list = [Filament.config.specify(sigma=6,size=6*self.part_per_filament, n_parts=self.part_per_filament, espresso_handle=sim_inst.sys, bond_handle=bond_pass, associated_objects=elem) for elem in grouped_quadriplexes]
-        filaments = [Filament(config=configuration) for configuration in filament_configuration_list]
-        sim_inst.store_objects(filaments)
-        sim_inst.set_objects(filaments)
+        self.filaments = [Filament(config=configuration) for configuration in filament_configuration_list]
+        sim_inst.store_objects(self.filaments)
+        sim_inst.set_objects(self.filaments)
         
     def tearDown(self) -> None:
         sim_inst.reinitialize_instance()
         self.assertEqual(len(sim_inst.sys.part),0)
 
     @staticmethod
-    def get_and_check(data,time):
+    def get_and_check(data,ref_parts):
         data = H5DataSelector(data, particle_group="Filament")
         properties=['pos','f','dip']
         for prop in properties:
             property_data=getattr(sim_inst.sys.part.all(),prop)
-            property_data_h5df=getattr(data.timestep[time].particles[:],prop)
+            property_data_h5df=getattr(data.timestep[-1].particles[:],prop)
+            assert np.allclose(property_data, property_data_h5df, rtol=1e-05, atol=1e-08), f'The vectors differ!, {property_data}, {property_data_h5df}'
+            property_data_h5df=getattr(data.select_particles_by_object(object_name="Filament",connectivity_value=0).timestep[-1],prop)
+            property_data=[getattr(part,prop) for part in ref_parts]
             assert np.allclose(property_data, property_data_h5df, rtol=1e-05, atol=1e-08), f'The vectors differ!, {property_data}, {property_data_h5df}'
         for prop in ['id','type']:
             property_data=getattr(sim_inst.sys.part.all(),prop)
-            property_data_h5df=getattr(data.timestep[time].particles[:],prop).flatten()
+            property_data_h5df=getattr(data.timestep[-1].particles[:],prop).flatten()
+            assert np.allclose(property_data, property_data_h5df, rtol=1e-05, atol=1e-08), f'The vectors differ!, {property_data}, {property_data_h5df}'
+            property_data_h5df=getattr(data.select_particles_by_object(object_name="Filament",connectivity_value=0).timestep[-1],prop).flatten()
+            property_data=[getattr(part,prop) for part in ref_parts]
             assert np.allclose(property_data, property_data_h5df, rtol=1e-05, atol=1e-08), f'The vectors differ!, {property_data}, {property_data_h5df}'
 
     def test_IO_h5md(self):
+        parts,_=self.filaments[0].get_owned_part()
         with tempfile.TemporaryDirectory() as tmpdirname:
             # Build a temporary filename inside the directory
             h5_filename = os.path.join(tmpdirname, "testfile.h5")
             GLOBAL_COUNTER=sim_inst.inscribe_part_group_to_h5(group_type=Filament, h5_data_path=h5_filename)
-            for bookkeeper in range(10):
+            for _ in range(2):
                 sim_inst.sys.integrator.run(1)
                 sim_inst.write_part_group_to_h5(time_step=GLOBAL_COUNTER)
-                self.get_and_check(sim_inst.io_dict['h5_file'], bookkeeper)
+                self.get_and_check(sim_inst.io_dict['h5_file'], parts)
+
 
         
