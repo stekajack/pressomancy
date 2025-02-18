@@ -106,7 +106,7 @@ class CustomObject(metaclass=Simulation_Object):
 
 - **`objects`**: Library of simulation objects.
 - **`resources`**: resources and metadata for objects.
-- **`utilities`**: Library of utilities and anaysis routines.
+- **`analysis`**: Library of utilities and anaysis routines.
 - **`simulation`**: Centralized management of the simulation state.
 
 ## Contributing
