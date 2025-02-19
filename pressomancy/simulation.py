@@ -204,53 +204,40 @@ class Simulation():
         """
         # Ensure all objects are of the same type.
         assert all(isinstance(item, type(objects[0])) for item in objects), "Not all items have the same type!"
-
         if not self.part_positions:
             # First placement: generate exactly len(objects) positions.
-            gen_hndl = partition_cubic_volume(
+            centeres, positions, orientations = partition_cubic_volume(
                 box_length=self.sys.box_l[0],
                 num_spheres=len(objects),
                 sphere_diameter=objects[0].params['size'],
                 routine_per_volume=objects[0].build_function
             )
-            results = [next(gen_hndl) for _ in range(len(objects))]
-            centeres, positions, orientations = zip(*results)
-            self.volume_centers = centeres
-            self.part_positions = positions
+            self.volume_centers.extend(centeres)
+            self.part_positions.extend(positions)
             self.volume_size = objects[0].params['size']
         else:
             # Subsequent placements: search for positions without overlaps.
-            factor = 1.0
-            positions, orientations = [], []
-            while len(positions) < len(objects):
-                gen_hndl = partition_cubic_volume(
+            factor = 1
+            while True:
+                centeres, positions, orientations = partition_cubic_volume(
                     box_length=self.sys.box_l[0],
                     num_spheres=len(objects) * factor,
                     sphere_diameter=objects[0].params['size'],
                     routine_per_volume=objects[0].build_function
                 )
-                for cent, pos, ori in gen_hndl:
-                    res = next(get_cross_lattice_nonintersecting_volumes(
-                        [cent],
-                        objects[0].params['size'],
-                        self.volume_centers,
-                        self.part_positions,
-                        self.volume_size,
-                        self.sys.box_l[0]
-                    ))
-                    if all(res):
-                        positions.append(pos)
-                        orientations.append(ori)
-                        if len(positions) >= len(objects):
-                            break
-                if len(positions) < len(objects):
-                    logging.warning(f'Failed to find enough space; (found, needed): {(len(positions), len(objects))}')
+                res=get_cross_lattice_nonintersecting_volumes(centeres,objects[0].params['size'],self.volume_centers,self.part_positions,self.volume_size,self.sys.box_l[0])
+                mask=[key for key,val in res.items() if all(val)]
+                positions=positions[mask]
+                orientations=orientations[mask]
+                if len(positions) >= len(objects):
+                    break
+                else :
+                    logging.warning('Failed to find enough space; (found, needed): (%d, %d)', len(positions), len(objects))
                     factor *= 2
-                    positions, orientations = [], []  # Reset if not enough valid placements found.
 
         for obj, pos, ori in zip(objects, positions, orientations):
             obj.set_object(pos, ori)
-        logging.info(f'{objects[0].__class__.__name__} set!!!')
+        logging.info('%s set!!!', objects[0].__class__.__name__)
 
     def mark_for_collision_detection(self, object_type=Quadriplex, part_type=666):
         assert any(isinstance(ele, object_type) for ele in self.objects), "method assumes simulation holds correct type object"

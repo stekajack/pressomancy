@@ -3,6 +3,7 @@ from itertools import product
 from collections import defaultdict
 import inspect
 import logging
+from scipy.spatial import cKDTree
 
 class MissingFeature(Exception):
     pass
@@ -656,10 +657,11 @@ def make_centered_rand_orient_point_array(center=np.array([0,0,0]),sphere_radius
     orientation_vector = direction_vector / np.linalg.norm(direction_vector)
     return orientation_vector,points
 
-def partition_cubic_volume(box_length, num_spheres, sphere_diameter, routine_per_volume=RoutineWithArgs(),flag='rand'):
+def partition_cubic_volume(box_length, num_spheres, sphere_diameter, routine_per_volume=RoutineWithArgs(), flag='rand'):
     """
     Partitions a cubic volume into spherical regions and generates points within them.
-    This function creates a face-centered cubic (FCC) lattice of spheres within a cubic volume and optionally generates points within each sphere according to a specified routine.
+    This function creates a face-centered cubic (FCC) lattice of spheres within a cubic volume and optionally
+    generates points within each sphere according to a specified routine.
     
     Parameters
     ----------
@@ -673,65 +675,70 @@ def partition_cubic_volume(box_length, num_spheres, sphere_diameter, routine_per
         A callable object that generates points within each sphere. Default is empty RoutineWithArgs.
     flag : str, optional
         Determines the arrangement of sphere centers. 'rand' for random shuffling. Default is 'rand'.
-    Yields
-    ------
-    tuple
-        A tuple containing:
+    
+    Returns
+    -------
+    list of tuples
+        Each tuple contains:
         - center (array-like): The coordinates of the sphere's center
         - points (array-like): The generated points within the sphere (or center if no routine)
         - orientation (array-like): The orientation vector for the sphere
-    Notes
-    -----
-    The function adjusts the scaling of the FCC lattice to ensure at least the requested number of spherical regions can be accommodated. It also handles periodic boundary conditions when calculating distances between points.
-    The points generated within each sphere are checked for overlaps with points in neighboring spheres to ensure valid placement.
     """
-    
     sphere_radius = sphere_diameter * 0.5    
-    volumes_to_fill = 0
     scaling = 1.0
     
-    # Continue adjusting scaling until enough volumes are available
-    sphere_centers=[]
-    while volumes_to_fill < num_spheres:
+    # Adjust scaling until we have enough sphere centers
+    while True:
         sphere_centers = fcc_lattice(radius=sphere_radius, volume_side=box_length, scaling_factor=scaling)
-        volumes_to_fill = len(sphere_centers)
-        logging.info(f'num_spheres_needed, num_spheres_got: {num_spheres, volumes_to_fill}')
+        volumes_to_fill=len(sphere_centers)
+        logging.info('num_spheres_needed, num_spheres_got: %s', (num_spheres, volumes_to_fill))
+        if  volumes_to_fill>= num_spheres:
+            break
         scaling -= 0.1
-    logging.info(f'scaling used: {scaling + 0.1}')
-  
-    if flag=='rand':
-        np.random.shuffle(sphere_centers)
+    logging.info('scaling used: %s', scaling)
     
-    # Perform the point generation routine if `num_monomers` not 0
-    if routine_per_volume.num_monomers>1:
-        grouped_volumes=(get_neighbours_cross_lattice(lattice1=point,lattice2=sphere_centers,volume_side=box_length,cuttoff=sphere_diameter) for point in sphere_centers)
+    # Convert to a NumPy array and select the desired number of centers (shuffling if needed)
+    sphere_centers = np.array(sphere_centers)
+    if flag == 'rand':
+        np.random.shuffle(sphere_centers)
+    sphere_centers = sphere_centers[:num_spheres]
+    
+    # Build a KDTree for the sphere centers to get neighbor indices (handling periodic boundaries)
+    tree = cKDTree(sphere_centers, boxsize=box_length)
+    results = np.empty((num_spheres, routine_per_volume.num_monomers, 3))
+    orientations=np.empty((num_spheres,3))
+    # Case: More than one monomer per volume
+    if routine_per_volume.num_monomers > 1:
         grouped_positions = defaultdict(list)
-        # For each selected center, generate points using the provided routine
-        for i, (center, grp_vol_loc) in enumerate(zip(sphere_centers,grouped_volumes)):
+        for i, center in enumerate(sphere_centers):
+            # Replace get_neighbours_cross_lattice with KDTree query_ball_point
+            neighbors = tree.query_ball_point(center, r=sphere_diameter) # type: ignore
             valid_placement = False
-            # Ensure the points do not overlap with points in neighboring volumes
-            points, orientation=[],[]
             while not valid_placement:
-                orientation, points = routine_per_volume(center=center, num_monomers=routine_per_volume.num_monomers, sphere_radius=sphere_radius)
+                orientation, points = routine_per_volume(
+                    center=center, num_monomers=routine_per_volume.num_monomers, sphere_radius=sphere_radius
+                    )
                 should_proceed = True
                 
                 # Check for overlaps with points in neighboring spheres
-                for volume_id in grp_vol_loc:
+                for volume_id in neighbors:
                     if grouped_positions[volume_id]:
-                        distances=calculate_pairwise_distances(points,grouped_positions[volume_id],box_length=box_length)
+                        distances = calculate_pairwise_distances(points, grouped_positions[volume_id], box_length=box_length)
                         if np.any(distances < sphere_diameter / routine_per_volume.num_monomers):
                             should_proceed = False
                             break
                 
-                # If no overlaps were detected, finalize the placement of the points
                 if should_proceed:
                     grouped_positions[i].extend(points)
+                    results[i] = points
+                    orientations[i] = orientation
                     valid_placement = True
-            yield center, points, orientation
+
     else:
+        results=sphere_centers
         orientations=generate_random_unit_vectors(len(sphere_centers))
-        for center,ori in zip(sphere_centers,orientations):
-            yield center, center, ori
+        
+    return sphere_centers, results, orientations
 
 def partition_cubic_volume_oriented_rectangles(big_box_dim, num_spheres, small_box_dim, num_monomers):
     """
@@ -920,13 +927,15 @@ def get_cross_lattice_nonintersecting_volumes(sphere_centers_long, sph_diam_log,
     """
     neigh=get_neighbours_cross_lattice(sphere_centers_long,sphere_centers_short,
     box_len,cuttoff=(sph_diam_log+sph_diam_short)*0.5)
+    aranged_cross_lattice_options={}
     for vol_id,associated_vol_ids in neigh.items():
         mask=[]
         if associated_vol_ids:
             for as_vol_id in associated_vol_ids:
-                res=calculate_pairwise_distances(sphere_centers_long[vol_id], grouped_part_pos_short[as_vol_id], box_length=box_len)
+                res=calculate_pairwise_distances([sphere_centers_long[vol_id]], grouped_part_pos_short[as_vol_id], box_length=box_len)
                 mask.append(all([x>0.5*sph_diam_short for x in res if not np.isclose(x,0.)])) 
-        yield mask
+        aranged_cross_lattice_options[vol_id]=mask
+    return aranged_cross_lattice_options
 
 def align_vectors(v1, v2):
     """
