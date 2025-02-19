@@ -3,7 +3,6 @@ from itertools import product
 from collections import defaultdict
 import inspect
 import logging
-from scipy.spatial import cKDTree
 
 class MissingFeature(Exception):
     pass
@@ -539,23 +538,91 @@ def generate_random_unit_vectors(N_PART):
     y = r * np.sin(phi)
     return np.column_stack((x, y, z))
 
-def get_neighbours(lattice_points: np.ndarray, volume_side: float, cuttoff: float=1.)-> defaultdict[int,list[float]]:
-    '''
-    returns grouped_indices, where grouped_indices is a dictionary that contains partile:neighours (within cuttoff)
-    '''
+def build_grid_and_adjacent(lattice_points, volume_side, cell_size):
+    """
+    Builds a grid dictionary mapping each cell id (tuple) to a list of particle indices, and
+    an adjacent-cells dictionary mapping each occupied cell id to a list of its adjacent cell ids (including itself),
+    taking periodic boundary conditions into account.
 
-    lattice_len = len(lattice_points)
-    indices = np.arange(lattice_len)
-    index_combinations = np.array(list(product(indices, repeat=2)))
-    box_dim=np.ones(shape=3)*volume_side
-    distances = np.linalg.norm(min_img_dist(lattice_points[index_combinations[:, 0]],
-                                            lattice_points[index_combinations[:, 1]], box_dim=box_dim), axis=-1)
-    valid_indices = index_combinations[(
-        distances > 0) & (distances < cuttoff)]
+    Parameters
+    ----------
+    lattice_points : np.ndarray of shape (N, 3)
+        Array of particle positions.
+    volume_side : float
+        The side length of the cubic volume.
+    cell_size : float
+        The grid cell size (typically set equal to the cuttoff distance).
+
+    Returns
+    -------
+    grid : defaultdict(list)
+        Dictionary mapping cell id (tuple of ints) to a list of particle indices in that cell.
+    num_cells : int
+        The number of cells per dimension.
+    adjacent : dict
+        Dictionary mapping each occupied cell id to a list of adjacent cell ids (as tuples), with periodic boundaries.
+    """
+    num_cells = int(np.ceil(volume_side / cell_size))
+    # Compute cell indices for all points in one go using vectorized operations.
+    cells = np.floor(lattice_points / cell_size).astype(int) % num_cells
+    grid = defaultdict(list)
+    # Group indices by cell ID.
+    for idx, cell in enumerate(cells):
+        grid[tuple(cell)].append(idx)
+    # Precompute neighbor offsets (all combinations of -1, 0, 1 in 3 dimensions).
+    neighbor_offsets = list(product([-1, 0, 1], repeat=3))
+    
+    # Build the adjacent cells dictionary only for the occupied cells.
+    adjacent = {}
+    for cell in grid.keys():
+        cell_arr = np.array(cell)
+        # For each offset, compute the neighboring cell id with periodic wrapping.
+        adjacent[cell] = [tuple((cell_arr + np.array(offset)) % num_cells) for offset in neighbor_offsets]
+    
+    return grid, adjacent
+
+def get_neighbours(lattice_points: np.ndarray, volume_side: float, cuttoff: float = 1.) -> defaultdict:
+    """
+    Returns grouped_indices, where grouped_indices is a dictionary that maps each particle index
+    to a list of neighbor indices within the cuttoff distance. Uses a grid-based method for efficiency,
+    and reuses the min_img_dist function for distance calculations.
+    
+    Parameters
+    ----------
+    lattice_points : np.ndarray of shape (N, 3)
+        Array of particle positions.
+    volume_side : float
+        The side length of the cubic volume.
+    cuttoff : float, optional
+        The neighbor distance threshold.
+    
+    Returns
+    -------
+    grouped_indices : defaultdict[int, list[int]]
+        Dictionary mapping each particle index to a list of neighbor indices.
+    """
+    # Use cuttoff as the grid cell size.
+    cell_size = cuttoff
+    grid, adjacent_cells = build_grid_and_adjacent(lattice_points, volume_side, cell_size)
+    
     grouped_indices = defaultdict(list)
-
-    for index_pair in valid_indices:
-        grouped_indices[index_pair[0]].append(index_pair[1])
+    box_dim = np.ones(3) * volume_side
+    
+    # For each occupied cell in the grid...
+    for cell, indices in grid.items():
+        # Get the list of adjacent cells (neighbors) for this cell.
+        neighbor_cells = adjacent_cells[cell]
+        # For every particle in the current cell...
+        for i in indices:
+            # Check particles in each neighboring cell.
+            for adj_cell in neighbor_cells:
+                for j in grid.get(adj_cell, []):
+                    if j == i:
+                        continue
+                    # Use min_img_dist to compute the distance with periodic boundaries.
+                    diff = min_img_dist(lattice_points[i], lattice_points[j], box_dim=box_dim)
+                    if np.linalg.norm(diff) < cuttoff:
+                        grouped_indices[i].append(j)
     return grouped_indices
 
 def get_neighbours_cross_lattice(lattice1, lattice2, volume_side, cuttoff=1.):
@@ -572,9 +639,9 @@ def get_neighbours_cross_lattice(lattice1, lattice2, volume_side, cuttoff=1.):
     
     return grouped_indices
 
-def calculate_pairwise_distances(points_a, points_b, box_length):
+def calculate_pair_distances(points_a, points_b, box_length):
     """
-    Calculate the pairwise distances between two sets of points, considering 
+    Calculate the pair distances between two sets of points, considering 
     periodic boundary conditions if provided.
 
     Parameters
@@ -590,7 +657,7 @@ def calculate_pairwise_distances(points_a, points_b, box_length):
     Returns
     -------
     distances : np.array of shape (N, M)
-        A 2D array of pairwise distances between each point in `points_a` and 
+        A 2D array of pair distances between each point in `points_a` and 
         each point in `points_b`.
     """
     
@@ -602,11 +669,11 @@ def calculate_pairwise_distances(points_a, points_b, box_length):
     num_a = len(points_a)
     num_b = len(points_b)
     
-    # Create index combinations for pairwise comparisons
+    # Create index combinations for pair comparisons
     indices_a = np.arange(num_a)
     indices_b = np.arange(num_b)
     
-    # Create a grid of all pairwise combinations of indices
+    # Create a grid of all pair combinations of indices
     index_combinations = np.array(list(product(indices_a, indices_b)))
     
     # Extract corresponding points for each pair
@@ -620,26 +687,41 @@ def calculate_pairwise_distances(points_a, points_b, box_length):
     return distances
 
 def fcc_lattice(radius, volume_side, scaling_factor=1.):
-    '''
-    Generate spherical volume positions centered on an fcc lattice, inside a cubic volume.
-    The calculation requires the spherical volume radius and the side length of the cubic volume.
-    returns lattice_points
-    '''
-
-    # lattice constant determined so that the spheres touch along the face diagonal of the unit lattice
+    """
+    Generates a face-centered cubic (FCC) lattice of points within a cubic volume.
+    The function creates an FCC crystal structure where spheres of given radius are
+    arranged such that they touch along the face diagonal of the unit lattice.
+    Parameters
+    ----------
+    radius : float
+        Radius of the spheres in the lattice.
+    volume_side : float
+        Length of the cubic volume's side.
+    scaling_factor : float, optional
+        Factor to scale the radius of the spheres. Default is 1.0.
+    Returns
+    -------
+    np.ndarray
+        Array of shape (N, 3) containing the coordinates of the lattice points,
+        where N is the number of points in the FCC lattice.
+    Notes
+    -----
+    The lattice constant is calculated as 2*radius_scaled/sqrt(2), where
+    radius_scaled = radius*scaling_factor. The function ensures the lattice
+    fits within the given volume by removing the last row of points to avoid
+    periodic boundary condition overlaps.
+    """
+    
     radius_scaled = radius*scaling_factor
     lattice_constant = 2 * radius_scaled / np.sqrt(2)
     num_points = int(np.ceil(volume_side / lattice_constant))
-    # remove last row. num_points is rounded up, so he have to remove the last row to avoid overflowing the box (would end up creating compeltely overlapping particles in PBC)
     indices = np.arange(num_points-1)
     x, y, z = np.meshgrid(indices, indices, indices, indexing='ij')
-
     sum_indices = x + y + z
     mask = sum_indices % 2 == 0
-
     lattice_points = np.column_stack(
         (x[mask], y[mask], z[mask])) * lattice_constant + np.ones(shape=3)*radius
-    # if np.isclose(min([x for x in calculate_pairwise_distances(lattice_points,lattice_points,box_length=volume_side) if x>0.01]),2 * radius_scaled):
+    # if np.isclose(min([x for x in calculate_pair_distances(lattice_points,lattice_points,box_length=volume_side) if x>0.01]),2 * radius_scaled):
     #     warnings.warn('box_l is not big enough to avoid pbc clipping of the partitioning!')
     return lattice_points
 
@@ -696,23 +778,22 @@ def partition_cubic_volume(box_length, num_spheres, sphere_diameter, routine_per
             break
         scaling -= 0.1
     logging.info('scaling used: %s', scaling)
-    
-    # Convert to a NumPy array and select the desired number of centers (shuffling if needed)
-    sphere_centers = np.array(sphere_centers)
-    if flag == 'rand':
-        np.random.shuffle(sphere_centers)
-    sphere_centers = sphere_centers[:num_spheres]
-    
-    # Build a KDTree for the sphere centers to get neighbor indices (handling periodic boundaries)
-    tree = cKDTree(sphere_centers, boxsize=box_length)
+
+    # Randomly shuffle the available centers and select the required number of centers
+    take_index = np.arange(len(sphere_centers))
+    if flag=='rand':
+        np.random.shuffle(take_index)
+    take_index = take_index[:num_spheres]
+    sphere_centers=sphere_centers[take_index]  
+    # Initialize an array to store the generated points inside each spherical region
     results = np.empty((num_spheres, routine_per_volume.num_monomers, 3))
     orientations=np.empty((num_spheres,3))
-    # Case: More than one monomer per volume
-    if routine_per_volume.num_monomers > 1:
+    # Perform the point generation routine if `num_monomers` not 0
+    if routine_per_volume.num_monomers>1:
         grouped_positions = defaultdict(list)
+        #grouped_volumes is a dictionary that contains all neighouring lattice sites sphere_diameter  
+        grouped_volumes=get_neighbours(sphere_centers,volume_side=box_length,cuttoff=sphere_diameter)
         for i, center in enumerate(sphere_centers):
-            # Replace get_neighbours_cross_lattice with KDTree query_ball_point
-            neighbors = tree.query_ball_point(center, r=sphere_diameter) # type: ignore
             valid_placement = False
             while not valid_placement:
                 orientation, points = routine_per_volume(
@@ -721,9 +802,9 @@ def partition_cubic_volume(box_length, num_spheres, sphere_diameter, routine_per
                 should_proceed = True
                 
                 # Check for overlaps with points in neighboring spheres
-                for volume_id in neighbors:
+                for volume_id in grouped_volumes[i]:
                     if grouped_positions[volume_id]:
-                        distances = calculate_pairwise_distances(points, grouped_positions[volume_id], box_length=box_length)
+                        distances = calculate_pair_distances(points, grouped_positions[volume_id], box_length=box_length)
                         if np.any(distances < sphere_diameter / routine_per_volume.num_monomers):
                             should_proceed = False
                             break
@@ -733,7 +814,6 @@ def partition_cubic_volume(box_length, num_spheres, sphere_diameter, routine_per
                     results[i] = points
                     orientations[i] = orientation
                     valid_placement = True
-
     else:
         results=sphere_centers
         orientations=generate_random_unit_vectors(len(sphere_centers))
@@ -932,7 +1012,7 @@ def get_cross_lattice_nonintersecting_volumes(sphere_centers_long, sph_diam_log,
         mask=[]
         if associated_vol_ids:
             for as_vol_id in associated_vol_ids:
-                res=calculate_pairwise_distances([sphere_centers_long[vol_id]], grouped_part_pos_short[as_vol_id], box_length=box_len)
+                res=calculate_pair_distances([sphere_centers_long[vol_id]], grouped_part_pos_short[as_vol_id], box_length=box_len)
                 mask.append(all([x>0.5*sph_diam_short for x in res if not np.isclose(x,0.)])) 
         aranged_cross_lattice_options[vol_id]=mask
     return aranged_cross_lattice_options

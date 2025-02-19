@@ -204,6 +204,9 @@ class Simulation():
         """
         # Ensure all objects are of the same type.
         assert all(isinstance(item, type(objects[0])) for item in objects), "Not all items have the same type!"
+        # centeres, polymer_positions = partition_cubic_volume_oriented_rectangles(big_box_dim=self.sys.box_l, num_spheres=len(
+        #     filaments), small_box_dim=np.array([filaments[0].sigma, filaments[0].sigma, filaments[0].size]), num_monomers=filaments[0].n_parts)
+        # positions= generate_positions(len(objects), self.sys.box_l, 7.)
         if not self.part_positions:
             # First placement: generate exactly len(objects) positions.
             centeres, positions, orientations = partition_cubic_volume(
