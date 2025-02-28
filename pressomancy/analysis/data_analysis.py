@@ -62,6 +62,7 @@ class H5DataSelector:
         ds_name = f"connectivity/ParticleHandle_to_{object_name}"
         connectivity_map = self.h5_file[ds_name][:]
         particle_indices = connectivity_map[connectivity_map[:, 1] == connectivity_value][:, 0]
+        particle_indices.sort()
         return H5DataSelector(self.h5_file, self.particle_group, ts_slice=self.ts_slice, pt_slice=particle_indices)
     
     def __getattr__(self, attr):
