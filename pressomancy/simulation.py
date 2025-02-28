@@ -187,27 +187,29 @@ class Simulation():
         logging.info(f'{iterable_list[0].__class__.__name__}s stored')
 
     def set_objects(self, objects):
-        
-        """
-        Positions may lie outside the simulation box, so this should be used with PBC (Periodic Boundary Conditions).
-
+        """Set objects' positions and orientations in the simulation box.
+        This method places objects in the simulation box using a partitioning scheme. For the first placement, it generates exactly the required number of positions. For subsequent placements, it searches for non-overlapping positions with existing objects.
+        Parameters
+        ----------
+        objects : list
+            A list of simulation objects to be placed. All objects must be of the same type.
         Raises
         ------
         AssertionError
-            If not all items in the objects list are of the same type.
-
+            If not all objects are of the same type.
+        NotImplementedError
+            If trying to place objects when more than one previous partition exists.
         Notes
         -----
-        - On the first placement, it generates exactly len(objects) positions.
-        - On subsequent placements, it searches for positions without overlaps.
-        - If not enough valid placements are found, it increases the search space and retries.
+        The current implementation supports placing objects either in an empty system or in a system with exactly one previous partition. The method uses partition_cubic_volume to generate positions and orientations, and for subsequent placements, ensures no overlaps with existing objects through get_cross_lattice_nonintersecting_volumes. The method automatically adjusts the search space (by increasing the factor) if it cannot find enough non-overlapping positions in subsequent placements.
         """
+        
         # Ensure all objects are of the same type.
         assert all(isinstance(item, type(objects[0])) for item in objects), "Not all items have the same type!"
         # centeres, polymer_positions = partition_cubic_volume_oriented_rectangles(big_box_dim=self.sys.box_l, num_spheres=len(
         #     filaments), small_box_dim=np.array([filaments[0].sigma, filaments[0].sigma, filaments[0].size]), num_monomers=filaments[0].n_parts)
         # positions= generate_positions(len(objects), self.sys.box_l, 7.)
-        if not self.part_positions:
+        if len(self.part_positions)== 0:
             # First placement: generate exactly len(objects) positions.
             centeres, positions, orientations = partition_cubic_volume(
                 box_length=self.sys.box_l[0],
@@ -215,10 +217,10 @@ class Simulation():
                 sphere_diameter=objects[0].params['size'],
                 routine_per_volume=objects[0].build_function
             )
-            self.volume_centers.extend(centeres)
-            self.part_positions.extend(positions)
+            self.volume_centers.append(centeres)
+            self.part_positions.append(positions)
             self.volume_size = objects[0].params['size']
-        else:
+        elif len(self.part_positions) == 1:
             # Subsequent placements: search for positions without overlaps.
             factor = 1
             while True:
@@ -228,7 +230,15 @@ class Simulation():
                     sphere_diameter=objects[0].params['size'],
                     routine_per_volume=objects[0].build_function
                 )
-                res=get_cross_lattice_nonintersecting_volumes(centeres,objects[0].params['size'],self.volume_centers,self.part_positions,self.volume_size,self.sys.box_l[0])
+                res=get_cross_lattice_nonintersecting_volumes(
+                    current_lattice_centers=centeres,
+                    current_lattice_grouped_part_pos=positions,
+                    current_lattice_diam=objects[0].params['size'],
+                    other_lattice_centers=self.volume_centers[0],
+                    other_lattice_grouped_part_pos=self.part_positions[0],
+                    other_lattice_diam=self.volume_size,
+                    box_len=self.sys.box_l[0]
+                    )
                 mask=[key for key,val in res.items() if all(val)]
                 positions=positions[mask]
                 orientations=orientations[mask]
@@ -237,7 +247,9 @@ class Simulation():
                 else :
                     logging.warning('Failed to find enough space; (found, needed): (%d, %d)', len(positions), len(objects))
                     factor *= 2
-
+        else:
+            raise NotImplementedError('The repartitioning scheme can currently handle only the case where one previos partition exists. More than than is still not supported')
+        
         for obj, pos, ori in zip(objects, positions, orientations):
             obj.set_object(pos, ori)
         logging.info('%s set!!!', objects[0].__class__.__name__)

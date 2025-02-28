@@ -621,7 +621,7 @@ def get_neighbours(lattice_points: np.ndarray, volume_side: float, cuttoff: floa
                         continue
                     # Use min_img_dist to compute the distance with periodic boundaries.
                     diff = min_img_dist(lattice_points[i], lattice_points[j], box_dim=box_dim)
-                    if np.linalg.norm(diff) < cuttoff:
+                    if np.linalg.norm(diff) <= cuttoff:
                         grouped_indices[i].append(j)
     return grouped_indices
 
@@ -978,42 +978,49 @@ def get_orientation_vec(pos):
     pr_comp /= np.linalg.norm(pr_comp)
     return np.array(pr_comp, float)
 
-def get_cross_lattice_nonintersecting_volumes(sphere_centers_long, sph_diam_log,sphere_centers_short, grouped_part_pos_short,sph_diam_short,box_len):
+def get_cross_lattice_nonintersecting_volumes(current_lattice_centers, current_lattice_grouped_part_pos, current_lattice_diam,other_lattice_centers, other_lattice_grouped_part_pos,other_lattice_diam,box_len):
     """
-    Calculate non-intersecting volumes between two different lattices of spheres.
-
-    This function identifies volumes in two different lattices (long and short) that do not intersect with each other based on sphere diameters and positions.
-
+    Calculate non-intersecting volumes between particles in two different lattices. This function determines which volumes from one lattice do not intersect with volumes from another lattice, considering periodic boundary conditions.
     Parameters
     ----------
-    sphere_centers_long : array-like
-        Centers of spheres in the first (long) lattice
-    sph_diam_log : float
-        Diameter of spheres in the long lattice
-    sphere_centers_short : array-like
-        Centers of spheres in the second (short) lattice
-    grouped_part_pos_short : array-like
-        Grouped positions of particles in the short lattice
-    sph_diam_short : float
-        Diameter of spheres in the short lattice
+    current_lattice_centers : array-like
+        Centers of volumes in the first lattice
+    current_lattice_grouped_part_pos : array-like 
+        Particle positions grouped by volume for first lattice
+    current_lattice_diam : float
+        Diameter of particles in first lattice
+    other_lattice_centers : array-like
+        Centers of volumes in the second lattice
+    other_lattice_grouped_part_pos : array-like
+        Particle positions grouped by volume for second lattice
+    other_lattice_diam : float
+        Diameter of particles in second lattice
     box_len : float
-        Length of the simulation box
-
-    Yields
-    ------
-    list
-        Boolean mask indicating which volumes do not intersect. True indicates
-        non-intersecting volumes, False indicates intersecting volumes.
+        Length of periodic box
+    Returns
+    -------
+    dict
+        Dictionary with volume IDs as keys and lists of boolean masks as values.
+        Each mask indicates whether the volume from first lattice intersects
+        with corresponding volumes from second lattice.
+    Notes
+    -----
+    The function uses a cutoff distance of (d1 + d2)/2 where d1, d2 are the 
+    diameters of particles in respective lattices. Particle pairs are considered
+    non-intersecting if their separation is greater than (d1/n1 + d2/n2)/2,
+    where n1, n2 are the number of particles in respective volumes.
     """
-    neigh=get_neighbours_cross_lattice(sphere_centers_long,sphere_centers_short,
-    box_len,cuttoff=(sph_diam_log+sph_diam_short)*0.5)
+    
+    neigh=get_neighbours_cross_lattice(current_lattice_centers,other_lattice_centers,
+    box_len, cuttoff=(current_lattice_diam+other_lattice_diam)*0.5)
     aranged_cross_lattice_options={}
+    new_crit=(current_lattice_diam/current_lattice_grouped_part_pos.shape[1]+other_lattice_diam/other_lattice_grouped_part_pos.shape[1])*0.5
     for vol_id,associated_vol_ids in neigh.items():
         mask=[]
         if associated_vol_ids:
             for as_vol_id in associated_vol_ids:
-                res=calculate_pair_distances([sphere_centers_long[vol_id]], grouped_part_pos_short[as_vol_id], box_length=box_len)
-                mask.append(all([x>0.5*sph_diam_short for x in res if not np.isclose(x,0.)])) 
+                res=calculate_pair_distances(current_lattice_grouped_part_pos[vol_id], other_lattice_grouped_part_pos[as_vol_id], box_length=box_len)
+                mask.append(all([x>new_crit for x in res if not np.isclose(x,0.)])) 
         aranged_cross_lattice_options[vol_id]=mask
     return aranged_cross_lattice_options
 
