@@ -3,9 +3,22 @@
 
 [![GitHub Pages](https://img.shields.io/badge/GitHub-Pages-blue.svg)](https://stekajack.github.io/pressomancy/)
 
-**Pressomancy** is a Python framework built on top of [EspressoMD](http://espressomd.org/), designed to streamline and abstract the management of objects in molecular simulations. By creating a structured environment for simulation objects, **Pressomancy** enables easy integration, customization, and scalability for complex simulations with minimal setup. 
-
-The framework provides an abstract, modular approach for defining simulation components, ensuring compliance and ease of integration across various objects, such as magnetic filaments, G4 multimers, ligands, and more.
+<table>
+  <tr>
+    <td>
+      <strong>Pressomancy</strong> is a Python framework built on top of 
+      <a href="http://espressomd.org/">EspressoMD</a>, designed to streamline and abstract 
+      the management of objects in molecular simulations. By creating a structured 
+      environment for simulation objects, <strong>Pressomancy</strong> enables easy integration, 
+      customization, and scalability for complex simulations with minimal setup.
+      <br><br>
+      The framework provides an abstract, modular approach for defining simulation components, 
+      ensuring compliance and ease of integration across various objects, such as magnetic 
+      filaments, G4 multimers, ligands, and more.
+    </td>
+   <td><img src="doc/logo/pressomancy_logo_v1.png" width="800"></td>
+  </tr>
+</table>
 
 ## Table of Contents
 
