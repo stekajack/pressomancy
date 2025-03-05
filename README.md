@@ -2,6 +2,7 @@
 # Pressomancy
 
 [![GitHub Pages](https://img.shields.io/badge/GitHub-Pages-blue.svg)](https://stekajack.github.io/pressomancy/)
+[![CI Pipeline](https://github.com/stekajack/pressomancy/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/stekajack/pressomancy/actions/workflows/ci.yml)
 
 <table>
   <tr>
