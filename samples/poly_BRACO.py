@@ -75,9 +75,6 @@ for el in quadriplex:
     el.add_patches_triples()
 sim_inst.set_vdW(key=('patch',), lj_eps=5, lj_size=2.)
 
-for el in quartets:
-    el.exclude_self_interactions()
-
 sim_inst.sys.thermostat.set_langevin(kT=1.0, gamma=1.0, seed=sim_inst.seed)
 sim_inst.sys.integrator.run(0)
 

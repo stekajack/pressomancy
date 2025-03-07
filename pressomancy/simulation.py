@@ -245,8 +245,8 @@ class Simulation():
                 if len(positions) >= len(objects):
                     break
                 else :
-                    logging.warning('Failed to find enough space; (found, needed): (%d, %d)', len(positions), len(objects))
                     factor *= 2
+                    logging.info('Failed to find enough space; (found, needed): (%d, %d). Will retry by requesting %d times the number of parts', len(positions), len(objects),factor)
         else:
             raise NotImplementedError('The repartitioning scheme can currently handle only the case where one previos partition exists. More than than is still not supported')
         
@@ -400,36 +400,40 @@ class Simulation():
         self.sys.lbboundaries.add(top_boundary)
         self.sys.lbboundaries.add(bottom_boundary)
 
-    def avoid_explosion(self, F_TOL, MAX_STEPS=10000, F_incr=100, I_incr=100):
+    def avoid_explosion(self, F_TOL, MAX_STEPS=5, F_incr=100, I_incr=100):
         """
-        Iteratively caps force to prevent simulation to explode due to overlapps in the initial configuration, adjusting parameters until teh relative force cahnge between try is smaller than F_TOL.
-
-        :param F_TOL: float | Tolerance for relative force change.
-        :param MAX_STEPS: int | Maximum number of integration steps. Default is 10000.
-        :param F_incr: int | Increment value for the force cap. Default is 100.
-        :param I_incr: int | Increment value for integration steps. Default is 100.
+        Iteratively caps forces to prevent simulation instabilities.
+        :param F_TOL: float | Force change tolerance between iterations to determine convergence.
+        :param MAX_STEPS: int | Maximum number of steps for force iteration. Default is 5.
+        :param F_incr: int | Amount to increase force cap by each iteration. Default is 100.
+        :param I_incr: int | Amount to increase integration steps by each iteration. Default is 100.
         :return: None
+
+        The method gradually increases both the force cap and integration timestep while monitoring the relative force change between iterations. If the relative change falls below F_TOL or MAX_STEPS is reached, the iteration stops.
         """
+        timestep_og=self.sys.time_step
+        timestep_icr=timestep_og/MAX_STEPS
         logging.info('iterating with a force cap.')
         self.sys.integrator.run(0)
+        STEP=1
         while True:
-            try:
-                old_force = np.max(np.linalg.norm(
-                    self.sys.part.all().f, axis=1))
-                self.sys.force_cap = F_incr
-                self.sys.integrator.run(I_incr)
-                force = np.max(np.linalg.norm(self.sys.part.all().f, axis=1))
-                rel_force = np.abs((force - old_force) / old_force)
-                logging.info(f'rel. force change: {rel_force:.2e}')
-                if (rel_force < F_TOL) or (I_incr >= MAX_STEPS):
-                    raise ValueError
-                I_incr += I_incr
-                F_incr += F_incr
-
-            except ValueError:
-                self.sys.force_cap = 0
-                logging.info('explosions avoided sucessfully!')
+            self.sys.time_step=timestep_icr*STEP
+            old_force = np.max(np.linalg.norm(
+                self.sys.part.all().f, axis=1))
+            self.sys.force_cap = F_incr
+            self.sys.integrator.run(I_incr)
+            force = np.max(np.linalg.norm(self.sys.part.all().f, axis=1))
+            rel_force = np.abs((force - old_force) / old_force)
+            logging.info(f'rel. force change: {rel_force:.2e}')
+            if (rel_force < F_TOL) or (STEP >= MAX_STEPS):
                 break
+            STEP += 1
+            I_incr += I_incr
+            F_incr += F_incr
+
+        self.sys.force_cap = 0
+        self.sys.time_step=timestep_og
+        logging.info('explosions avoided sucessfully!')
 
     def magnetize(self, part_list, dip_magnitude, H_ext):
         '''

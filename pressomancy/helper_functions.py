@@ -1014,7 +1014,8 @@ def get_cross_lattice_nonintersecting_volumes(current_lattice_centers, current_l
     neigh=get_neighbours_cross_lattice(current_lattice_centers,other_lattice_centers,
     box_len, cuttoff=(current_lattice_diam+other_lattice_diam)*0.5)
     aranged_cross_lattice_options={}
-    new_crit=(current_lattice_diam/current_lattice_grouped_part_pos.shape[1]+other_lattice_diam/other_lattice_grouped_part_pos.shape[1])*0.5
+    fact=pow(2,1/6)
+    new_crit=((current_lattice_diam/current_lattice_grouped_part_pos.shape[1])*fact+(other_lattice_diam/other_lattice_grouped_part_pos.shape[1])*fact)*0.5
     for vol_id,associated_vol_ids in neigh.items():
         mask=[]
         if associated_vol_ids:

@@ -75,6 +75,8 @@ class Quartet(metaclass=Simulation_Object):
             particles[0].director = ori
             np.vectorize(lambda real, virts: virts.vs_auto_relate_to(real))(
                 particles[0], particles[1:])
+            for ii, jj in combinations(particles, 2):
+                ii.add_exclusion(jj)
 
         if self.params['type'] == 'broken':
             self.change_part_type(particles[0],'real')
@@ -107,15 +109,9 @@ class Quartet(metaclass=Simulation_Object):
             for key, values in recepie_dict['assoc'].items():
                 np.vectorize(lambda real, virts: virts.vs_auto_relate_to(real))(
                     particles[key], particles[values])
-                for ii, jj in combinations([particles[key].id,]+[x.id for x in particles[values]], 2):
-                    self.sys.part.by_id(ii).add_exclusion(jj)
+                for ii, jj in combinations([particles[key],]+[x for x in particles[values]], 2):
+                    ii.add_exclusion(jj)
         return self
-
-    def exclude_self_interactions(self):
-        flattened_parts=np.array(self.type_part_dict.values()).flatten()
-        for ii, jj in combinations(flattened_parts, 2):
-           ii.add_exclusion(jj)
-        warnings.warn(f'excluded self_interactions within {self.__class__.__name__}s')
 
     def mark_covalent_corner(self, part_type=666):
         random_part = random.choice(self.corner_particles)

@@ -23,6 +23,14 @@ class QuadriplexTest(BaseTestCase):
 
     def test_set_object(self):
         self.instance.set_object(pos=np.array([0,0,0]),ori=np.array([0,0,1]))
+        quartets=self.instance.params['associated_objects']
+        flattened_parts=[]
+        for quartet in quartets:
+            parts,_=quartet.get_owned_part()
+            flattened_parts.extend(parts)
+        check_num=quartets[0].config['n_parts']-1
+        for p in flattened_parts:
+            self.assertEqual(len(p.exclusions), check_num)
         
     def test_add_patches_triples(self):
         self.instance.set_object(pos=np.array([0,0,0]),ori=np.array([0,0,1]))
@@ -49,7 +57,6 @@ class QuadriplexTest(BaseTestCase):
         instance=Quadriplex(Quadriplex.config.specify(espresso_handle=sim_inst.sys, associated_objects=quartets, bonding_mode='ctc'))
         sim_inst.store_objects([instance,])
         instance.set_object(pos=np.array([0,0,0]),ori=np.array([0,0,1]))
-
 
     # def test_mark_covalent_bonds(self):
 
