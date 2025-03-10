@@ -687,11 +687,10 @@ def calculate_pair_distances(points_a, points_b, box_length):
     
     return distances
 
-def fcc_lattice(radius, volume_side, scaling_factor=1.):
+def fcc_lattice(radius, volume_side, scaling_factor=1., max_points_per_side=100):
     """
-    Generates a face-centered cubic (FCC) lattice of points within a cubic volume.
-    The function creates an FCC crystal structure where spheres of given radius are
-    arranged such that they touch along the face diagonal of the unit lattice.
+    Generates a face-centered cubic (FCC) lattice of points within a cubic volume. The function creates an FCC crystal structure where spheres of given radius are arranged such that they touch along the face diagonal of the unit lattice.
+
     Parameters
     ----------
     radius : float
@@ -700,22 +699,36 @@ def fcc_lattice(radius, volume_side, scaling_factor=1.):
         Length of the cubic volume's side.
     scaling_factor : float, optional
         Factor to scale the radius of the spheres. Default is 1.0.
+    max_points_per_side : int, optional
+        Maximum number of points allowed per dimension. Default is 100.
+        If exceeded, lattice constant is increased.
+
     Returns
     -------
     np.ndarray
         Array of shape (N, 3) containing the coordinates of the lattice points,
         where N is the number of points in the FCC lattice.
+
     Notes
     -----
-    The lattice constant is calculated as 2*radius_scaled/sqrt(2), where
-    radius_scaled = radius*scaling_factor. The function ensures the lattice
-    fits within the given volume by removing the last row of points to avoid
-    periodic boundary condition overlaps.
+    - The lattice constant is calculated as 2*radius_scaled/sqrt(2), where 
+      radius_scaled = radius*scaling_factor.
+    - If the number of points per side exceeds max_points_per_side, the lattice
+      constant is gradually increased until the constraint is satisfied.
+    - The function ensures the lattice fits within the given volume by removing 
+      the last row of points to avoid periodic boundary condition overlaps.
+    - When the lattice constant is increased, a warning message is logged with 
+      the new value.
     """
-    
     radius_scaled = radius*scaling_factor
     lattice_constant = 2 * radius_scaled / np.sqrt(2)
-    num_points = int(np.ceil(volume_side / lattice_constant))
+    while True:
+        num_points = int(np.ceil(volume_side / lattice_constant))
+        if num_points <= max_points_per_side:
+            break
+        lattice_constant *= 1.1
+        logging.info('lattice_constant increased to %s becaouse %s bigger than %s', lattice_constant,num_points,max_points_per_side)
+   
     indices = np.arange(num_points-1)
     x, y, z = np.meshgrid(indices, indices, indices, indexing='ij')
     sum_indices = x + y + z
@@ -727,6 +740,30 @@ def fcc_lattice(radius, volume_side, scaling_factor=1.):
     return lattice_points
 
 def make_centered_rand_orient_point_array(center=np.array([0,0,0]),sphere_radius=1.,num_monomers=1,spacing=None):
+    """
+    Creates an array of points centered at a given position with random orientation.This function generates a linear array of points in 3D space, centered at a specified position with random orientation. It also returns the normalized orientation vector of the array.
+
+    Parameters
+    ----------
+    center : numpy.ndarray, default=np.array([0,0,0])
+        The center point of the array in 3D space (x,y,z coordinates)
+    sphere_radius : float, default=1.0
+        The radius of the sphere containing the points
+    num_monomers : int, default=1
+        The number of points to generate
+    spacing : float, optional
+        If provided, sets fixed spacing between points and recalculates sphere_radius
+    Returns
+    -------
+    tuple
+        A tuple containing:
+        - orientation_vector (numpy.ndarray): Normalized vector indicating array orientation
+        - points (numpy.ndarray): Array of 3D coordinates for each point
+    Notes
+    -----
+    The points are distributed along a randomly oriented line within a sphere of radius 'sphere_radius' centered at 'center'. The spacing between points is either derived from sphere_radius/num_monomers or set explicitly through the spacing parameter.
+    """
+    
     if spacing:
         shift = spacing
         sphere_radius=spacing*num_monomers*0.5
@@ -983,31 +1020,37 @@ def get_orientation_vec(pos):
     pr_comp /= np.linalg.norm(pr_comp)
     return np.array(pr_comp, float)
 
-def get_cross_lattice_nonintersecting_volumes(current_lattice_centers, current_lattice_grouped_part_pos, current_lattice_diam,other_lattice_centers, other_lattice_grouped_part_pos,other_lattice_diam,box_len):
+def get_cross_lattice_nonintersecting_volumes(current_lattice_centers, current_lattice_grouped_part_pos, current_lattice_diam,other_lattice_centers, other_lattice_grouped_part_pos,other_lattice_diam,box_len, mode='cross_volumes'):
     """
-    Calculate non-intersecting volumes between particles in two different lattices. This function determines which volumes from one lattice do not intersect with volumes from another lattice, considering periodic boundary conditions.
+    Calculate non-intersecting volumes between particles in two different lattices. This function determines which volumes from one lattice do not intersect with volumes from another lattice,
+    considering periodic boundary conditions.
+
     Parameters
     ----------
     current_lattice_centers : array-like
-        Centers of volumes in the first lattice
+        Centers of volumes in the first lattice.
     current_lattice_grouped_part_pos : array-like 
-        Particle positions grouped by volume for first lattice
+        Particle positions grouped by volume for the first lattice.
     current_lattice_diam : float
-        Diameter of particles in first lattice
+        Diameter of particles in the first lattice.
     other_lattice_centers : array-like
-        Centers of volumes in the second lattice
+        Centers of volumes in the second lattice.
     other_lattice_grouped_part_pos : array-like
-        Particle positions grouped by volume for second lattice
+        Particle positions grouped by volume for the second lattice.
     other_lattice_diam : float
-        Diameter of particles in second lattice
+        Diameter of particles in the second lattice.
     box_len : float
-        Length of periodic box
+        Length of the periodic box.
+    mode : str, optional
+        Mode of calculation, either 'cross_parts' or 'cross_volumes'. Default is 'cross_volumes'.
+
     Returns
     -------
     dict
         Dictionary with volume IDs as keys and lists of boolean masks as values.
-        Each mask indicates whether the volume from first lattice intersects
-        with corresponding volumes from second lattice.
+        Each mask indicates whether the volume from the first lattice intersects
+        with corresponding volumes from the second lattice.
+
     Notes
     -----
     The function uses a cutoff distance of (d1 + d2)/2 where d1, d2 are the 
@@ -1019,13 +1062,23 @@ def get_cross_lattice_nonintersecting_volumes(current_lattice_centers, current_l
     neigh=get_neighbours_cross_lattice(current_lattice_centers,other_lattice_centers,
     box_len, cuttoff=(current_lattice_diam+other_lattice_diam)*0.5)
     aranged_cross_lattice_options={}
-    fact=pow(2,1/6)
-    new_crit=((current_lattice_diam/current_lattice_grouped_part_pos.shape[1])*fact+(other_lattice_diam/other_lattice_grouped_part_pos.shape[1])*fact)*0.5
+    if mode=='cross_parts':
+        fact=pow(2,1/6)
+        new_crit=((current_lattice_diam/current_lattice_grouped_part_pos.shape[1])*fact+(other_lattice_diam/other_lattice_grouped_part_pos.shape[1])*fact)*0.5
+        current_lattice_dat=current_lattice_grouped_part_pos
+        other_lattice_dat=other_lattice_grouped_part_pos
+
+    elif mode=='cross_volumes':
+        new_crit=(current_lattice_diam+other_lattice_diam)*0.5
+        current_lattice_dat=current_lattice_centers
+        other_lattice_dat=other_lattice_centers
+    else:
+        raise ValueError('mode must be either cross_parts or cross_volumes')
     for vol_id,associated_vol_ids in neigh.items():
         mask=[]
         if associated_vol_ids:
             for as_vol_id in associated_vol_ids:
-                res=calculate_pair_distances(current_lattice_grouped_part_pos[vol_id], other_lattice_grouped_part_pos[as_vol_id], box_length=box_len)
+                res=calculate_pair_distances(current_lattice_dat[vol_id], other_lattice_dat[as_vol_id], box_length=box_len)
                 mask.append(all([x>new_crit for x in res if not np.isclose(x,0.)])) 
         aranged_cross_lattice_options[vol_id]=mask
     return aranged_cross_lattice_options
