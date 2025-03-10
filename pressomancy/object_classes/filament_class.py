@@ -15,7 +15,8 @@ class Filament(metaclass=Simulation_Object):
     simulation_type=SinglePairDict('filament', 54)
     part_types = PartDictSafe({'real': 1, 'virt': 2,'to_be_magnetized':3})
     config = ObjectConfigParams(
-        bond_handle=BondWrapper(espressomd.interactions.FeneBond(k=0, r_0=0, d_r_max=0)))
+        bond_handle=BondWrapper(espressomd.interactions.FeneBond(k=0, r_0=0, d_r_max=0)),
+        spacing=None,)
 
     def __init__(self, config: ObjectConfigParams):
         '''
@@ -24,7 +25,11 @@ class Filament(metaclass=Simulation_Object):
         self.sys=config['espresso_handle']
         self.params=config
         self.associated_objects=self.params['associated_objects']
-        self.build_function=RoutineWithArgs(func=make_centered_rand_orient_point_array,num_monomers=self.params['n_parts'])
+        self.build_function=RoutineWithArgs(
+            func=make_centered_rand_orient_point_array,
+            num_monomers=self.params['n_parts'],
+            spacing=config['spacing'],
+            )
         self.who_am_i = Filament.numInstances
         Filament.numInstances += 1
         self.orientor = np.empty(shape=3, dtype=float)
@@ -214,7 +219,7 @@ class Filament(metaclass=Simulation_Object):
             pair_distances = np.linalg.norm(
                 pos1[index_combinations[:, 0]] - pos2[index_combinations[:, 1]], axis=-1)
             filtered_indices = index_combinations[np.isclose(
-                pair_distances, self.params['sigma']-2*fene_r0)]
+                pair_distances, fene_r0)]
 
             if mode == 'hinge':
                 random_pair = random.choice(filtered_indices)

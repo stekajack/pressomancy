@@ -44,6 +44,7 @@ class TelSeq(metaclass=Simulation_Object):
     config = ObjectConfigParams(
         bond_handle=BondWrapper(espressomd.interactions.FeneBond(k=0, r_0=0, d_r_max=0)),
         diag_bond_handle=BondWrapper(espressomd.interactions.FeneBond(k=0, r_0=0, d_r_max=0)),
+        spacing=None,
     )
 
     def __init__(self, config: ObjectConfigParams):
@@ -63,7 +64,7 @@ class TelSeq(metaclass=Simulation_Object):
             self.params['associated_objects']= [Quadriplex(config=elem) for elem in quadriplex_config_list]
         self.associated_objects=self.params['associated_objects']
 
-        self.build_function=RoutineWithArgs(func=make_centered_rand_orient_point_array,num_monomers=self.params['n_parts'])
+        self.build_function=RoutineWithArgs(func=make_centered_rand_orient_point_array,num_monomers=self.params['n_parts'],spacing=config['spacing'])  
         self.who_am_i = TelSeq.numInstances
         self.orientor = np.empty(shape=3, dtype=float)
         self.type_part_dict=PartDictSafe({key: [] for key in TelSeq.part_types.keys()})
@@ -121,7 +122,7 @@ class TelSeq(metaclass=Simulation_Object):
                 pair_distances = np.linalg.norm(
                     candidate_pos-self.sys.part.by_id(free_end).pos, axis=-1)
                 filtered = np.isclose(
-                    pair_distances, self.params['sigma']-2*fene_r0)
+                    pair_distances, fene_r0)
 
                 if filtered.any() == True:
                     index = np.argmax(filtered)
@@ -131,7 +132,7 @@ class TelSeq(metaclass=Simulation_Object):
                     pair_distances = np.linalg.norm(
                         candidate_pos-self.sys.part.by_id(start_part_id).pos, axis=-1)
                     filtered = np.isclose(
-                        pair_distances, self.params['sigma']-2*fene_r0)
+                        pair_distances, fene_r0)
                     index = np.argmax(filtered)
                     self.bond_owned_part_pair(candidates2[index],self.sys.part.by_id(start_part_id))
 

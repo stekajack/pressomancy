@@ -24,14 +24,14 @@ sim_inst = Simulation(box_dim=box_dim)
 sim_inst.set_sys()
 logging.info(f'box_dim: {sim_inst.sys.box_l}')
 
-quartet_configuration = Quartet.config.specify(size=2., n_parts=25, espresso_handle=sim_inst.sys,type='solid')
+quartet_configuration = Quartet.config.specify(espresso_handle=sim_inst.sys,type='solid')
 quartets = [Quartet(config=quartet_configuration) for x in range(no_obj)]
 sim_inst.store_objects(quartets)
 
 bond_quad = BondWrapper(espressomd.interactions.FeneBond(k=10., r_0=2., d_r_max=2*1.5))
 grouped_quartets = [quartets[i:i+sheets_per_quad]
                     for i in range(0, len(quartets), sheets_per_quad)]
-quadriplex_configuration_list = [Quadriplex.config.specify(size=6., espresso_handle=sim_inst.sys, bond_handle=bond_quad, associated_objects=elem) for elem in grouped_quartets]
+quadriplex_configuration_list = [Quadriplex.config.specify(size=np.sqrt(3)*5., espresso_handle=sim_inst.sys, bond_handle=bond_quad, associated_objects=elem) for elem in grouped_quartets]
 
 quadriplex = [Quadriplex(config=configuration) for configuration in quadriplex_configuration_list]
 sim_inst.store_objects(quadriplex)
@@ -39,7 +39,7 @@ sim_inst.store_objects(quadriplex)
 bond_pass = BondWrapper(espressomd.interactions.FeneBond(k=10., r_0=2., d_r_max=2*1.5))
 grouped_quadriplexes = [quadriplex[i:i+part_per_filament:]
                         for i in range(0, len(quadriplex), part_per_filament)]
-filament_configuration_list = [Filament.config.specify(sigma=6,size=6*part_per_filament, n_parts=part_per_filament, espresso_handle=sim_inst.sys, bond_handle=bond_pass, associated_objects=elem) for elem in grouped_quadriplexes]
+filament_configuration_list = [Filament.config.specify(size=quadriplex[0].params['size']*part_per_filament+np.sqrt(3)*bond_pass.r_0+(part_per_filament-1), n_parts=part_per_filament, espresso_handle=sim_inst.sys, bond_handle=bond_pass, associated_objects=elem, spacing=6.) for elem in grouped_quadriplexes]
 filaments = [Filament(config=configuration) for configuration in filament_configuration_list]
 sim_inst.store_objects(filaments)
 sim_inst.set_objects(filaments)
@@ -77,4 +77,3 @@ sim_inst.set_vdW(key=('patch',), lj_eps=5, lj_size=2.)
 
 sim_inst.sys.thermostat.set_langevin(kT=1.0, gamma=1.0, seed=sim_inst.seed)
 sim_inst.sys.integrator.run(0)
-

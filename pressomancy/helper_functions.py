@@ -464,7 +464,7 @@ class RoutineWithArgs:
         implemented by subclasses or overridden.
     """
 
-    def __init__(self, func=None, num_monomers=1):
+    def __init__(self, func=None, num_monomers=1, spacing=None):
         """
         Initializes the RoutineWithArgs instance.
 
@@ -480,6 +480,7 @@ class RoutineWithArgs:
         else:
             self.func = func
         self.num_monomers = num_monomers
+        self.spacing = spacing
 
     def __call__(self, **kwargs):
         """
@@ -725,8 +726,12 @@ def fcc_lattice(radius, volume_side, scaling_factor=1.):
     #     warnings.warn('box_l is not big enough to avoid pbc clipping of the partitioning!')
     return lattice_points
 
-def make_centered_rand_orient_point_array(center=np.array([0,0,0]),sphere_radius=1.,num_monomers=1):
-    shift = sphere_radius / num_monomers
+def make_centered_rand_orient_point_array(center=np.array([0,0,0]),sphere_radius=1.,num_monomers=1,spacing=None):
+    if spacing:
+        shift = spacing
+        sphere_radius=spacing*num_monomers*0.5
+    else:
+        shift = sphere_radius / num_monomers
     spacing_array = np.linspace(-sphere_radius,
                         sphere_radius, num_monomers + 1)[:-1] + shift
     theta = np.random.uniform(0, 2 * np.pi)
@@ -797,7 +802,7 @@ def partition_cubic_volume(box_length, num_spheres, sphere_diameter, routine_per
             valid_placement = False
             while not valid_placement:
                 orientation, points = routine_per_volume(
-                    center=center, num_monomers=routine_per_volume.num_monomers, sphere_radius=sphere_radius
+                    center=center, num_monomers=routine_per_volume.num_monomers, sphere_radius=sphere_radius, spacing=routine_per_volume.spacing
                     )
                 should_proceed = True
                 

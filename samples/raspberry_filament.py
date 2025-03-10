@@ -6,17 +6,18 @@ sim_inst = Simulation(box_dim=box_dim)
 sim_inst.set_sys(timestep=0.001)
 no_obj=20
 part_per_fil=10
-sigma=3
-raspberries_config=RaspberrySphere.config.specify(sigma=sigma, size=sigma, espresso_handle=sim_inst.sys)
+rasp_sigm=3
+raspberries_config=RaspberrySphere.config.specify(sigma=1, size=rasp_sigm, espresso_handle=sim_inst.sys)
 raspberries= [RaspberrySphere(config=raspberries_config) for x in range(no_obj)]
 sim_inst.store_objects(raspberries)
 
 grouped_raspberries = [raspberries[i:i+part_per_fil]
                 for i in range(0, len(raspberries), part_per_fil)]
-size=part_per_fil*3+(part_per_fil-1)*0.3*sigma
+bond_hndl=BondWrapper(espressomd.interactions.FeneBond(k=10, d_r_max=3*rasp_sigm, r_0=0.83))
+size=part_per_fil*raspberries[0].params['size'] + bond_hndl.r_0*(part_per_fil-1)
+spacing=rasp_sigm+bond_hndl.r_0
 
-bond_hndl=BondWrapper(espressomd.interactions.FeneBond(k=10, d_r_max=3*sigma, r_0=0.83))
-filament_config_list = [Filament.config.specify(sigma=sigma, n_parts=part_per_fil, size=size, espresso_handle=sim_inst.sys, bond_handle=bond_hndl, associated_objects=rsp) for rsp in grouped_raspberries]
+filament_config_list = [Filament.config.specify(n_parts=part_per_fil, size=size, espresso_handle=sim_inst.sys, bond_handle=bond_hndl, associated_objects=rsp,spacing=spacing) for rsp in grouped_raspberries]
 filaments = [Filament(config=rsp) for rsp in filament_config_list]
 sim_inst.store_objects(filaments)
 sim_inst.set_objects(filaments)
