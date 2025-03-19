@@ -12,7 +12,7 @@ logging.info('box_dim: ', box_dim)
 sim_inst = Simulation(box_dim=box_dim)
 sim_inst.set_sys()
 bond_hndl=BondWrapper(espressomd.interactions.FeneBond(k=10, d_r_max=3*sigma, r_0=0))
-configuration=Filament.config.specify(sigma=sigma, size=2.,n_parts=2, espresso_handle=sim_inst.sys,bond_handle=bond_hndl)
+configuration=Filament.config.specify(sigma=sigma, size=2.26,n_parts=2, espresso_handle=sim_inst.sys,bond_handle=bond_hndl)
 filaments = [Filament(config=configuration) for x in range(5)]
 
 sim_inst.store_objects(filaments)

@@ -464,7 +464,7 @@ class RoutineWithArgs:
         implemented by subclasses or overridden.
     """
 
-    def __init__(self, func=None, num_monomers=1, spacing=None):
+    def __init__(self, func=None, num_monomers=1, monomer_size=1., spacing=None):
         """
         Initializes the RoutineWithArgs instance.
 
@@ -481,6 +481,7 @@ class RoutineWithArgs:
             self.func = func
         self.num_monomers = num_monomers
         self.spacing = spacing
+        self.monomer_size = monomer_size
 
     def __call__(self, **kwargs):
         """
@@ -635,7 +636,7 @@ def get_neighbours_cross_lattice(lattice1, lattice2, volume_side, cuttoff=1.):
     box_dim=np.ones(3) * volume_side
     for id,point in enumerate(points_a):
         distances=np.linalg.norm(min_img_dist(point, points_b, box_dim=box_dim), axis=-1)
-        mask=np.where(distances<cuttoff)
+        mask=np.where(distances<=cuttoff)
         grouped_indices[id]=list(indices_b[mask])
     
     return grouped_indices
@@ -847,7 +848,7 @@ def partition_cubic_volume(box_length, num_spheres, sphere_diameter, routine_per
                 for volume_id in grouped_volumes[i]:
                     if grouped_positions[volume_id]:
                         distances = calculate_pair_distances(points, grouped_positions[volume_id], box_length=box_length)
-                        if np.any(distances < sphere_diameter / routine_per_volume.num_monomers):
+                        if np.any(distances <= routine_per_volume.monomer_size):
                             should_proceed = False
                             break
                 

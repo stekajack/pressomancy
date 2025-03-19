@@ -245,7 +245,7 @@ class Simulation():
                 if len(positions) >= len(objects):
                     break
                 else :
-                    factor *= 2
+                    factor += 1
                     logging.info('Failed to find enough space; (found, needed): (%d, %d). Will retry by requesting %d times the number of parts', len(positions), len(objects),factor)
         else:
             raise NotImplementedError('The repartitioning scheme can currently handle only the case where one previos partition exists. More than than is still not supported')

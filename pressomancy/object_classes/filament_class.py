@@ -5,6 +5,7 @@ from itertools import product, pairwise
 from pressomancy.object_classes.object_class import Simulation_Object, ObjectConfigParams 
 from pressomancy.helper_functions import RoutineWithArgs, make_centered_rand_orient_point_array, PartDictSafe, SinglePairDict, BondWrapper
 import logging
+import warnings
 
 class Filament(metaclass=Simulation_Object):
     '''
@@ -28,8 +29,14 @@ class Filament(metaclass=Simulation_Object):
         self.build_function=RoutineWithArgs(
             func=make_centered_rand_orient_point_array,
             num_monomers=self.params['n_parts'],
-            spacing=config['spacing'],
+            spacing=self.params['spacing'],
             )
+        if self.associated_objects==None:
+            monomer_size=(self.params['size']- self.params['bond_handle'].r_0*(self.params['n_parts']-1))*pow(self.params['n_parts'],-1)
+            self.build_function.monomer_size=monomer_size
+            warnings.warn('monomer size infered from Filament size and the BondWrapper.r_0')
+        else:
+            self.build_function.monomer_size=self.associated_objects[0].params['size']
         self.who_am_i = Filament.numInstances
         Filament.numInstances += 1
         self.orientor = np.empty(shape=3, dtype=float)
@@ -124,7 +131,7 @@ class Filament(metaclass=Simulation_Object):
 
     def add_dipole_to_type(self, type_name, dip_magnitude=1.):
         '''
-        Adds dupoles to real particels
+        Adds dipoles to real particles.
 
         :param dip_magnitude: float | magnitude of the dipole moment to be asigned using the self.orientor unit vector. Default=1.
         :return: None
