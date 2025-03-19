@@ -740,7 +740,7 @@ def fcc_lattice(radius, volume_side, scaling_factor=1., max_points_per_side=100)
     #     warnings.warn('box_l is not big enough to avoid pbc clipping of the partitioning!')
     return lattice_points
 
-def make_centered_rand_orient_point_array(center=np.array([0,0,0]),sphere_radius=1.,num_monomers=1,spacing=None):
+def make_centered_rand_orient_point_array(center=np.array([0,0,0]), sphere_radius=1., num_monomers=1, spacing=None):
     """
     Creates an array of points centered at a given position with random orientation.This function generates a linear array of points in 3D space, centered at a specified position with random orientation. It also returns the normalized orientation vector of the array.
 
@@ -753,7 +753,7 @@ def make_centered_rand_orient_point_array(center=np.array([0,0,0]),sphere_radius
     num_monomers : int, default=1
         The number of points to generate
     spacing : float, optional
-        If provided, sets fixed spacing between points and recalculates sphere_radius
+        If provided, sets fixed spacing between points. The total chain length will be spacing * (num_monomers - 1), and the points will be centered around center.
     Returns
     -------
     tuple
@@ -762,21 +762,25 @@ def make_centered_rand_orient_point_array(center=np.array([0,0,0]),sphere_radius
         - points (numpy.ndarray): Array of 3D coordinates for each point
     Notes
     -----
-    The points are distributed along a randomly oriented line within a sphere of radius 'sphere_radius' centered at 'center'. The spacing between points is either derived from sphere_radius/num_monomers or set explicitly through the spacing parameter.
+    When spacing is provided, the positions along the line are given by:
+    
+        positions = spacing * (np.arange(num_monomers) - (num_monomers - 1)/2)
+    
+    ensuring that the distance between consecutive points is exactly 'spacing' and that the center of mass is at 0.
+    The points are then rotated by a random orientation (given by theta and phi) and shifted by 'center'.
     """
     
-    if spacing:
-        shift = spacing
-        sphere_radius=spacing*num_monomers*0.5
+    if spacing is not None:
+        positions = spacing * (np.arange(num_monomers) - (num_monomers - 1) / 2)
     else:
         shift = sphere_radius / num_monomers
-    spacing_array = np.linspace(-sphere_radius,
+        positions = np.linspace(-sphere_radius,
                         sphere_radius, num_monomers + 1)[:-1] + shift
     theta = np.random.uniform(0, 2 * np.pi)
     phi = np.random.uniform(0, np.pi)
-    x_points = center[0] + spacing_array * np.sin(phi) * np.cos(theta)
-    y_points = center[1] + spacing_array * np.sin(phi) * np.sin(theta)
-    z_points = center[2] + spacing_array * np.cos(phi)
+    x_points = center[0] + positions * np.sin(phi) * np.cos(theta)
+    y_points = center[1] + positions * np.sin(phi) * np.sin(theta)
+    z_points = center[2] + positions * np.cos(phi)
     points = np.column_stack((x_points, y_points, z_points))
     direction_vector=points[-1]-points[0]
     orientation_vector = direction_vector / np.linalg.norm(direction_vector)
@@ -1080,7 +1084,7 @@ def get_cross_lattice_nonintersecting_volumes(current_lattice_centers, current_l
         if associated_vol_ids:
             for as_vol_id in associated_vol_ids:
                 res=calculate_pair_distances(current_lattice_dat[vol_id], other_lattice_dat[as_vol_id], box_length=box_len)
-                mask.append(all([x>new_crit for x in res if not np.isclose(x,0.)])) 
+                mask.append(all([x>=new_crit for x in res if not np.isclose(x,0.)])) 
         aranged_cross_lattice_options[vol_id]=mask
     return aranged_cross_lattice_options
 
