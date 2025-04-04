@@ -92,7 +92,7 @@ sim_inst.set_vdW(key=('type_key',),lj_eps=#)
 The `Simulation` class manages the EspressoMD instance and provides methods for simulation management (i.e. I/O, properties), ensuring all objects are added and side effects are synchronized.
 
 ```python
-from pressomancy import Simulation
+from pressomancy.simulation import Simulation
 sim = Simulation() 
 ```
 
