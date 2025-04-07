@@ -115,7 +115,7 @@ class Simulation():
     
     object_permissions=['part_types']
     _sys=espressomd.System
-    def __init__(self, box_dim):
+    def __init__(self, box_dim, **kwagrs):
         self.no_objects = 0
         self.objects = []
         self.part_types = PartDictSafe({})

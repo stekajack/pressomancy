@@ -87,7 +87,8 @@ class ManagedSimulation:
             # Initialize the ESPResSo system object
             if self._espressomd_system is None:
                 box_dim = kwargs.get('box_dim', [10, 10, 10])  # Default box dimensions
-                self._espressomd_system = self.aClass._sys(box_l=box_dim)
+                other_kwargs = {k: v for k, v in kwargs.items() if k != 'box_dim'}
+                self._espressomd_system = self.aClass._sys(box_l=box_dim, **other_kwargs)
 
             # Instantiate the decorated class and set its system attribute
             self.instance = self.aClass(*args, **kwargs)
