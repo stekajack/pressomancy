@@ -596,6 +596,24 @@ class Simulation():
             sorted_map=self.collect_class_names(objects_to_register)
             for name in sorted_map:
                 connect_grp.create_dataset(f"ParticleHandle_to_{name}", shape=(total_part_num, 2), maxshape=(total_part_num, 2), dtype=np.int32)
+            sorted_map_copy_sans=sorted_map.copy()
+            for name in sorted_map_copy_sans:
+                nm=globals().get(name)
+                objects_local=[obj for obj in self.objects if isinstance(obj,nm)]
+                sorted_map=self.collect_class_names(objects_local)
+                sorted_map_copy=sorted_map.copy()
+                sorted_map_copy.remove(name)
+                if sorted_map_copy:
+                    for name_else in sorted_map_copy:
+                        objects_local_relevant=[x for x in objects_local if type(x.associated_objects[0])==globals().get(name_else)]
+                        group_type_num=len(objects_local_relevant)
+                        if group_type_num>0:
+                            connect_grp.create_dataset(f"{name}_to_{name_else}", shape=(group_type_num, 2), maxshape=(group_type_num, 2), dtype=np.int32)
+                            for iid, obj in enumerate(objects_local_relevant):
+                                ids=[x.who_am_i for x in obj.associated_objects]
+                                for el in coord:
+                                    dataset = connect_grp[f"{name}_to_{name_else}"]
+                                    dataset[0, :] = (part.id, el[1])
             iid=0
             for part,name_iid in zip(self.io_dict['flat_part_view'],coordstuff):
                 for el in name_iid:
