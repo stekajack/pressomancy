@@ -198,7 +198,7 @@ class H5DataSelector:
         Returns:
             H5DataSelector: A new selector with the particle slice set to the selected indices.
         """
-        ds_name = f"connectivity/ParticleHandle_to_{object_name}"
+        ds_name = f"connectivity/{self.particle_group}/ParticleHandle_to_{object_name}"
         connectivity_map = self.h5_file[ds_name][:]
         particle_indices = connectivity_map[connectivity_map[:, 1] == connectivity_value][:, 0]
         particle_indices.sort()
