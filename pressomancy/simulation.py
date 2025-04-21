@@ -596,13 +596,17 @@ class Simulation():
 
         Raises
         ------
-        AssertionError
+        ValueError
             If `mode` is not one of 'NEW' or 'LOAD'.
-        AssertionError
+        ValueError
+            If `group_type` is not a list.
+        ValueError
             In 'LOAD' mode, if different groups have mismatched saved step counts.
         """
-
-        assert mode in ('NEW', 'LOAD'), f"Unknown mode: {mode}"
+        if not isinstance(group_type, list):
+            raise ValueError("group_type must be a list of classes.")
+        if mode not in ('NEW', 'LOAD'):
+            raise ValueError(f"Unknown mode: {mode}")
         self.io_dict['registered_group_type']=[grp_typ.__name__ for grp_typ in group_type]
 
         if mode=='NEW':
