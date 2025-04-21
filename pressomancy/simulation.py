@@ -569,10 +569,42 @@ class Simulation():
 
     def inscribe_part_group_to_h5(self, group_type=None, h5_data_path=None,mode='NEW'):
         """
-        Creates the HDF5 structure for this Crowder object.
+        Inscribe one or more groups of simulation objects into an HDF5 file.
+
+        This method creates (or opens) an HDF5 file and, for each `group_type`:
+        - Builds a flat list of particle handles and their coordinating indices
+        - Creates `/particles/<GroupName>` and corresponding property datasets
+        - Creates `/connectivity/<GroupName>/ParticleHandle_to_<OwnerClass>` tables
+        - Creates `/connectivity/<GroupName>/<Left>_to_<Right>` object–object tables
+
+        Parameters
+        ----------
+        group_type : list of type
+            A list of `SimulationObject` subclasses. All instances of each
+            class in `self.objects` will be registered and inscribed.
+        h5_data_path : str
+            Path to the HDF5 file to write (mode='NEW') or append (mode='LOAD').
+        mode : {'NEW', 'LOAD'}, optional
+            - 'NEW' : create a fresh file structure (default).
+            - 'LOAD': open existing file and resume writing.  
+
+        Returns
+        -------
+        int
+            The starting global counter for writing time steps. Always 0 in
+            'NEW' mode; in 'LOAD' mode, the current number of already‑saved steps.
+
+        Raises
+        ------
+        AssertionError
+            If `mode` is not one of 'NEW' or 'LOAD'.
+        AssertionError
+            In 'LOAD' mode, if different groups have mismatched saved step counts.
         """
+
         assert mode in ('NEW', 'LOAD'), f"Unknown mode: {mode}"
         self.io_dict['registered_group_type']=[grp_typ.__name__ for grp_typ in group_type]
+
         if mode=='NEW':
             self.io_dict['h5_file'] = h5py.File(h5_data_path, "w")
             par_grp = self.io_dict['h5_file'].require_group(f"particles")
@@ -641,9 +673,21 @@ class Simulation():
         else:
             self.io_dict['h5_file'] = h5py.File(h5_data_path, "a")
             particles_group = self.io_dict['h5_file']["particles"]
-            data_grp = particles_group[self.io_dict['registered_group_type'][0]]
-            dataset_val = data_grp["pos/value"]
-            GLOBAL_COUNTER=dataset_val.shape[0]
+            candidate_lens=[]
+            for grp_typ in group_type:
+                objects_to_register=[obj for obj in self.objects if isinstance(obj,grp_typ)]
+                for cr in objects_to_register:
+                    part,_=cr.get_owned_part()
+                    self.io_dict['flat_part_view'][grp_typ.__name__].extend(part)
+                data_grp = particles_group[grp_typ.__name__]
+                dataset_val = data_grp["pos/value"]
+                candidate_lens.append(dataset_val.shape[0])
+            if len(set(candidate_lens)) != 1:
+                raise ValueError(
+                    f"Inconsistent step counts across groups: {candidate_lens}"
+                )
+            GLOBAL_COUNTER=candidate_lens[0]
+            logging.info(f"Loading h5 file with GLOBAL_COUNTER={GLOBAL_COUNTER} ")
         return GLOBAL_COUNTER
         
     def write_part_group_to_h5(self, time_step=None):
