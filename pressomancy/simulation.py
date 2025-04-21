@@ -124,7 +124,7 @@ class Simulation():
         self.part_positions=[]
         self.volume_size=None
         self.volume_centers=[]
-        self.io_dict={'h5_file': None,'properties':[('id',1), ('type',1), ('pos',3), ('f',3),('dip',3)],'flat_part_view':[],'registered_group_type': None}
+        self.io_dict={'h5_file': None,'properties':[('id',1), ('type',1), ('pos',3), ('f',3),('dip',3)],'flat_part_view':defaultdict(list),'registered_group_type': None}
         # self.sys=espressomd.System(box_l=box_dim) is added and managed by the singleton decrator!
 
     def set_sys(self, timestep=0.01, min_global_cut=3.0,have_quaternion=False):
@@ -545,100 +545,170 @@ class Simulation():
 
         return np.array(object_positions)
     
-    def collect_class_names(self, objects_to_register):
-        '''
-        Get a sorted set of class names in and within objects_to_register iterable
+    def collect_instances_recursively(self, roots):
+        """
+        Traverse each root in `roots` and return a flat preorder list
+        of every object reachable via `.associated_objects`.
+        Raises RuntimeError on any duplicate.
+        """
+        seen = set()
+        result = []
 
-        :param self: Description
-        :type self: 
-        :param objects_to_register: iterable containing objects using the SimulationObject metaclass
-        :type objects_to_register: 
-        :return: Description
-        :rtype: list[Any]'''
-        all_types = set()
         def traverse(obj):
-            if obj.associated_objects is not None:
-                for sub_obj in obj.associated_objects:
-                    class_name = obj.__class__.__name__
-                    all_types.add(class_name)
-                    traverse(sub_obj)
-            else:
-                class_name = obj.__class__.__name__
-                all_types.add(class_name)
+            if obj in seen:
+                raise RuntimeError(f"Duplicate object detected during recursion: {obj!r}")
+            seen.add(obj)
+            result.append(obj)
+            for child in getattr(obj, "associated_objects", []) or []:
+                traverse(child)
 
-        for obj in objects_to_register:
-            traverse(obj)
+        for root in roots:
+            traverse(root)
 
-        return sorted(all_types)
+        return result
 
     def inscribe_part_group_to_h5(self, group_type=None, h5_data_path=None,mode='NEW'):
         """
-        Creates the HDF5 structure for this Crowder object.
-        """
-        assert mode=='NEW' or mode=='LOAD','unknown mode!'
-        self.io_dict['registered_group_type']=group_type.__name__
-        logging.info(f"Inscribe: Creating group {self.io_dict['registered_group_type']}")
-        objects_to_register=[obj for obj in self.objects if isinstance(obj,group_type)]
-        
-        coordstuff=[]
-        for cr in objects_to_register:
-            part,coord=cr.get_owned_part()
-            self.io_dict['flat_part_view'].extend(part)
-            coordstuff.extend(coord)
+        Inscribe one or more groups of simulation objects into an HDF5 file.
 
-        total_part_num=len(self.io_dict['flat_part_view'])
+        This method creates (or opens) an HDF5 file and, for each `group_type`:
+        - Builds a flat list of particle handles and their coordinating indices
+        - Creates `/particles/<GroupName>` and corresponding property datasets
+        - Creates `/connectivity/<GroupName>/ParticleHandle_to_<OwnerClass>` tables
+        - Creates `/connectivity/<GroupName>/<Left>_to_<Right>` object–object tables
+
+        Parameters
+        ----------
+        group_type : list of type
+            A list of `SimulationObject` subclasses. All instances of each
+            class in `self.objects` will be registered and inscribed.
+        h5_data_path : str
+            Path to the HDF5 file to write (mode='NEW') or append (mode='LOAD').
+        mode : {'NEW', 'LOAD'}, optional
+            - 'NEW' : create a fresh file structure (default).
+            - 'LOAD': open existing file and resume writing.  
+
+        Returns
+        -------
+        int
+            The starting global counter for writing time steps. Always 0 in
+            'NEW' mode; in 'LOAD' mode, the current number of already‑saved steps.
+
+        Raises
+        ------
+        ValueError
+            If `mode` is not one of 'NEW' or 'LOAD'.
+        ValueError
+            If `group_type` is not a list.
+        ValueError
+            In 'LOAD' mode, if different groups have mismatched saved step counts.
+        """
+        if not isinstance(group_type, list):
+            raise ValueError("group_type must be a list of classes.")
+        if mode not in ('NEW', 'LOAD'):
+            raise ValueError(f"Unknown mode: {mode}")
+        self.io_dict['registered_group_type']=[grp_typ.__name__ for grp_typ in group_type]
 
         if mode=='NEW':
             self.io_dict['h5_file'] = h5py.File(h5_data_path, "w")
             par_grp = self.io_dict['h5_file'].require_group(f"particles")
-            data_grp = par_grp.require_group(self.io_dict['registered_group_type'])
-            connect_grp = self.io_dict['h5_file'].require_group(f"connectivity")
-            sorted_map=self.collect_class_names(objects_to_register)
-            for name in sorted_map:
-                connect_grp.create_dataset(f"ParticleHandle_to_{name}", shape=(total_part_num, 2), maxshape=(total_part_num, 2), dtype=np.int32)
-            iid=0
-            for part,name_iid in zip(self.io_dict['flat_part_view'],coordstuff):
-                for el in name_iid:
-                    dataset = connect_grp[f"ParticleHandle_to_{el[0]}"]
-                    dataset[iid, :] = (part.id, el[1])
-                iid+=1
+            for grp_typ in group_type:
+                data_grp = par_grp.require_group(grp_typ.__name__)
+                connect_grp = self.io_dict['h5_file'].require_group(f"connectivity").require_group(grp_typ.__name__)
+                logging.info(f"Inscribe: Creating group {grp_typ.__name__} in HDF5 file.")
+                objects_to_register=[obj for obj in self.objects if isinstance(obj,grp_typ)]
             
-            for prop,dim in self.io_dict['properties']:
-                prop_group = data_grp.require_group(prop)
-                prop_group.create_dataset("step", shape=(0,), maxshape=(None,), dtype=np.int32)
-                prop_group.create_dataset("time", shape=(0,), maxshape=(None,), dtype=np.float32)
-                prop_group.create_dataset(
-                    "value",
-                    shape=(0, total_part_num, dim),  # Store all particles in a single dataset
-                    maxshape=(None, total_part_num, dim),
-                    dtype=np.float32,
-                    chunks=(1, total_part_num, dim),
-                    compression="gzip",
-                    compression_opts=4
-                )
+                coordination_indices=[]
+                for cr in objects_to_register:
+                    part,coord=cr.get_owned_part()
+                    self.io_dict['flat_part_view'][grp_typ.__name__].extend(part)
+                    coordination_indices.extend(coord)
+
+                total_part_num=len(self.io_dict['flat_part_view'][grp_typ.__name__])
+
+                # Create the connectivity for ParticleHandle to objects that own them.
+                grouped = defaultdict(list)
+                for part, coords in zip(self.io_dict['flat_part_view'][grp_typ.__name__], coordination_indices):
+                    for cls_name, idx in coords:
+                        grouped[cls_name].append((part.id, idx))
+
+                for cls_name in sorted(grouped):
+                    arr = np.array(grouped[cls_name], dtype=np.int32)
+                    connect_grp.create_dataset(
+                        f"ParticleHandle_to_{cls_name}",
+                        data=arr,
+                        dtype=np.int32,
+                        maxshape=(arr.shape)
+                    )
+                # Create the connectivity for objects that own each other
+                pair_buckets = defaultdict(list)
+                
+                for obj in self.collect_instances_recursively(objects_to_register):
+                    if not obj.associated_objects:
+                        continue
+                    left_name = obj.__class__.__name__
+                    for sub in obj.associated_objects:
+                        right_name = sub.__class__.__name__
+                        pair_buckets[(left_name, right_name)].append((obj.who_am_i, sub.who_am_i))
+
+                for (left_name, right_name) in sorted(pair_buckets):
+                    arr = np.array(pair_buckets[(left_name, right_name)], dtype=np.int32)
+                    ds = connect_grp.create_dataset(
+                        f"{left_name}_to_{right_name}",
+                        data=arr,
+                        dtype=np.int32,
+                        maxshape=(arr.shape)
+                    )
+                # Create the datasets for each property           
+                for prop,dim in self.io_dict['properties']:
+                    prop_group = data_grp.require_group(prop)
+                    prop_group.create_dataset("step", shape=(0,), maxshape=(None,), dtype=np.int32)
+                    prop_group.create_dataset("time", shape=(0,), maxshape=(None,), dtype=np.float32)
+                    prop_group.create_dataset(
+                        "value",
+                        shape=(0, total_part_num, dim),  # Store all particles in a single dataset
+                        maxshape=(None, total_part_num, dim),
+                        dtype=np.float32,
+                        chunks=(1, total_part_num, dim),
+                        compression="gzip",
+                        compression_opts=4
+                    )
             GLOBAL_COUNTER=0
         else:
             self.io_dict['h5_file'] = h5py.File(h5_data_path, "a")
             particles_group = self.io_dict['h5_file']["particles"]
-            data_grp = particles_group[self.io_dict['registered_group_type']]
-            dataset_val=data_grp["pos/value"]
-            GLOBAL_COUNTER=dataset_val.shape[0]
+            candidate_lens=[]
+            for grp_typ in group_type:
+                objects_to_register=[obj for obj in self.objects if isinstance(obj,grp_typ)]
+                for cr in objects_to_register:
+                    part,_=cr.get_owned_part()
+                    self.io_dict['flat_part_view'][grp_typ.__name__].extend(part)
+                data_grp = particles_group[grp_typ.__name__]
+                dataset_val = data_grp["pos/value"]
+                candidate_lens.append(dataset_val.shape[0])
+            if len(set(candidate_lens)) != 1:
+                raise ValueError(
+                    f"Inconsistent step counts across groups: {candidate_lens}"
+                )
+            GLOBAL_COUNTER=candidate_lens[0]
+            logging.info(f"Loading h5 file with GLOBAL_COUNTER={GLOBAL_COUNTER} ")
         return GLOBAL_COUNTER
         
     def write_part_group_to_h5(self, time_step=None):
         assert self.io_dict['h5_file']!=None,'storage file has not been inscribed!'
-        particles_group = self.io_dict['h5_file']["particles"]
-        data_grp = particles_group[self.io_dict['registered_group_type']]
-        
-        for prop,_ in self.io_dict['properties']:
-            dataset_val = data_grp[f"{prop}/value"]
-            step_dataset = data_grp[f"{prop}/step"]
-            time_dataset = data_grp[f"{prop}/time"]
-            step_dataset.resize((dataset_val.shape[0] + 1,))
-            time_dataset.resize((dataset_val.shape[0] + 1,))
-            dataset_val.resize((dataset_val.shape[0] + 1, dataset_val.shape[1], dataset_val.shape[2]))
-            step_dataset[-1] = time_step
-            time_dataset[-1] = time_step
-            dataset_val[-1, :, :] = np.array([np.atleast_1d(getattr(part, prop)) for part in self.io_dict['flat_part_view']], dtype=np.float32)
+        for grp_typ in self.io_dict['registered_group_type']:
+            particles_group = self.io_dict['h5_file']["particles"]
+            data_grp = particles_group[grp_typ]
+            for prop,_ in self.io_dict['properties']:
+                dataset_val = data_grp[f"{prop}/value"]
+                step_dataset = data_grp[f"{prop}/step"]
+                time_dataset = data_grp[f"{prop}/time"]
+                step_dataset.resize((dataset_val.shape[0] + 1,))
+                time_dataset.resize((dataset_val.shape[0] + 1,))
+                dataset_val.resize((dataset_val.shape[0] + 1, dataset_val.shape[1], dataset_val.shape[2]))
+                step_dataset[-1] = time_step
+                time_dataset[-1] = time_step
+                dataset_val[-1, :, :] = np.array([np.atleast_1d(getattr(part, prop)) for part in self.io_dict['flat_part_view'][grp_typ]], dtype=np.float32)
 
         logging.info(f"Successfully wrote timestep for {self.io_dict['registered_group_type']}.")
+

@@ -186,6 +186,24 @@ class H5DataSelector:
         ds_path = f"particles/{self.particle_group}/{prop}/value"
         ds = self.h5_file[ds_path]
         return ds[self.ts_slice, self.pt_slice, :]
+    
+    def get_connectivity_values(self, object_name):
+        """
+        Return the raw connectivity pairs for a given object, using the
+        ParticleHandle_to_<object_name> dataset.
+
+        Parameters
+        ----------
+        object_name : str
+            Name of the connected object type (e.g. "Filament").
+
+        Returns
+        -------
+        ndarray of shape (N, 2)
+            Array of [particle_id, object_index] pairs.
+        """
+        ds_path = f"connectivity/{self.particle_group}/ParticleHandle_to_{object_name}"
+        return set(self.h5_file[ds_path][:][:, -1])
 
     def select_particles_by_object(self, object_name, connectivity_value=0):
         """
@@ -198,12 +216,77 @@ class H5DataSelector:
         Returns:
             H5DataSelector: A new selector with the particle slice set to the selected indices.
         """
-        ds_name = f"connectivity/ParticleHandle_to_{object_name}"
+        ds_name = f"connectivity/{self.particle_group}/ParticleHandle_to_{object_name}"
         connectivity_map = self.h5_file[ds_name][:]
         particle_indices = connectivity_map[connectivity_map[:, 1] == connectivity_value][:, 0]
         particle_indices.sort()
         particle_indices = particle_indices.tolist()  # Ensure a Python list is used.
         return H5DataSelector(self.h5_file, self.particle_group, ts_slice=self.ts_slice, pt_slice=particle_indices)
+    
+    def get_connectivity_map(self, parent_key, child_key):
+        """
+        Retrieve the raw (parent_id, child_id) array for a given object–object connectivity table.
+
+        Parameters
+        ----------
+        parent_key : str
+            Name of the parent object type (e.g. "Filament").
+        child_key : str
+            Name of the child object type (e.g. "Quadriplex").
+
+        Returns
+        -------
+        ndarray of shape (N, 2)
+            Array of [parent_id, child_id] pairs.
+        """
+        ds_path = f"connectivity/{self.particle_group}/{parent_key}_to_{child_key}"
+        return self.h5_file[ds_path][:]
+
+    def get_child_ids(self, parent_key, child_key, parent_id):
+        """
+        Return a sorted list of child object IDs connected to a given parent_id.
+
+        Parameters
+        ----------
+        parent_key : str
+            Name of the parent object type.
+        child_key : str
+            Name of the child object type.
+        parent_id : int
+            The who_am_i identifier of the parent object.
+
+        Returns
+        -------
+        List[int]
+            Sorted list of child who_am_i IDs belonging to the parent.
+        """
+        conn = self.get_connectivity_map(parent_key, child_key)
+        # Filter rows matching the parent_id, then extract child IDs
+        child_ids = conn[conn[:, 0] == parent_id, 1]
+        # Convert to Python ints and sort
+        return sorted(int(cid) for cid in child_ids)
+
+    def get_parent_ids(self, parent_key, child_key, child_id):
+        """
+        Return a sorted list of parent object IDs connected to a given child_id.
+
+        Parameters
+        ----------
+        parent_key : str
+            Name of the parent object type.
+        child_key : str
+            Name of the child object type.
+        child_id : int
+            The who_am_i identifier of the child object.
+
+        Returns
+        -------
+        List[int]
+            Sorted list of parent who_am_i IDs that link to the child.
+        """
+        conn = self.get_connectivity_map(parent_key, child_key)
+        parent_ids = conn[conn[:, 1] == child_id, 0]
+        return sorted(int(pid) for pid in parent_ids)
 
     def __getattr__(self, attr):
         """
