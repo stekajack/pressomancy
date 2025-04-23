@@ -2,7 +2,7 @@ import importlib
 import pkgutil
 import logging
 import samples 
-from create_system import sim_inst, BaseTestCase
+from test.create_system import sim_inst, BaseTestCase
 from unittest import mock
 from pressomancy.object_classes import Quadriplex
 from pressomancy.helper_functions import MissingFeature
@@ -21,6 +21,7 @@ class SampleScriptTest(BaseTestCase):
             with self.subTest(script=module_name):
                 with mock.patch("pressomancy.simulation.Simulation", side_effect=get_current_sim_instance):
                     try:
+                        logging.warning(f"Importing {module_name}...")
                         module = importlib.import_module(f"samples.{module_name}")
                     except MissingFeature:
                         logging.warning(f"Skipping {module_name} because it requires a feature that is not available.")

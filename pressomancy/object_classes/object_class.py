@@ -440,10 +440,10 @@ class EspressoPart(metaclass=Simulation_Object):
     numInstances = 0
 
     simulation_type = SinglePairDict('espresso_part', 0)
-    part_types = PartDictSafe({'real': 1, 'virtual': 2})
+    part_types = PartDictSafe({'real': 1, 'virt': 2})
     config = ObjectConfigParams(
         type_name='real',
-        type=1,
+        type=part_types['real'],
         dipm=0,
         fix=[False,False,False],
         rotation=[False,False,False],
@@ -484,5 +484,9 @@ class EspressoPart(metaclass=Simulation_Object):
             self.add_particle(pos=pos, director=ori, **part_params)
         else:
             self.add_particle(pos=pos, **part_params)
+
+        # Don't know if this is good - to have virtuals connected to themselves
+        for virtual in self.sys.part.select(virtual=True):
+            virtual.vs_relative = (virtual.id, 0.0, (1,0,0,0))
 
         return self

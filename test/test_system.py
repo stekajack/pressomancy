@@ -1,7 +1,7 @@
 import pressomancy.object_classes
 import inspect
 import logging
-from create_system import sim_inst, BaseTestCase
+from test.create_system import sim_inst, BaseTestCase
 from pressomancy.helper_functions import MissingFeature
 import espressomd
 
@@ -27,3 +27,11 @@ class SimulationTest(BaseTestCase):
                 logging.warning(f"Skipping {cls.__name__} because it requires a feature that is not available.")
                 continue
             self.assertEqual(len(sim_inst.sys.part), 0)
+
+    # def test_renitialize_system(self):
+    #     sim_inst.reinitialize_instance()
+    #     self.assertEqual(len(sim_inst.sys.part),0)
+    #     self.assertListEqual(list(), list(sim_inst.sys.constraints))
+    #     for typ in [1,2,3]:
+    #         self.assertEqual(sim_inst.sys.non_bonded_inter[typ,typ].wca.sigma, 0)
+    #         self.assertEqual(sim_inst.sys.non_bonded_inter[typ,typ].wca.epsilon, 0)

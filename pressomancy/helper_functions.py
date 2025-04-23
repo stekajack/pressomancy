@@ -87,8 +87,7 @@ class ManagedSimulation:
             # Initialize the ESPResSo system object
             if self._espressomd_system is None:
                 box_dim = kwargs.get('box_dim', [10, 10, 10])  # Default box dimensions
-                other_kwargs = {k: v for k, v in kwargs.items() if k != 'box_dim'}
-                self._espressomd_system = self.aClass._sys(box_l=box_dim, **other_kwargs)
+                self._espressomd_system = self.aClass._sys(box_l=box_dim)
 
             # Instantiate the decorated class and set its system attribute
             self.instance = self.aClass(*args, **kwargs)
@@ -108,15 +107,20 @@ class ManagedSimulation:
         Recreates the singleton instance without affecting the shared ESPResSo system object.
 
         This method resets the decorated class instance while preserving the ESPResSo system object.
-        It clears particles, interactions, and thermostat settings in the system, ensuring a clean state.
+        It clears particles, interactions, constraints, actors, and thermostat settings in the system, ensuring a clean state.
+
+        note: it is much faster without reseting non_bonded_interactions. You can do this manually, or you can uncomment the temporary fix for this.
         """
         if self.instance is not None:
             self.instance = self.aClass(*self.init_args, **self.init_kwargs)
             self.instance.sys = self._espressomd_system
             self.instance.sys.part.clear()
-            self.instance.sys.non_bonded_inter.reset()
+            # self.instance.sys.non_bonded_inter.reset() #this method is not working properly
+            # self.instance.reset_non_bonded_inter() # temporary fix (uncomment)
             self.instance.sys.bonded_inter.clear()
             self.instance.sys.thermostat.turn_off()
+            self.instance.sys.constraints.clear()
+            self.instance.sys.actors.clear()
 
     def __getattr__(self, name):
         """
@@ -344,6 +348,8 @@ class PartDictSafe(dict):
         Retrieves the value for a key, initializing it with the default value if the key does not exist.
     """
 
+    _instances = []
+
     def __init__(self, *args, **kwargs):
         """
         Initializes the dictionary with optional initial data and a default factory.
@@ -357,6 +363,8 @@ class PartDictSafe(dict):
         """
         self.default_factory = list
         super().__init__(*args, **kwargs)
+        if all(isinstance(v, int) for v in self.values()) and len(self)>0:
+            PartDictSafe._instances.append(self)
 
     def sanity_check(self, key, value):
         """
@@ -466,6 +474,31 @@ class PartDictSafe(dict):
             A function that returns the new default value for missing keys.
         """
         self.default_factory = factory
+
+    @classmethod
+    def part_type_instances(cls):
+        return cls._instances
+    
+    @classmethod
+    def all_part_types(cls):
+        part_dict_safe = {}
+        for d in PartDictSafe.part_type_instances():
+            part_dict_safe.update(d)
+        return part_dict_safe
+    
+    @classmethod
+    def all_names(cls):
+        keys = set()
+        for d in PartDictSafe.part_type_instances():
+            keys.update(d.keys())
+        return list(keys)
+
+    @classmethod
+    def all_types(cls):
+        values = set()
+        for d in PartDictSafe.part_type_instances():
+            values.update(d.values())
+        return list(values)
 
 class RoutineWithArgs:
     """
@@ -851,7 +884,7 @@ def make_centered_rand_orient_point_array(center=np.array([0,0,0]), sphere_radiu
 def partition_cuboid_volume(box_lengths, num_spheres, sphere_diameter, routine_per_volume=RoutineWithArgs(), flag='rand'):
     """
     Partitions a cuboid volume into spherical regions and generates points within them.
-    This function creates a face-centered cubic (FCC) lattice of spheres within a cubic volume; and optionally, for a cubic box, generates points within each sphere according to a specified routine.
+    This function creates a face-centered cubic (FCC) lattice of spheres within a cubic volume; and optionally, generates points within each sphere according to a specified routine.
     
     Parameters
     ----------
@@ -887,6 +920,9 @@ def partition_cuboid_volume(box_lengths, num_spheres, sphere_diameter, routine_p
         scaling -= 0.1
     logging.info('scaling used: %s', scaling)
 
+    # Center point distribution in box
+    sphere_centers += box_lengths/2 - np.mean(sphere_centers, axis=0)
+
     # Randomly shuffle the available centers and select the required number of centers
     take_index = np.arange(len(sphere_centers))
     if flag=='rand':
@@ -914,7 +950,7 @@ def partition_cuboid_volume(box_lengths, num_spheres, sphere_diameter, routine_p
                 # Check for overlaps with points in neighboring spheres
                 for volume_id in grouped_volumes[i]:
                     if grouped_positions[volume_id]:
-                        distances = calculate_pair_distances(points, grouped_positions[volume_id], box_length=box_length)
+                        distances = calculate_pair_distances(points, grouped_positions[volume_id], box_lengths=box_length)
                         if np.any(distances <= routine_per_volume.monomer_size):
                             should_proceed = False
                             break

@@ -127,14 +127,14 @@ class Simulation():
         self.io_dict={'h5_file': None,'properties':[('id',1), ('type',1), ('pos',3), ('f',3),('dip',3)],'flat_part_view':[],'registered_group_type': None}
         # self.sys=espressomd.System(box_l=box_dim) is added and managed by the singleton decrator!
 
-    def set_sys(self, timestep=0.01, min_global_cut=3.0,have_quaternion=False):
+    def set_sys(self, time_step=0.01, min_global_cut=3.0,have_quaternion=False):
         '''
         Set espresso cellsystem params, and import virtual particle scheme. Run automatically on initialisation of the System class.
         '''
         np.random.seed(seed=self.seed)
         logging.info(f'core.seed: {self.seed}')
         self.sys.periodicity = (True, True, True)
-        self.sys.time_step = timestep
+        self.sys.time_step = time_step
         self.sys.cell_system.skin = 0.5
         self.sys.min_global_cut = min_global_cut
         self.sys.virtual_sites = VirtualSitesRelative(have_quaternion=have_quaternion)
@@ -155,6 +155,32 @@ class Simulation():
 
         else:
             logging.info("Requester does not have permission to modify attributes.")
+
+    def reset_non_bonded_inter(self):
+        """
+        Resets wca interactions (uncomment to add more). Removes only interactions between types from pressomancy objects.
+        
+        Workaround until espressomd.BondedInteractions.reset() is fixed.
+        """
+        for (type1, type2) in combinations_with_replacement(tuple(PartDictSafe.all_types()), 2):
+            self.sys.non_bonded_inter[type1,type2].wca.deactivate()
+
+            # self.sys.non_bonded_inter[type1,type2].tabulated.deactivate()
+            # self.sys.non_bonded_inter[type1,type2].lennard_jones.deactivate()
+            # self.sys.non_bonded_inter[type1,type2].generic_lennard_jones.deactivate()
+            # self.sys.non_bonded_inter[type1,type2].lennard_jones_cos.deactivate()
+            # self.sys.non_bonded_inter[type1,type2].lennard_jones_cos2.deactivate()
+            # self.sys.non_bonded_inter[type1,type2].smooth_step.deactivate()
+            # self.sys.non_bonded_inter[type1,type2].bmhtf.deactivate()
+            # self.sys.non_bonded_inter[type1,type2].morse.deactivate()
+            # self.sys.non_bonded_inter[type1,type2].buckingham.deactivate()
+            # self.sys.non_bonded_inter[type1,type2].soft_sphere.deactivate()
+            # self.sys.non_bonded_inter[type1,type2].hat.deactivate()
+            # self.sys.non_bonded_inter[type1,type2].hertzian.deactivate()
+            # self.sys.non_bonded_inter[type1,type2].gaussian.deactivate()
+            # self.sys.non_bonded_inter[type1,type2].dpd.deactivate()
+            # self.sys.non_bonded_inter[type1,type2].thole.deactivate()
+            # self.sys.non_bonded_inter[type1,type2].gay_berne.deactivate()
 
     def sanity_check(self,object):
         '''
@@ -211,6 +237,7 @@ class Simulation():
         """
         if box_lenghts is None:
             box_lenghts = self.sys.box_l
+        box_lenghts = np.asarray(box_lenghts)
         shift = np.asarray(shift)
         
         # Ensure all objects are of the same type.
@@ -335,6 +362,7 @@ class Simulation():
                 bonds created for that pair.
 
         Notes:
+            - Bonds will be stores in the particle with lowest id.
             - Assumes a cubic simulation box (all box dimensions must be equal).
             - Applies periodic boundary conditions (PBC) when computing distances.
             - Each bond is added symmetrically and uniquely per particle pair.
@@ -347,7 +375,7 @@ class Simulation():
 
         all_part_types= PartDictSafe({typ: ele.part_types[typ] for ele in object_types for typ in ele.part_types})
         if part_types is None:
-            part_types = combinations_with_replacement(tuple(all_part_types.values()))
+            part_types = tuple(combinations_with_replacement(tuple(all_part_types.values()),2))
         else:
             part_types = tuple((all_part_types[typ_pair[0]], all_part_types[typ_pair[1]]) for typ_pair in part_types)
         assert part_types, "No particle types found in simulation"
@@ -370,17 +398,31 @@ class Simulation():
 
         n_bonds_dict= {}
         for pair_types in part_types:
+
+            if len(self.sys.part.select(type=pair_types[0]).id) == 0 \
+                or len(self.sys.part.select(type=pair_types[1]).id) == 0 :
+                continue # skip if there are no particles of on of the types in the simulatio box
+
             particles_1 = self.sys.part.select(type=pair_types[0])
 
-            
             pair_dict = get_neighbours(self.sys.part.select(type=pair_types).pos, box_size, r_catch)
-
+            
             n_bonds= 0
             for particle in particles_1:
-                bonds_per_HM= 0
-
                 id1 = particle.id
-                ids2 = np.random.choice(pair_dict[id1], min(len(pair_dict[id1]), max_bonds), replace=False)
+
+                bonds_per_HM= len(particle.bonds)
+                pair_dict_safe = pair_dict[id1].copy()
+                for id2 in pair_dict_safe:
+                    if any(id_==id1 for _, id_ in self.sys.part.by_id(id2).bonds): #if id2 and id1 are already bonded
+                        bonds_per_HM+=1
+                        pair_dict[id1].remove(id2)
+                    elif len(self.sys.part.by_id(id2).bonds)>=max_bonds: #if id2 already has max bonds
+                        pair_dict[id1].remove(id2)
+
+                assert bonds_per_HM<=max_bonds
+
+                ids2 = np.random.choice(pair_dict[id1], min(len(pair_dict[id1]), max_bonds-bonds_per_HM), replace=False)
 
                 for id2 in ids2:
                     particle_2= self.sys.part.by_id(id2)
@@ -409,7 +451,7 @@ class Simulation():
                     elastic_bond = espressomd.interactions.HarmonicBond(r_0=r_12, k=k_12)
 
                     self.sys.bonded_inter.add(elastic_bond)
-                    particle.add_bond((elastic_bond, id2))
+                    self.sys.part.by_id(min(id1,id2)).add_bond((elastic_bond, max(id1,id2)))
 
                     assert r_12<=r_catch
                     bonds_per_HM+= 1
@@ -503,8 +545,8 @@ class Simulation():
                 epsilon=eps, sigma=sgm, cutoff=lj_cut, shift=0)
         logging.info('vdW interactions initiated!')
 
-    def add_box_constraints(self, wall_type=0, sides=['all'], inter=None, types_=None,
-                        bottom=0, top=None, left=0, right=None, back=0, front=None):
+    def add_box_constraints(self, wall_type=0, sides=['all'], inter=None, types_=None, object_types=None,
+                        bottom=None, top=None, left=None, right=None, back=None, front=None):
         """
         Adds wall constraints to the simulation box along specified sides.
 
@@ -548,16 +590,39 @@ class Simulation():
         - Walls are defined using outward-pointing normals and placed at specified distances from the origin.
         - The method adds constraints to `self.sys.constraints` directly.
         """
+        try:
+            PartDictSafe({'wall': wall_type})
+        except:
+            raise ValueError("wall_type must be unique from all other particle types. Default is 0.")
+
         sides = np.array([sides]).ravel().tolist()
         if "no-" in sides[0]:
             sides.append('all')
 
+        if bottom is None:
+            bottom = 0
+        else:
+            sides.append('bottom')
         if top is None:
             top = self.sys.box_l[2]
+        else:
+            sides.append('top')
+        if left is None:
+            left = 0
+        else:
+            sides.append('left')
         if right is None:
             right = self.sys.box_l[1]
+        else:
+            sides.append('right')
+        if back is None:
+            back = 0
+        else:
+            sides.append('back')
         if front is None:
             front = self.sys.box_l[0]
+        else:
+            sides.append('front')
 
         wall_constraints = []
 
@@ -607,49 +672,55 @@ class Simulation():
             inter= np.array([inter]).ravel()
 
             if types_ is None:
-                types_= set([type_ for type_ in self.sys.part.all().type if type_ != wall_type])
+                if object_types is None:
+                    types_= set([type_ for type_ in self.sys.part.all().type if type_ != wall_type])
+                else:
+                    types_ = set([ele.part_types[typ] for ele in object_types for typ in ele.part_types])
             else:
                 types_= np.array([types_]).ravel()
 
             if 'wca' in inter:
                 for type_ in types_:
-                    sigma = self.sys.non_bonded_inter[type_,type_].wca.sigma/2
+                    sigma = self.sys.non_bonded_inter[type_,type_].wca.sigma/2 / 2**(1/6)
                     self.sys.non_bonded_inter[wall_type,type_].wca.set_params(epsilon=1E6, sigma=sigma)
 
         return wall_constraints
     
-    def remove_box_constraints(self, wall_constraints=None, part_types=None):
+    def remove_box_constraints(self, wall_constraints=None, part_types=None, object_types=None):
         """ Removes wall_constraints from system. Default: removes all espressomd.shapes.Wall constraints.
             If part_types is not None, remove only interactions with those particle types.
         system
         list of espressomd.constraints.ShapeBasedConstraint wall_constraints
         list of particles types to stop interactoin with box part_types
         """
+        system_constraints = list(self.sys.constraints)
         if wall_constraints is None:
-            for ele in list(self.sys.constraints):
-                if isinstance(ele, espressomd.constraints.ShapeBasedConstraint) \
-                and isinstance(ele.shape, espressomd.shapes.Wall):
-                    
-                    if part_types is None:
-                        part_types_tmp= set([type_ for type_ in self.sys.part.all().type])
-                        self.sys.constraints.remove(ele)
-
-                    for type_ in part_types_tmp:
-                        self.sys.non_bonded_inter[ele.particle_type, type_].reset()
-
+            wall_constraints = [constraint for constraint in system_constraints
+                                if ( isinstance(constraint, espressomd.constraints.ShapeBasedConstraint)
+                                and isinstance(constraint.shape, espressomd.shapes.Wall) ) ]
         else:
-            wall_constraints= np.array([wall_constraints]).ravel()
+            wall_constraints = np.array([wall_constraints]).ravel()
 
-            box_types= {}
-            if part_types is None:
-                part_types= set([type_ for type_ in self.sys.part.all().type])
-                for constraint in wall_constraints:
-                    self.sys.constraints.remove(constraint)
-                    box_types[constraint.particle_type]= None
+            
+        if part_types is None and object_types is None: #removes actual cosntraints (removes interactions, if no more walls of that type)
+            part_types= set([type_ for type_ in self.sys.part.all().type])
 
-            for box_type in box_types.keys():
-                for type_ in part_types:
-                    self.sys.non_bonded_inter[box_type, type_].reset()
+            original_wall_types = set([constraint.particle_type for constraint in system_constraints])
+            for wall in wall_constraints: #remove walls
+                self.sys.constraints.remove(wall)
+            leftover_wall_types = set([constraint.particle_type for constraint in list(self.sys.constraints)])
+            box_types_remove = original_wall_types - leftover_wall_types
+        elif part_types is None: # removes only interactions (based on objects)
+            object_types = np.array([object_types]).ravel()
+            part_types = set([ele.part_types[typ] for ele in object_types for typ in ele.part_types])
+        else: # removes only interactions (based on part_types)
+            box_types_remove = set([constraint.particle_type for constraint in wall_constraints])
+            part_types = np.array([part_types]).ravel()
+
+        # remove inter for specific types
+        for box_type in box_types_remove:
+            for type_ in part_types:
+                self.sys.non_bonded_inter[box_type, type_].reset()
 
     def init_lb(self, kT, agrid, dens, visc, gamma, timestep=0.01):
         """
@@ -777,12 +848,17 @@ class Simulation():
 
     def get_H_ext(self):
         """
-        Retrieves the current external magnetic field. Assumes there is only one active applied field!
+        Retrieves the current external magnetic field.
+        
+        Sums over all applied homogeneus magnetic fields.
 
         :return: tuple | The external magnetic field vector.
         """
-        HFld=next(x for x in self.sys.constraints if isinstance(x,espressomd.constraints.HomogeneousMagneticField))
-        return HFld.H
+        HFld=np.asarray(
+            [ele.H for ele in list(self.sys.constraints)
+             if isinstance(ele, espressomd.constraints.HomogeneousMagneticField)]
+                        ).sum(axis=0)
+        return HFld
 
     def init_pickle_dump(self, path_to_dump):
         """
@@ -832,23 +908,6 @@ class Simulation():
         f = gzip.open(path_to_dump, 'wb')
         pickle.dump(dict_of_god, f, pickle.HIGHEST_PROTOCOL)
         f.close()
-
-    def generate_positions(self, min_distance):
-        """
-        Generates random positions for objects in the simulation box, ensuring minimum distance between positions. Completely naive implementation
-
-        :param min_distance: float | The minimum allowed distance between objects.
-        :return: np.ndarray | Array of generated positions.
-        """
-        object_positions = []
-        while len(object_positions) < self.no_objects:
-            new_position = np.random.random(3) * self.sys.box_l
-            if all(np.linalg.norm(new_position - pos) >= min_distance for pos in self.sys.part.all().pos):
-                if all(np.linalg.norm(new_position - existing_position) >= min_distance for existing_position in object_positions):
-                    object_positions.append(new_position)
-            logging.info(f'position casing progress: {len(object_positions)/self.no_objects}')
-
-        return np.array(object_positions)
     
     def collect_class_names(self, objects_to_register):
         '''

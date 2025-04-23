@@ -1,5 +1,5 @@
 from pressomancy.object_classes import Filament, Quartet
-from create_system import sim_inst , BaseTestCase
+from test.create_system import sim_inst , BaseTestCase
 import espressomd
 
 class FilamentTest(BaseTestCase):

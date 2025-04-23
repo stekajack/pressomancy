@@ -3,7 +3,7 @@ from pressomancy.helper_functions import BondWrapper
 import espressomd
 box_dim=(100,100,100)
 sim_inst = Simulation(box_dim=box_dim)
-sim_inst.set_sys(timestep=0.001)
+sim_inst.set_sys(time_step=0.001)
 no_obj=20
 part_per_fil=10
 rasp_sigm=3

@@ -1,6 +1,6 @@
 import numpy as np
 import espressomd
-from create_system import sim_inst , BaseTestCase
+from test.create_system import sim_inst , BaseTestCase
 from pressomancy.simulation import Filament, Quartet, Quadriplex
 from pressomancy.helper_functions import BondWrapper
 from pressomancy.analysis import H5DataSelector
