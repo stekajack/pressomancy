@@ -77,7 +77,7 @@ class IOTest(BaseTestCase):
         with tempfile.TemporaryDirectory() as tmpdirname:
             # Build a temporary filename inside the directory
             h5_filename = os.path.join(tmpdirname, "testfile.h5")
-            GLOBAL_COUNTER=sim_inst.inscribe_part_group_to_h5(group_type=Filament, h5_data_path=h5_filename)
+            GLOBAL_COUNTER=sim_inst.inscribe_part_group_to_h5(group_type=[Filament,], h5_data_path=h5_filename)
             for _ in range(2):
                 sim_inst.sys.integrator.run(1)
                 sim_inst.write_part_group_to_h5(time_step=GLOBAL_COUNTER)
