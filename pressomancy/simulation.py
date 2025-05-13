@@ -396,38 +396,62 @@ class Simulation():
                 and bond_k[1]-bond_k[0]>=0
                ), "method assumes bond_k to be either a number, or an interval represented by a tuple of the form (min, max)"
 
-        n_bonds_dict= {}
+        n_bonds_dict= defaultdict(int)
         for pair_types in part_types:
 
             if len(self.sys.part.select(type=pair_types[0]).id) == 0 \
                 or len(self.sys.part.select(type=pair_types[1]).id) == 0 :
-                continue # skip if there are no particles of on of the types in the simulatio box
+                continue # skip if there are no particles of one of the types in the simulatio box
 
             particles_1 = self.sys.part.select(type=pair_types[0])
 
-            pair_dict = get_neighbours(self.sys.part.select(type=pair_types).pos, box_size, r_catch)
-            
+            pair_dict = get_neighbours(self.sys.part.select(type=tuple(set(pair_types))).pos, box_size, r_catch)
+
+            if pair_types[0] != pair_types[1]: # ensure particles of type pair_types[0] only bond to ones of type pair_types[1], and bonds are stores in pair_types[0]
+                flag_equal_types = False
+                for id1 in pair_dict.keys():
+                    if self.sys.part.by_id(id1).type == pair_types[0]:
+                        pair_dict[id1] = list(set(pair_dict[id1]))
+                        pair_dict_safe = pair_dict[id1]
+                        for id2 in pair_dict_safe: # remove first type from values
+                            if self.sys.part.by_id(id2).type == pair_types[0]:
+                                pair_dict[id1].remove(id2)
+                    else: # remove second type from keys
+                        del pair_dict[id1]
+            else:
+                flag_equal_types = True
+                for id1 in pair_dict.keys():
+                    pair_dict[id1] = list(set(pair_dict[id1]))
+
             n_bonds= 0
             for particle in particles_1:
                 id1 = particle.id
 
-                bonds_per_HM= len(particle.bonds)
+                bonds_per_HM = n_bonds_dict[id1]
+                if bonds_per_HM == max_bonds:
+                    continue
+                
+                # remove neighbors that already have max bonds
                 pair_dict_safe = pair_dict[id1].copy()
                 for id2 in pair_dict_safe:
-                    if any(id_==id1 for _, id_ in self.sys.part.by_id(id2).bonds): #if id2 and id1 are already bonded
-                        bonds_per_HM+=1
-                        pair_dict[id1].remove(id2)
-                    elif len(self.sys.part.by_id(id2).bonds)>=max_bonds: #if id2 already has max bonds
+                    if n_bonds_dict[id2] == max_bonds:
                         pair_dict[id1].remove(id2)
 
-                assert bonds_per_HM<=max_bonds
+                assert bonds_per_HM<=max_bonds, f"bonds {bonds_per_HM}"
 
                 ids2 = np.random.choice(pair_dict[id1], min(len(pair_dict[id1]), max_bonds-bonds_per_HM), replace=False)
 
                 for id2 in ids2:
-                    particle_2= self.sys.part.by_id(id2)
 
-                    r_diff = particle_2.pos_folded - particle.pos_folded
+                    assert len(self.sys.part.by_id(id2).bonds) < max_bonds, f"len{len(self.sys.part.by_id(id2).bonds)}, n_bond{n_bonds_dict[id2]}"
+
+                    id_min = min(id1, id2)
+                    id_max = max(id1, id2)
+
+                    particle_min = self.sys.part.by_id(id_min)
+                    particle_max = self.sys.part.by_id(id_max)
+
+                    r_diff = particle_max.pos_folded - particle_min.pos_folded
 
                     # PBC correction
                     # x
@@ -451,13 +475,15 @@ class Simulation():
                     elastic_bond = espressomd.interactions.HarmonicBond(r_0=r_12, k=k_12)
 
                     self.sys.bonded_inter.add(elastic_bond)
-                    self.sys.part.by_id(min(id1,id2)).add_bond((elastic_bond, max(id1,id2)))
+                    self.sys.part.by_id(id_min).add_bond((elastic_bond, id_max))
+
+                    n_bonds_dict[id1] += 1; n_bonds_dict[id2] += 1 # keep count of n bonds
+                    if flag_equal_types:
+                        pair_dict[id2].remove(id1) # remove already bonded pairs from pair_dict
 
                     assert r_12<=r_catch
-                    bonds_per_HM+= 1
-                        
-                assert bonds_per_HM <= max_bonds
-                n_bonds+= bonds_per_HM
+
+                n_bonds+= n_bonds_dict[id1]
             
             n_bonds_dict[pair_types] = n_bonds
 
