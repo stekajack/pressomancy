@@ -314,11 +314,43 @@ class Simulation():
         objects= np.array([objects]).ravel()
         if orientations is None:
             orientations = generate_random_unit_vectors(len(positions))
+        else:
+            orientations = normalize_vectors(orientations)
         assert len(objects) == len(positions) == len(orientations)
         for obj, pos, ori in zip(objects, positions, orientations):
             obj.set_object(pos, ori)
         logging.info('%s placed!!!', objects[0].__class__.__name__)
 
+    def god_set_objects(self, objects, positions, orientations, **kwargs):
+        """Set objects' everything in the simulation box.
+        This method places objects at given coordinates within the simulation box and sets their orientations. Furthermore, it sets any other object/particle properti passed through as extra keyword arguments.
+        This method does not guarantee non-overlapping of objects, in any way.
+
+        Parameters
+        ----------
+        objects : list or array-like
+            List of simulation objects to place. Can be a single object or multiple.
+        positions : array-like of shape (N, 3)
+            A list or array of 3D coordinates where each object will be placed.
+        orientations : array-like of shape (N, 3)
+            Orientation vectors for each object
+        **kwargs : keyword arguments (any number)
+            Valid object.set_object() or espressomd.part.add() keyword arguments.
+
+        Raises
+        ------
+        AssertionError
+            If the number of objects, positions, orientations, and every kwargs item lenght do not match.
+        """
+        objects= np.array([objects]).ravel()
+        assert len(objects) == len(positions) == len(orientations)
+        for arg in kwargs.values:
+            assert len(arg) == len(objects)
+        kwargs_keys = kwargs.keys()
+        for obj, pos, ori, *kwa_values in zip(objects, positions, orientations, *kwargs.values()):
+            kwa = dict(zip(kwargs_keys, kwa_values))
+            obj.set_object(pos, ori, **kwa)
+        logging.info('%s placed!!!', objects[0].__class__.__name__)
 
     def mark_for_collision_detection(self, object_type=Quadriplex, part_type=666):
         assert any(isinstance(ele, object_type) for ele in self.objects), "method assumes simulation holds correct type object"

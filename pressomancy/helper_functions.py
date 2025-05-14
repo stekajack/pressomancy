@@ -618,6 +618,11 @@ def generate_random_unit_vectors(N_PART):
     y = r * np.sin(phi)
     return np.column_stack((x, y, z))
 
+def normalize_vectors(array_of_vectors, axis=-1):
+    norms_array = np.atleast_1d(np.linalg.norm(array_of_vectors, axis=axis))
+    norms_array[norms_array==0] = 1
+    return array_of_vectors / np.expand_dims(norms_array, axis)
+
 def build_grid_and_adjacent(lattice_points, volume_side, cell_size):
     """
     Builds a grid dictionary mapping each cell id (tuple) to a list of particle indices, and
@@ -1223,6 +1228,11 @@ def align_vectors(v1, v2):
         (np.dot(cross_prod_matrix, cross_prod_matrix) * ((1 - cos_theta) / (sin_theta ** 2)))
     )
     return rotation_matrix
+
+def str_to_bool(string):
+    if string not in ['True', 'true', '1', 'False', 'false', '0']:
+        raise TypeError(f" '{string}' is not convertible to bool")
+    return string in ['True', 'true', '1']
 
 class BondWrapper:
     def __init__(self, bond_handle):

@@ -466,7 +466,7 @@ class EspressoPart(metaclass=Simulation_Object):
         EspressoPart.part_types.update(PartDictSafe({self.params['type_name']: self.params['type']}))
         self.type_part_dict=PartDictSafe({key: [] for key in EspressoPart.part_types.keys()})
 
-    def set_object(self,  pos, ori):
+    def set_object(self,  pos, ori, **kwargs):
         '''
         Sets a n_parts random distribution of particles in espresso, asserting that the dimensionality of the pos paramater passed is commesurate with n_part; using a generator object with the particle enumeration logic, and a try catch paradigm. Particles created here are treated as real as any particle created with espresso's System.part.add(). Indices of added particles stored in self.realz_indices.append attribute.
 
@@ -475,8 +475,8 @@ class EspressoPart(metaclass=Simulation_Object):
         :return: None
 
         '''
-        part_params = {key: value for key, value in self.params.items() if key not in list(ObjectConfigParams.
-        common_keys.keys())}
+        part_params = {key: value for key, value in self.params.items() if key not in list(ObjectConfigParams.common_keys.keys())}
+        part_params.update(kwargs)
         dipm= part_params.pop('dipm')
         if self.params['dipm'] != 0:
             self.add_particle(pos=pos, dip=(dipm * ori), **part_params)
