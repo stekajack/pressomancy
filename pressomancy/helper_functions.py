@@ -348,8 +348,6 @@ class PartDictSafe(dict):
         Retrieves the value for a key, initializing it with the default value if the key does not exist.
     """
 
-    _instances = []
-
     def __init__(self, *args, **kwargs):
         """
         Initializes the dictionary with optional initial data and a default factory.
@@ -363,8 +361,6 @@ class PartDictSafe(dict):
         """
         self.default_factory = list
         super().__init__(*args, **kwargs)
-        if all(isinstance(v, int) for v in self.values()) and len(self)>0:
-            PartDictSafe._instances.append(self)
 
     def sanity_check(self, key, value):
         """
@@ -474,31 +470,6 @@ class PartDictSafe(dict):
             A function that returns the new default value for missing keys.
         """
         self.default_factory = factory
-
-    @classmethod
-    def part_type_instances(cls):
-        return cls._instances
-    
-    @classmethod
-    def all_part_types(cls):
-        part_dict_safe = {}
-        for d in PartDictSafe.part_type_instances():
-            part_dict_safe.update(d)
-        return part_dict_safe
-    
-    @classmethod
-    def all_names(cls):
-        keys = set()
-        for d in PartDictSafe.part_type_instances():
-            keys.update(d.keys())
-        return list(keys)
-
-    @classmethod
-    def all_types(cls):
-        values = set()
-        for d in PartDictSafe.part_type_instances():
-            values.update(d.values())
-        return list(values)
 
 class RoutineWithArgs:
     """
@@ -782,7 +753,6 @@ def calculate_pair_distances(points_a, points_b, box_lengths):
     distances = np.linalg.norm(min_img_dist(point_pairs_a, point_pairs_b, box_dim=np.ones(3) * box_lengths), axis=-1)
 
     # displacements = np.linalg.norm(min_img_dist(points_a[:, None, :], points_b[None, :, :], box_dim), axis=-1)
-    print(distances.shape)
     
     return distances
 

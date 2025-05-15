@@ -115,7 +115,7 @@ class Simulation():
     
     object_permissions=['part_types']
     _sys=espressomd.System
-    def __init__(self, box_dim, **kwagrs):
+    def __init__(self, box_dim):
         self.no_objects = 0
         self.objects = []
         self.part_types = PartDictSafe({})
@@ -162,7 +162,7 @@ class Simulation():
         
         Workaround until espressomd.BondedInteractions.reset() is fixed.
         """
-        for (type1, type2) in combinations_with_replacement(tuple(PartDictSafe.all_types()), 2):
+        for (type1, type2) in combinations_with_replacement(tuple(self.part_types.values()), 2):
             self.sys.non_bonded_inter[type1,type2].wca.deactivate()
 
             # self.sys.non_bonded_inter[type1,type2].tabulated.deactivate()
