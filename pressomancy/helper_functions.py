@@ -619,6 +619,7 @@ def generate_random_unit_vectors(N_PART):
     return np.column_stack((x, y, z))
 
 def normalize_vectors(array_of_vectors, axis=-1):
+    array_of_vectors= np.asarray(array_of_vectors)
     norms_array = np.atleast_1d(np.linalg.norm(array_of_vectors, axis=axis))
     norms_array[norms_array==0] = 1
     return array_of_vectors / np.expand_dims(norms_array, axis)

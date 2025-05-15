@@ -321,7 +321,7 @@ class Simulation():
             obj.set_object(pos, ori)
         logging.info('%s placed!!!', objects[0].__class__.__name__)
 
-    def god_set_objects(self, objects, positions, orientations, **kwargs):
+    def set_objects_god(self, objects, positions, orientations, **kwargs):
         """Set objects' everything in the simulation box.
         This method places objects at given coordinates within the simulation box and sets their orientations. Furthermore, it sets any other object/particle properti passed through as extra keyword arguments.
         This method does not guarantee non-overlapping of objects, in any way.
@@ -343,8 +343,10 @@ class Simulation():
             If the number of objects, positions, orientations, and every kwargs item lenght do not match.
         """
         objects= np.array([objects]).ravel()
+
+        orientations = normalize_vectors(orientations)
         assert len(objects) == len(positions) == len(orientations)
-        for arg in kwargs.values:
+        for arg in kwargs.values():
             assert len(arg) == len(objects)
         kwargs_keys = kwargs.keys()
         for obj, pos, ori, *kwa_values in zip(objects, positions, orientations, *kwargs.values()):
