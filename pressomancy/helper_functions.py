@@ -1205,6 +1205,13 @@ def str_to_bool(string):
         raise TypeError(f" '{string}' is not convertible to bool")
     return string in ['True', 'true', '1']
 
+def broadcast_to_len(target_len, arg):
+    arg_arr = np.asarray(arg, dtype=object)
+    if arg_arr.ndim > 0 and len(arg_arr) == target_len: # target lenght
+        return arg
+    else: # lenghts missmatch
+        return [arg] * target_len
+
 class BondWrapper:
     def __init__(self, bond_handle):
         # Store the bond_handle instance

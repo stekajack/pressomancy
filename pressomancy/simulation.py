@@ -186,8 +186,9 @@ class Simulation():
         '''
         Method that checks if the object has the required features to be stored in the simulation. If the object has the required features it is stored in the self.objects list.
         '''
-        if not all(feature in espressomd.features() for feature in object.required_features):
-            raise MissingFeature
+        missing_features = set(object.required_features) - set(espressomd.features())
+        if missing_features:
+            raise MissingFeature(f"Missing required features: {', '.join(missing_features)}")
 
     def store_objects(self, iterable_list):
         '''
@@ -343,11 +344,14 @@ class Simulation():
             If the number of objects, positions, orientations, and every kwargs item lenght do not match.
         """
         objects= np.array([objects]).ravel()
+        positions= np.atleast_2d(positions)
+        orientations= np.atleast_2d(orientations)
+        len_objects=len(objects)
 
         orientations = normalize_vectors(orientations)
-        assert len(objects) == len(positions) == len(orientations)
-        for arg in kwargs.values():
-            assert len(arg) == len(objects)
+        assert len_objects == len(positions) == len(orientations)
+        for key in kwargs.keys():
+            kwargs[key] = broadcast_to_len(len_objects, kwargs[key])
         kwargs_keys = kwargs.keys()
         for obj, pos, ori, *kwa_values in zip(objects, positions, orientations, *kwargs.values()):
             kwa = dict(zip(kwargs_keys, kwa_values))

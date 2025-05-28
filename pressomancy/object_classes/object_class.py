@@ -477,16 +477,19 @@ class EspressoPart(metaclass=Simulation_Object):
         '''
         part_params = {key: value for key, value in self.params.items() if key not in list(ObjectConfigParams.common_keys.keys())}
         part_params.update(kwargs)
+        vs_of_id= part_params.pop('vs_of_id', None)
         dipm= part_params.pop('dipm')
         if self.params['dipm'] != 0:
-            self.add_particle(pos=pos, dip=(dipm * ori), **part_params)
+            part_handl = self.add_particle(pos=pos, dip=(dipm * ori), **part_params)
         elif any(self.params['rotation']):
-            self.add_particle(pos=pos, director=ori, **part_params)
+            part_handl = self.add_particle(pos=pos, director=ori, **part_params)
         else:
-            self.add_particle(pos=pos, **part_params)
+            part_handl = self.add_particle(pos=pos, **part_params)
 
         # Don't know if this is good - to have virtuals connected to themselves
-        for virtual in self.sys.part.select(virtual=True):
-            virtual.vs_relative = (virtual.id, 0.0, (1,0,0,0))
+        if vs_of_id is not None:
+            self.sys.part.by_id(vs_of_id).vs_auto_relate_to(part_handl)
+        elif part_params['virtual']:
+            part_handl.vs_relative = (part_handl.id, 0.0, (1,0,0,0))
 
         return self
