@@ -440,7 +440,7 @@ class EspressoPart(metaclass=Simulation_Object):
     numInstances = 0
 
     simulation_type = SinglePairDict('espresso_part', 0)
-    part_types = PartDictSafe({'real': 1, 'virt': 2})
+    part_types = PartDictSafe({'real': 1})
     config = ObjectConfigParams(
         type_name='real',
         type=part_types['real'],
@@ -481,14 +481,12 @@ class EspressoPart(metaclass=Simulation_Object):
         dipm= part_params.pop('dipm')
         if self.params['dipm'] != 0:
             part_handl = self.add_particle(pos=pos, dip=(dipm * ori), **part_params)
-        elif any(self.params['rotation']):
-            part_handl = self.add_particle(pos=pos, director=ori, **part_params)
         else:
-            part_handl = self.add_particle(pos=pos, **part_params)
+            part_handl = self.add_particle(pos=pos, director=ori, **part_params)
 
         # Don't know if this is good - to have virtuals connected to themselves
         if vs_of_id is not None:
-            self.sys.part.by_id(vs_of_id).vs_auto_relate_to(part_handl)
+            part_handl.vs_auto_relate_to(vs_of_id)
         elif part_params['virtual']:
             part_handl.vs_relative = (part_handl.id, 0.0, (1,0,0,0))
 

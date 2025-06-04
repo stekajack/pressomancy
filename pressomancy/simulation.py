@@ -322,7 +322,7 @@ class Simulation():
             obj.set_object(pos, ori)
         logging.info('%s placed!!!', objects[0].__class__.__name__)
 
-    def set_objects_god(self, objects, positions, orientations, **kwargs):
+    def set_objects_god(self, objects, positions, orientations=None, **kwargs):
         """Set objects' everything in the simulation box.
         This method places objects at given coordinates within the simulation box and sets their orientations. Furthermore, it sets any other object/particle properti passed through as extra keyword arguments.
         This method does not guarantee non-overlapping of objects, in any way.
@@ -345,10 +345,13 @@ class Simulation():
         """
         objects= np.array([objects]).ravel()
         positions= np.atleast_2d(positions)
-        orientations= np.atleast_2d(orientations)
         len_objects=len(objects)
 
-        orientations = normalize_vectors(orientations)
+        if orientations is None:
+            orientations = np.zeros_like(positions) + [0,0,1]
+        else:
+            orientations = normalize_vectors(orientations)
+        orientations= np.atleast_2d(orientations)
         assert len_objects == len(positions) == len(orientations)
         for key in kwargs.keys():
             kwargs[key] = broadcast_to_len(len_objects, kwargs[key])
@@ -443,7 +446,8 @@ class Simulation():
 
             particles_1 = self.sys.part.select(type=pair_types[0])
 
-            pair_dict = get_neighbours(self.sys.part.select(type=tuple(set(pair_types))).pos, box_size, r_catch)
+            parts_tmp = self.sys.part.select(type=tuple(set(pair_types)))
+            pair_dict = get_neighbours(parts_tmp.pos, box_size, r_catch, map_indices=parts_tmp.id)
 
             if pair_types[0] != pair_types[1]: # ensure particles of type pair_types[0] only bond to ones of type pair_types[1], and bonds are stores in pair_types[0]
                 flag_equal_types = False
@@ -526,6 +530,87 @@ class Simulation():
             n_bonds_dict[pair_types] = n_bonds
 
         return sum(n_bonds_dict.values()), n_bonds_dict
+    
+    def bond_to_neighbors(self, parts=None, n_nghb=3, bond_k=(0.001,0.01), r_catch=None, object_types=None, part_types=None):
+        """bond to n nearest neighbors, with elastic bond"""
+        if object_types is None:
+            object_types = tuple(type(ele) for ele in self.objects)
+        assert object_types, "No object types found in simulation"
+        assert all(any(isinstance(obj, typ) for obj in self.objects) for typ in object_types), "method assumes simulation holds all required object types"
+
+        all_part_types= PartDictSafe({typ: ele.part_types[typ] for ele in object_types for typ in ele.part_types})
+        if part_types is None:
+            part_types = tuple(all_part_types.values())
+        elif isinstance(part_types, int):
+            part_types = (part_types,)
+        else:
+            part_types = tuple(part_types)
+        assert part_types, "No particle types found in simulation"
+        assert all([typ in self.part_types.values() for typ in part_types]), "method assumes simulation holds all required particle types"
+        assert (all( [isinstance(typ, int) for typ in part_types] )), "method assumes a sequence of (int) particle types"
+
+        box_size= self.sys.box_l[0]
+        assert all(ele == box_size for ele in self.sys.box_l), "method assumes cubic box for system PBC"
+
+        if r_catch is None:
+            r_catch = box_size/2
+
+        if isinstance(bond_k, (float, int)):
+            bond_k = [bond_k, bond_k]
+        assert (len(bond_k)==2
+                and bond_k[1]-bond_k[0]>=0
+               ), "method assumes bond_k to be either a number, or an interval represented by a tuple of the form (min, max)"
+        
+        if parts is None:
+            parts = self.sys.part.all()
+        
+        get_types = tuple(set(parts.type) | set(part_types))
+        parts_tmp = self.sys.part.select(type=get_types)
+        neighbours_dict = get_neighbours(parts_tmp.pos, box_size, r_catch, map_indices=parts_tmp.id)
+        for id1 in parts.id:
+            n_count = 0
+            for id2 in neighbours_dict[id1]:
+                if n_count == n_nghb:
+                    break
+                if self.sys.part.by_id(id2).type not in part_types:
+                    continue
+
+                id_min = min(id1, id2)
+                id_max = max(id1, id2)
+
+                particle_min = self.sys.part.by_id(id_min)
+                particle_max = self.sys.part.by_id(id_max)
+
+                r_diff = particle_max.pos_folded - particle_min.pos_folded
+
+                # PBC correction
+                # x
+                if r_diff[0] > box_size/2:
+                    r_diff[0] -=  box_size
+                elif r_diff[0] < -box_size/2:
+                    r_diff[0] +=  box_size
+                # y
+                if r_diff[1] > box_size/2:
+                    r_diff[1] -=  box_size
+                elif r_diff[1] < -box_size/2:
+                    r_diff[1] +=  box_size
+
+                r_12 = np.linalg.norm(r_diff)
+
+                mean_tmp = ( bond_k[1] + bond_k[0] ) / 2
+                std_tmp = ( bond_k[1] - bond_k[0] ) / 6
+                k_12= bond_k[0] - 1
+                while k_12<bond_k[0] or k_12>bond_k[1]:
+                    k_12 = np.random.normal(loc=mean_tmp, scale=std_tmp)
+                elastic_bond = espressomd.interactions.HarmonicBond(r_0=r_12, k=k_12)
+                assert k_12>=bond_k[0] and k_12<=bond_k[1]
+
+                self.sys.bonded_inter.add(elastic_bond)
+                self.sys.part.by_id(id_min).add_bond((elastic_bond, id_max))
+
+                assert r_12<=r_catch
+
+                n_count+= 1
 
     def init_magnetic_inter(self, actor_handle):
         logging.info('direct summation magnetic interactions initiated')

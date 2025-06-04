@@ -638,7 +638,7 @@ def build_grid_and_adjacent(lattice_points, volume_side, cell_size):
     
     return grid, adjacent
 
-def get_neighbours(lattice_points: np.ndarray, volume_side: float, cuttoff: float = 1.) -> defaultdict:
+def get_neighbours(lattice_points: np.ndarray, volume_side: float, cuttoff: float = 1., map_indices=None) -> defaultdict:
     """
     Returns grouped_indices, where grouped_indices is a dictionary that maps each particle index
     to a list of neighbor indices within the cuttoff distance. Uses a grid-based method for efficiency,
@@ -657,7 +657,13 @@ def get_neighbours(lattice_points: np.ndarray, volume_side: float, cuttoff: floa
     -------
     grouped_indices : defaultdict[int, list[int]]
         Dictionary mapping each particle index to a list of neighbor indices.
+
+    note:
+        - if no index mapping is provided, particle indices will be assumed to start on 0 and end on n_particles-1
     """
+    # map indices (optional)
+    if map_indices is None:
+        idx_map = [i for i in range(len(lattice_points))]
     # Use cuttoff as the grid cell size.
     cell_size = cuttoff
     grid, adjacent_cells = build_grid_and_adjacent(lattice_points, volume_side, cell_size)
@@ -671,6 +677,7 @@ def get_neighbours(lattice_points: np.ndarray, volume_side: float, cuttoff: floa
         neighbor_cells = adjacent_cells[cell]
         # For every particle in the current cell...
         for i in indices:
+            grouped_indices_dist = []
             # Check particles in each neighboring cell.
             for adj_cell in neighbor_cells:
                 for j in grid.get(adj_cell, []):
@@ -678,8 +685,11 @@ def get_neighbours(lattice_points: np.ndarray, volume_side: float, cuttoff: floa
                         continue
                     # Use min_img_dist to compute the distance with periodic boundaries.
                     diff = min_img_dist(lattice_points[i], lattice_points[j], box_dim=box_dim)
+                    dist = np.linalg.norm(diff)
                     if np.linalg.norm(diff) <= cuttoff:
-                        grouped_indices[i].append(j)
+                        grouped_indices_dist.append((j, dist))
+            grouped_indices_dist.sort()
+            grouped_indices[map_indices[i]] = [map_indices[j] for j, _ in grouped_indices_dist]
     return grouped_indices
 
 def get_neighbours_cross_lattice(lattice1, lattice2, box_lenghts, cuttoff=1.):
