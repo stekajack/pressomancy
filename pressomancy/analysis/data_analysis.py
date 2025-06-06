@@ -1,5 +1,5 @@
 import h5py
-
+import numpy as np
 class H5DataSelector:
     """
     A simplified interface to access simulation data stored in an HDF5 file. The H5DataSelector maintains internal slice information for timesteps (axis 0) and particles (axis 1) and supports chaining via its accessor properties:
@@ -35,7 +35,7 @@ class H5DataSelector:
     def __init__(self, h5_file, particle_group, ts_slice=None, pt_slice=None):
         self.h5_file = h5_file
         self.particle_group = particle_group  # e.g., "Filament"
-        self.metadata = self.build_h5_tree(h5_file)
+        self.metadata = self._build_h5_tree(h5_file)
         # Validate that all properties in the given particle group share the same (timesteps, particles)
         self.common_dims = self.sanity_check(self.metadata, self.particle_group)
 
@@ -49,7 +49,7 @@ class H5DataSelector:
             "Use the 'timestep' or 'particles' accessor for slicing instead."
         )
 
-    def build_h5_tree(self, obj):
+    def _build_h5_tree(self, obj):
         """
         Recursively builds a nested dictionary representing the HDF5 file structure.
 
@@ -78,7 +78,7 @@ class H5DataSelector:
                 'members': list(obj.keys())
             }
             for key, item in obj.items():
-                tree[key] = self.build_h5_tree(item)
+                tree[key] = self._build_h5_tree(item)
         elif isinstance(obj, h5py.Dataset):
             tree = {
                 'type': 'Dataset',
@@ -218,7 +218,9 @@ class H5DataSelector:
         """
         ds_name = f"connectivity/{self.particle_group}/ParticleHandle_to_{object_name}"
         connectivity_map = self.h5_file[ds_name][:]
-        particle_indices = connectivity_map[connectivity_map[:, 1] == connectivity_value][:, 0]
+        local_map = np.arange(len(connectivity_map))
+        filter_mask = connectivity_map[:, 1] == connectivity_value
+        particle_indices = local_map[filter_mask]
         particle_indices.sort()
         particle_indices = particle_indices.tolist()  # Ensure a Python list is used.
         return H5DataSelector(self.h5_file, self.particle_group, ts_slice=self.ts_slice, pt_slice=particle_indices)
