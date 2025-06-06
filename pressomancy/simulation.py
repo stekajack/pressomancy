@@ -2,6 +2,7 @@ import espressomd
 from espressomd.virtual_sites import VirtualSitesRelative
 from espressomd import shapes
 import espressomd.polymer
+from pressomancy.analysis import H5DataSelector
 import sys as sysos
 import numpy as np
 import os
@@ -674,7 +675,33 @@ class Simulation():
                         compression_opts=4
                     )
             GLOBAL_COUNTER=0
-        else:
+
+        elif mode=='LOAD_NEW':
+
+            self.io_dict['h5_file'] = h5py.File(h5_data_path, "a")
+            particles_group = self.io_dict['h5_file']["particles"]
+            candidate_lens=[]
+            for grp_typ in group_type:
+                data_view=H5DataSelector(self.io_dict['h5_file'], particle_group=grp_typ.__name__)
+                ids=data_view.get_connectivity_values(grp_typ.__name__)
+                part_ids=[]
+                for id in ids:
+                    temp=data_view.select_particles_by_object(object_name=grp_typ.__name__,connectivity_value=id)
+                    part_ids+=temp.timestep[-1].id.flatten().tolist()
+                part_ids=[int(x) for x in part_ids]
+                self.io_dict['flat_part_view'][grp_typ.__name__].extend(self.sys.part.by_ids(part_ids))
+                data_grp = particles_group[grp_typ.__name__]
+                dataset_val = data_grp["pos/value"]
+                candidate_lens.append(dataset_val.shape[0])
+            if len(set(candidate_lens)) != 1:
+                raise ValueError(
+                    f"Inconsistent step counts across groups: {candidate_lens}"
+                )
+            GLOBAL_COUNTER=candidate_lens[0]
+            logging.info(f"Loading h5 file with GLOBAL_COUNTER={GLOBAL_COUNTER} ")
+            return GLOBAL_COUNTER
+        
+        elif mode=='LOAD':
             self.io_dict['h5_file'] = h5py.File(h5_data_path, "a")
             particles_group = self.io_dict['h5_file']["particles"]
             candidate_lens=[]
