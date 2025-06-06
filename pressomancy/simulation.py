@@ -371,7 +371,7 @@ class Simulation():
         for obj_el in objects_iter:
             obj_el.mark_covalent_bonds(part_type=part_type)
 
-    def random_harmonic_bonds(self, r_catch, bond_k=(0.001, 0.01), max_bonds=None, object_types=None, part_types=None, std_scaling=6):
+    def random_harmonic_bonds(self, r_catch, bond_k=(0.001, 0.01), max_bonds=None, r_cut=-1, object_types=None, part_types=None, std_scaling=6):
         """
         Randomly generate harmonic bonds between particle pairs within a simulation.
 
@@ -436,6 +436,8 @@ class Simulation():
         assert (len(bond_k)==2
                 and bond_k[1]-bond_k[0]>=0
                ), "method assumes bond_k to be either a number, or an interval represented by a tuple of the form (min, max)"
+        
+        assert r_cut > r_catch or r_cut == -1, "r_cut must be larger than any bond lenght. (default -1)"
 
         n_bonds_dict= defaultdict(int)
         for pair_types in part_types:
@@ -498,7 +500,7 @@ class Simulation():
                     k_12= bond_k[0] - 1
                     while k_12<bond_k[0] or k_12>bond_k[1]:
                         k_12 = np.random.normal(loc=mean_tmp, scale=std_tmp)
-                    elastic_bond = espressomd.interactions.HarmonicBond(r_0=r_12, k=k_12, r_cut=10)
+                    elastic_bond = espressomd.interactions.HarmonicBond(r_0=r_12, k=k_12, r_cut=r_cut)
 
                     self.sys.bonded_inter.add(elastic_bond)
                     self.sys.part.by_id(id_min).add_bond((elastic_bond, id_max))
@@ -515,7 +517,7 @@ class Simulation():
 
         return sum(n_bonds_dict.values()), n_bonds_dict
     
-    def bond_to_neighbors(self, parts=None, n_nghb=3, bond_k=(0.001,0.01), r_catch=None, object_types=None, part_types=None):
+    def bond_to_neighbors(self, parts=None, n_nghb=3, bond_k=(0.001,0.01), r_catch=None, r_cut=-1, object_types=None, part_types=None):
         """bond to n nearest neighbors, with elastic bond"""
         if object_types is None:
             object_types = tuple(type(ele) for ele in self.objects)
@@ -538,6 +540,7 @@ class Simulation():
 
         if r_catch is None:
             r_catch = box_size/2
+        assert r_cut > r_catch or r_cut == -1, "r_cut must be larger than any bond lenght. (default -1)"
 
         if isinstance(bond_k, (float, int)):
             bond_k = [bond_k, bond_k]
@@ -572,7 +575,7 @@ class Simulation():
                 k_12= bond_k[0] - 1
                 while k_12<bond_k[0] or k_12>bond_k[1]:
                     k_12 = np.random.normal(loc=mean_tmp, scale=std_tmp)
-                elastic_bond = espressomd.interactions.HarmonicBond(r_0=r_12, k=k_12, r_cut=10)
+                elastic_bond = espressomd.interactions.HarmonicBond(r_0=r_12, k=k_12, r_cut=r_cut)
                 assert k_12>=bond_k[0] and k_12<=bond_k[1]
 
                 self.sys.bonded_inter.add(elastic_bond)
