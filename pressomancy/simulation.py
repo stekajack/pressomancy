@@ -470,16 +470,14 @@ class Simulation():
                 id1 = particle.id
 
                 bonds_per_HM = n_bonds_dict[id1]
-                if bonds_per_HM == max_bonds:
+                if bonds_per_HM >= max_bonds:
                     continue
                 
                 # remove neighbors that already have max bonds
                 pair_dict_safe = pair_dict[id1].copy()
                 for id2 in pair_dict_safe:
-                    if n_bonds_dict[id2] == max_bonds:
+                    if n_bonds_dict[id2] >= max_bonds:
                         pair_dict[id1].remove(id2)
-
-                assert bonds_per_HM<=max_bonds, f"bonds {bonds_per_HM}"
 
                 ids2 = np.random.choice(pair_dict[id1], min(len(pair_dict[id1]), max_bonds-bonds_per_HM), replace=False)
 
@@ -493,21 +491,7 @@ class Simulation():
                     particle_min = self.sys.part.by_id(id_min)
                     particle_max = self.sys.part.by_id(id_max)
 
-                    r_diff = particle_max.pos_folded - particle_min.pos_folded
-
-                    # PBC correction
-                    # x
-                    if r_diff[0] > box_size/2:
-                        r_diff[0] -=  box_size
-                    elif r_diff[0] < -box_size/2:
-                        r_diff[0] +=  box_size
-                    # y
-                    if r_diff[1] > box_size/2:
-                        r_diff[1] -=  box_size
-                    elif r_diff[1] < -box_size/2:
-                        r_diff[1] +=  box_size
-
-                    r_12 = np.linalg.norm(r_diff)
+                    r_12 = self.sys.distance(p1=particle_min, p2=particle_max)
 
                     mean_tmp = ( bond_k[1] + bond_k[0] ) / 2
                     std_tmp = ( bond_k[1] - bond_k[0] ) / std_scaling
@@ -581,21 +565,7 @@ class Simulation():
                 particle_min = self.sys.part.by_id(id_min)
                 particle_max = self.sys.part.by_id(id_max)
 
-                r_diff = particle_max.pos_folded - particle_min.pos_folded
-
-                # PBC correction
-                # x
-                if r_diff[0] > box_size/2:
-                    r_diff[0] -=  box_size
-                elif r_diff[0] < -box_size/2:
-                    r_diff[0] +=  box_size
-                # y
-                if r_diff[1] > box_size/2:
-                    r_diff[1] -=  box_size
-                elif r_diff[1] < -box_size/2:
-                    r_diff[1] +=  box_size
-
-                r_12 = np.linalg.norm(r_diff)
+                r_12 = self.sys.distance(p1=particle_min, p2=particle_max)
 
                 mean_tmp = ( bond_k[1] + bond_k[0] ) / 2
                 std_tmp = ( bond_k[1] - bond_k[0] ) / 6
@@ -611,6 +581,8 @@ class Simulation():
                 assert r_12<=r_catch
 
                 n_count+= 1
+
+            assert n_count == n_nghb
 
     def init_magnetic_inter(self, actor_handle):
         logging.info('direct summation magnetic interactions initiated')
