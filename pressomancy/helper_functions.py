@@ -907,7 +907,9 @@ def partition_cuboid_volume(box_lengths, num_spheres, sphere_diameter, routine_p
     logging.info('scaling used: %s', scaling)
 
     # Center point distribution in box
-    sphere_centers += box_lengths/2 - np.mean(sphere_centers, axis=0)
+    min_centers = np.min(sphere_centers, axis=0)
+    max_centers = np.max(sphere_centers, axis=0)
+    sphere_centers += box_lengths/2 - (min_centers + max_centers)/2
 
     # Randomly shuffle the available centers and select the required number of centers
     take_index = np.arange(len(sphere_centers))

@@ -498,7 +498,7 @@ class Simulation():
                     k_12= bond_k[0] - 1
                     while k_12<bond_k[0] or k_12>bond_k[1]:
                         k_12 = np.random.normal(loc=mean_tmp, scale=std_tmp)
-                    elastic_bond = espressomd.interactions.HarmonicBond(r_0=r_12, k=k_12)
+                    elastic_bond = espressomd.interactions.HarmonicBond(r_0=r_12, k=k_12, r_cut=10)
 
                     self.sys.bonded_inter.add(elastic_bond)
                     self.sys.part.by_id(id_min).add_bond((elastic_bond, id_max))
@@ -572,7 +572,7 @@ class Simulation():
                 k_12= bond_k[0] - 1
                 while k_12<bond_k[0] or k_12>bond_k[1]:
                     k_12 = np.random.normal(loc=mean_tmp, scale=std_tmp)
-                elastic_bond = espressomd.interactions.HarmonicBond(r_0=r_12, k=k_12)
+                elastic_bond = espressomd.interactions.HarmonicBond(r_0=r_12, k=k_12, r_cut=10)
                 assert k_12>=bond_k[0] and k_12<=bond_k[1]
 
                 self.sys.bonded_inter.add(elastic_bond)
