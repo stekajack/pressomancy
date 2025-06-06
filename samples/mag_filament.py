@@ -33,5 +33,6 @@ sim_inst.get_H_ext()
 H_ext=sim_inst.get_H_ext()
 pats_to_magnetize=sim_inst.sys.part.select(lambda p:p.type==sim_inst.part_types['to_be_magnetized'])
 sim_inst.sys.integrator.run(0)
-sim_inst.magnetize(pats_to_magnetize,1.732,H_ext=H_ext)
+if espressomd.code_features.has_features('DIPOLE_FIELD_TRACKING'):
+    sim_inst.magnetize(pats_to_magnetize,1.732,H_ext=H_ext)
 sim_inst.sys.integrator.run(1)
