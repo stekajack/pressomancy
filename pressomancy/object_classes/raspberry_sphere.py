@@ -29,8 +29,8 @@ class RaspberrySphere(metaclass=Simulation_Object):
         self.sys=config['espresso_handle']
         self.params=config
         self.associated_objects=config['associated_objects']
-        RaspberrySphere.numInstances += 1
         self.who_am_i = RaspberrySphere.numInstances
+        RaspberrySphere.numInstances += 1
         self.type_part_dict=PartDictSafe({key: [] for key in RaspberrySphere.part_types.keys()})
 
     def set_object(self,  pos, ori):

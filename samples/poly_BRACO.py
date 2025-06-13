@@ -3,7 +3,6 @@ from pressomancy.helper_functions import BondWrapper
 import espressomd
 import numpy as np
 import logging
-import espressomd.io.writer.vtf
 N_avog = 6.02214076e23
 
 sigma = 1.
@@ -78,8 +77,3 @@ sim_inst.set_vdW(key=('patch',), lj_eps=5, lj_size=2.)
 
 sim_inst.sys.thermostat.set_langevin(kT=1.0, gamma=1.0, seed=sim_inst.seed)
 sim_inst.sys.integrator.run(0)
-fp = open('trajectory.vtf', mode='w+t')
-# write structure block as header
-espressomd.io.writer.vtf.writevsf(sim_inst.sys, fp)
-# write initial positions as coordinate block
-espressomd.io.writer.vtf.writevcf(sim_inst.sys, fp)
