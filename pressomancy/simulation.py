@@ -606,7 +606,7 @@ class Simulation():
         """
         if not isinstance(group_type, list):
             raise ValueError("group_type must be a list of classes.")
-        if mode not in ('NEW', 'LOAD'):
+        if mode not in ('NEW', 'LOAD', 'LOAD_NEW'):
             raise ValueError(f"Unknown mode: {mode}")
         self.io_dict['registered_group_type']=[grp_typ.__name__ for grp_typ in group_type]
 
