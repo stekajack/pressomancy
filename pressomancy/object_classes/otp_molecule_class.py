@@ -35,8 +35,8 @@ class OTP(metaclass=Simulation_Object):
         assert config['n_parts'] == len(OTP._referece_sheet), 'n_parts must be equal to the number of parts in the reference sheet!!!'
         self.sys=config['espresso_handle']
         self.params=config
-        OTP.numInstances += 1
         self.who_am_i = OTP.numInstances
+        OTP.numInstances += 1
         self.realz_indices = []
         self.virts_indices = []
         self.associated_objects=self.params['associated_objects']        

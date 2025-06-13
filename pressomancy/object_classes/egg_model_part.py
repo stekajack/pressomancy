@@ -23,8 +23,8 @@ class EGGPart(metaclass=Simulation_Object):
         '''
         self.sys=config['espresso_handle']
         self.params=config
-        EGGPart.numInstances += 1
         self.who_am_i = EGGPart.numInstances
+        EGGPart.numInstances += 1
         self.associated_objects=config['associated_objects']
         self.type_part_dict=PartDictSafe({key: [] for key in EGGPart.part_types.keys()})
 

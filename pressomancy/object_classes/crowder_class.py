@@ -20,8 +20,8 @@ class Crowder(metaclass=Simulation_Object):
         self.sys=config['espresso_handle']
         self.params=config
         self.associated_objects=self.params['associated_objects']
-        Crowder.numInstances += 1
         self.who_am_i = Crowder.numInstances
+        Crowder.numInstances += 1
         self.type_part_dict=PartDictSafe({key: [] for key in Crowder.part_types.keys()})
 
     def set_object(self,  pos, ori):

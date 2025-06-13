@@ -27,12 +27,12 @@ class SWPart(metaclass=Simulation_Object):
         Initialisation of a SWPart object requires the specification of particle size and a handle to the espresso system
         '''
         
-        SWPart.numInstances += 1
         self.sys=config['espresso_handle']
         self.params=config
         self.associated_objects=self.params['associated_objects']
         self.type_part_dict=PartDictSafe({key: [] for key in SWPart.part_types.keys()})
         self.who_am_i = SWPart.numInstances
+        SWPart.numInstances += 1
 
     def set_object(self,  pos, ori):
         '''
