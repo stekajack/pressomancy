@@ -1,27 +1,24 @@
-# 1. Which branch to consider "main" for status checks & notifications
 branch: main
 
-# 2. Don’t post coverage reports unless CI itself has passed
 notify:
   require_ci_to_pass: yes
 
-# 3. Overall coverage display settings
 coverage:
-  precision: 0          # show integers only (e.g. “75%” not “75.3%”)
-  round: down           # always round down
-  range: "70...100"     # colour-code the badge: red below 70, yellow 70–100, green at 100
-
+  precision: 0
+  round: down
+  range: "70...100"
   status:
     project:
       default:
-        enabled: yes    # enforce overall project coverage checks
-        threshold: 5    # failure if overall coverage drops by ≥5% from baseline
+        enabled: yes
+        threshold: 5
     patch:
       default:
-        enabled: yes    # enforce PR-level coverage checks
-        threshold: 5%   # failure if PR coverage is 5% lower than target
-    changes: no         # don’t enforce coverage on individual changed files
+        enabled: yes
+        threshold: "5%"
+    changes: no
 
-# 4. Disable Codecov’s inline PR comments
 comment: false
 
+ignore:
+  - doc
