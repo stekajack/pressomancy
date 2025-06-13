@@ -1,7 +1,7 @@
 import numpy as np
 import espressomd
 from create_system import sim_inst , BaseTestCase
-from pressomancy.simulation import Filament, Quartet, Quadriplex
+from pressomancy.simulation import Filament, Quartet, Quadriplex, Crowder
 from pressomancy.helper_functions import BondWrapper
 from pressomancy.analysis import H5DataSelector
 import h5py
@@ -26,8 +26,8 @@ class IOTest(BaseTestCase):
     no_crowders=10
     part_per_ligand=2
 
-    def setUp(self) -> None:
 
+    def setUp(self) -> None:
         sim_inst.set_sys()
         quartet_configuration = Quartet.config.specify(espresso_handle=sim_inst.sys)
         quartets = [Quartet(config=quartet_configuration) for x in range(self.no_obj)]
@@ -48,40 +48,78 @@ class IOTest(BaseTestCase):
         self.filaments = [Filament(config=configuration) for configuration in filament_configuration_list]
         sim_inst.store_objects(self.filaments)
         sim_inst.set_objects(self.filaments)
+        crowder_configuration=Crowder.config.specify(sigma=1., size=1., espresso_handle=sim_inst.sys)
+        self.crowders = [Crowder(config=crowder_configuration)
+                    for x in range(self.no_crowders)]
+        sim_inst.store_objects(self.crowders)
+        sim_inst.set_objects(self.crowders)
         
     def tearDown(self) -> None:
         sim_inst.reinitialize_instance()
         self.assertEqual(len(sim_inst.sys.part),0)
 
     @staticmethod
-    def get_and_check(data,ref_parts):
-        data = H5DataSelector(data, particle_group="Filament")
+    def basic_structure(data,step, part_no):
+        np.testing.assert_equal(len(data.timestep), step+1, err_msg="Timestep length does not match!")
+        np.testing.assert_equal(len(data.particles), part_no, err_msg="Particle count does not match!")
+
+    @staticmethod
+    def get_and_check(data, view_type, identity, ref_parts):
         properties=['pos','f','dip']
         for prop in properties:
-            property_data=getattr(sim_inst.sys.part.all(),prop)
-            property_data_h5df=getattr(data.timestep[-1].particles[:],prop)
-            assert np.allclose(property_data, property_data_h5df, rtol=1e-05, atol=1e-08), f'The vectors differ!, {property_data}, {property_data_h5df}'
-            property_data_h5df=getattr(data.select_particles_by_object(object_name="Filament",connectivity_value=0).timestep[-1],prop)
+            property_data_h5df=getattr(data.select_particles_by_object(object_name=view_type,connectivity_value=identity).timestep[-1],prop)
             property_data=[getattr(part,prop) for part in ref_parts]
             assert np.allclose(property_data, property_data_h5df, rtol=1e-05, atol=1e-08), f'The vectors differ!, {property_data}, {property_data_h5df}'
         for prop in ['id','type']:
-            property_data=getattr(sim_inst.sys.part.all(),prop)
-            property_data_h5df=getattr(data.timestep[-1].particles[:],prop).flatten()
-            assert np.allclose(property_data, property_data_h5df, rtol=1e-05, atol=1e-08), f'The vectors differ!, {property_data}, {property_data_h5df}'
-            property_data_h5df=getattr(data.select_particles_by_object(object_name="Filament",connectivity_value=0).timestep[-1],prop).flatten()
+            property_data_h5df=getattr(data.select_particles_by_object(object_name=view_type,connectivity_value=identity).timestep[-1],prop).flatten()
             property_data=[getattr(part,prop) for part in ref_parts]
             assert np.allclose(property_data, property_data_h5df, rtol=1e-05, atol=1e-08), f'The vectors differ!, {property_data}, {property_data_h5df}'
+    
+    @staticmethod
+    def poke_analysis_api(data, view_type, identity, control_ids, ref_parts):
+        filament_ids=np.array(list(data.get_connectivity_values(view_type)),dtype=int)
+        np.testing.assert_array_equal(control_ids, filament_ids, err_msg=f"{view_type} IDs do not match!")
+        filam = data.select_particles_by_object(object_name=view_type,connectivity_value=identity)
+        property_data=[getattr(part,"id") for part in ref_parts]
+        np.testing.assert_array_equal(filam.timestep[-1].id.flatten(), property_data, err_msg="Particle IDs do not match!")
+            
+    @staticmethod
+    def get_child_poke(data, parent_ids, child_ids):
+        quad_ids=[]
+        for ide in parent_ids:
+            quad_ids.extend(data.get_child_ids("Filament", "Quadriplex", parent_id=ide)) 
+        np.testing.assert_array_equal(child_ids, quad_ids, err_msg="Quadiplex IDs do not match!")
 
     def test_IO_h5md(self):
-        parts,_=self.filaments[0].get_owned_part()
+        filam_ids=[filam.who_am_i for filam in self.filaments]
+        quadriplex=[filam.associated_objects for filam in self.filaments]
+        quadriplex_ids=[]
+        for quads in quadriplex:
+            for el in quads:
+                quadriplex_ids.append(el.who_am_i)
+                
         with tempfile.TemporaryDirectory() as tmpdirname:
             # Build a temporary filename inside the directory
             h5_filename = os.path.join(tmpdirname, "testfile.h5")
-            GLOBAL_COUNTER=sim_inst.inscribe_part_group_to_h5(group_type=[Filament,], h5_data_path=h5_filename)
-            for _ in range(2):
+            GLOBAL_COUNTER=sim_inst.inscribe_part_group_to_h5(group_type=[Filament, Crowder], h5_data_path=h5_filename)
+            for iid in range(2):
                 sim_inst.sys.integrator.run(1)
                 sim_inst.write_part_group_to_h5(time_step=GLOBAL_COUNTER)
-                self.get_and_check(sim_inst.io_dict['h5_file'], parts)
+                data = H5DataSelector(sim_inst.io_dict['h5_file'], particle_group="Filament")
+                data_crowder = H5DataSelector(sim_inst.io_dict['h5_file'], particle_group="Crowder")
+                parts,_=self.filaments[iid].get_owned_part()
+                self.basic_structure(data,iid,750)
+                self.get_and_check(data, "Filament", iid, parts)
+                self.poke_analysis_api(data, "Filament", iid, filam_ids, parts)
+                self.get_child_poke(data, filam_ids, quadriplex_ids)
+                parts,_=self.crowders[iid].get_owned_part()
+                self.get_and_check(data_crowder, "Crowder", iid, parts)
+                self.basic_structure(data_crowder,iid,10)
+                self.poke_analysis_api(data_crowder, "Crowder", iid, quadriplex_ids, parts)
+
+   
+
+        
 
 
         

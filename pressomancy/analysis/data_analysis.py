@@ -1,5 +1,6 @@
 import h5py
 import numpy as np
+import warnings
 class H5DataSelector:
     """
     A simplified interface to access simulation data stored in an HDF5 file. The H5DataSelector maintains internal slice information for timesteps (axis 0) and particles (axis 1) and supports chaining via its accessor properties:
@@ -227,7 +228,9 @@ class H5DataSelector:
     
     def get_connectivity_map(self, parent_key, child_key):
         """
-        Retrieve the raw (parent_id, child_id) array for a given object–object connectivity table.
+        Retrieve the connectivity map between parent and child objects from the HDF5 file.
+
+        This method constructs a dataset path based on the particle group and the specified parent and child keys, then attempts to retrieve an array of [parent_id, child_id] pairs from the HDF5 connectivity group. If the dataset is not found, a warning is issued and None is returned.
 
         Parameters
         ----------
@@ -238,15 +241,23 @@ class H5DataSelector:
 
         Returns
         -------
-        ndarray of shape (N, 2)
-            Array of [parent_id, child_id] pairs.
+        ndarray of shape (N, 2) or None
+            An array containing [parent_id, child_id] pairs if the connectivity map exists; otherwise, None.
         """
         ds_path = f"connectivity/{self.particle_group}/{parent_key}_to_{child_key}"
-        return self.h5_file[ds_path][:]
+        return_map=None
+        try:
+            return_map = self.h5_file[ds_path][:]
+        except KeyError:
+            warnings.warn(f"Connectivity map '{ds_path}' not found in HDF5 file.")
+        return return_map
 
     def get_child_ids(self, parent_key, child_key, parent_id):
         """
-        Return a sorted list of child object IDs connected to a given parent_id.
+        Retrieve a sorted list of child object IDs connected to a given parent_id.
+
+        This method first attempts to obtain the connectivity map relating the parent and child objects. If the connectivity map is not found (i.e., None), a warning is issued and None is returned. Otherwise, it filters the connectivity entries to select rows with the matching parent_id,
+        extracts the corresponding child IDs, converts them to integers, sorts them, and returns the resulting list.
 
         Parameters
         ----------
@@ -255,18 +266,24 @@ class H5DataSelector:
         child_key : str
             Name of the child object type.
         parent_id : int
-            The who_am_i identifier of the parent object.
+            The identifier for the parent object.
 
         Returns
         -------
-        List[int]
-            Sorted list of child who_am_i IDs belonging to the parent.
+        List[int] or None
+            A sorted list of child object IDs connected to the given parent_id.
+            Returns None if the connectivity map is missing.
         """
         conn = self.get_connectivity_map(parent_key, child_key)
-        # Filter rows matching the parent_id, then extract child IDs
-        child_ids = conn[conn[:, 0] == parent_id, 1]
-        # Convert to Python ints and sort
-        return sorted(int(cid) for cid in child_ids)
+        return_map = None
+        if conn is None:
+            warnings.warn(f"No children with key {child_key} found for parent with key {parent_key}.")
+        else:
+            # Filter rows matching the parent_id, then extract child IDs
+            child_ids = conn[conn[:, 0] == parent_id, 1]
+            return_map = sorted(int(cid) for cid in child_ids)
+            # Convert to Python ints and sort
+        return return_map
 
     def get_parent_ids(self, parent_key, child_key, child_id):
         """
