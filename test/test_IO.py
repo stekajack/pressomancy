@@ -62,6 +62,11 @@ class IOTest(BaseTestCase):
     def basic_structure(data,step, part_no):
         np.testing.assert_equal(len(data.timestep), step+1, err_msg="Timestep length does not match!")
         np.testing.assert_equal(len(data.particles), part_no, err_msg="Particle count does not match!")
+        times=[x for x in data.timestep]
+        parts=[x for x in data.particles]
+        np.testing.assert_equal(len(times), step+1, err_msg="Timestep length does not match!")
+        np.testing.assert_equal(len(parts), part_no, err_msg="Particle count does not match!")
+
 
     @staticmethod
     def get_and_check(data, view_type, identity, ref_parts):
@@ -90,6 +95,36 @@ class IOTest(BaseTestCase):
             quad_ids.extend(data.get_child_ids("Filament", "Quadriplex", parent_id=ide)) 
         np.testing.assert_array_equal(child_ids, quad_ids, err_msg="Quadiplex IDs do not match!")
 
+    @staticmethod
+    def get_parent_poke(data, parent_ids, child_ids):
+        filam_ids=[]
+        for ide in child_ids:
+            filam_ids.extend(data.get_parent_ids("Filament", "Quadriplex", child_id=ide)) 
+        # there are two childs per parent here so we subsample by 2
+        np.testing.assert_array_equal(parent_ids, [filam_ids[i] for i in range(0,len(filam_ids),IOTest.part_per_ligand)], err_msg="Parent IDs do not match!")
+
+    @staticmethod
+    def exceptions(data):
+        tests = [
+            # (callable, expected exception)
+            (lambda: H5DataSelector(sim_inst.io_dict['h5_file'], particle_group="DangerNoodle"), ValueError),
+            (lambda: data.particles[-1], TypeError),
+            (lambda: data[-1], TypeError),
+            (lambda: iter(data), TypeError),
+            (lambda: len(data), TypeError),
+            (lambda: (
+                H5DataSelector(sim_inst.io_dict['h5_file'], particle_group="Crowder")
+                    .get_child_ids("Crowder", "Quadriplex", parent_id=0)
+            ), KeyError),
+        ]
+
+        for fn, exc in tests:
+            try:
+                fn()
+            except exc as e:
+                print(f"{exc.__name__}: {e}")
+
+
     def test_IO_h5md(self):
         filam_ids=[filam.who_am_i for filam in self.filaments]
         quadriplex=[filam.associated_objects for filam in self.filaments]
@@ -112,10 +147,16 @@ class IOTest(BaseTestCase):
                 self.get_and_check(data, "Filament", iid, parts)
                 self.poke_analysis_api(data, "Filament", iid, filam_ids, parts)
                 self.get_child_poke(data, filam_ids, quadriplex_ids)
+                self.get_parent_poke(data, filam_ids, quadriplex_ids)
                 parts,_=self.crowders[iid].get_owned_part()
                 self.get_and_check(data_crowder, "Crowder", iid, parts)
                 self.basic_structure(data_crowder,iid,10)
                 self.poke_analysis_api(data_crowder, "Crowder", iid, quadriplex_ids, parts)
+            data = H5DataSelector(sim_inst.io_dict['h5_file'], particle_group="Filament")
+            self.exceptions(data)
+
+       
+
 
    
 
