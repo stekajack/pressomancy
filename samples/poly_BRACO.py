@@ -74,6 +74,6 @@ sim_inst.set_steric(key=('real', 'virt','crowder'), wca_eps=1.)
 for el in quadriplex:
     el.add_patches_triples()
 sim_inst.set_vdW(key=('patch',), lj_eps=5, lj_size=2.)
-
+sim_inst.set_vdW_custom(pairs=[('patch','crowder'),], lj_eps=[5.,], lj_size=[1.,])
 sim_inst.sys.thermostat.set_langevin(kT=1.0, gamma=1.0, seed=sim_inst.seed)
 sim_inst.sys.integrator.run(0)

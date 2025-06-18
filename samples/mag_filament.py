@@ -3,6 +3,7 @@ from pressomancy.helper_functions import BondWrapper
 from pressomancy.simulation import Simulation, Filament
 import numpy as np
 import logging
+from espressomd.magnetostatics import DipolarDirectSumCpu
 
 sigma = 1.
 n_part_tot = 10
@@ -33,5 +34,7 @@ sim_inst.get_H_ext()
 H_ext=sim_inst.get_H_ext()
 pats_to_magnetize=sim_inst.sys.part.select(lambda p:p.type==sim_inst.part_types['to_be_magnetized'])
 sim_inst.sys.integrator.run(0)
+sim_inst.avoid_explosion(F_TOL=1e-2)
 sim_inst.magnetize(pats_to_magnetize,1.732,H_ext=H_ext)
 sim_inst.sys.integrator.run(1)
+sim_inst.init_magnetic_inter(DipolarDirectSumCpu( prefactor=1))

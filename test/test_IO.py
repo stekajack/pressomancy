@@ -66,6 +66,41 @@ class IOTest(BaseTestCase):
         parts=[x for x in data.particles]
         np.testing.assert_equal(len(times), step+1, err_msg="Timestep length does not match!")
         np.testing.assert_equal(len(parts), part_no, err_msg="Particle count does not match!")
+    
+    @staticmethod
+    def slicing_check(data):
+        lens=[]
+        all_ts = [x for x in data.timestep]
+        slice_sel = data.timestep[0:2]
+        lens.append(len(slice_sel.timestep))
+        all_ts2 = [x for x in slice_sel.timestep]
+        list_sel = data.timestep[[0, 1]]  
+        lens.append(len(list_sel.timestep))        
+        all_ts3 = [x for x in list_sel.timestep]
+        tuple_sel = data.timestep[(0, 1)]    
+        lens.append(len(tuple_sel.timestep))
+        all_ts4 = [x for x in tuple_sel.timestep]
+        int_sel = data.timestep[-1]     
+        lens.append(len(int_sel.timestep))             
+        all_ts5 = [x for x in int_sel.timestep]
+        all_ts = [x for x in data.particles]
+        slice_sel = data.particles[0:2]   
+        lens.append(len(slice_sel.particles))           
+        all_ts2 = [x for x in slice_sel.particles]
+        list_sel = data.particles[[0, 1]]    
+        lens.append(len(list_sel.particles))      
+        all_ts3 = [x for x in list_sel.particles]
+        tuple_sel = data.particles[(0, 1)] 
+        lens.append(len(tuple_sel.particles))
+        all_ts4 = [x for x in tuple_sel.particles]
+        int_sel = data.particles[-1]  
+        lens.append(len(int_sel.particles))            
+        all_ts5 = [x for x in int_sel.particles]
+        np.testing.assert_array_equal(lens, [2, 2, 2, 1, 2, 2, 2 ,1], err_msg="Slicing did not return expected lengths!")
+
+
+
+
 
 
     @staticmethod
@@ -154,6 +189,19 @@ class IOTest(BaseTestCase):
                 self.poke_analysis_api(data_crowder, "Crowder", iid, quadriplex_ids, parts)
             data = H5DataSelector(sim_inst.io_dict['h5_file'], particle_group="Filament")
             self.exceptions(data)
+            self.slicing_check(data)
+            GLOBAL_COUNTER=sim_inst.inscribe_part_group_to_h5(group_type=[Filament, Crowder], h5_data_path=h5_filename,mode='LOAD_NEW')
+            GLOBAL_COUNTER=sim_inst.inscribe_part_group_to_h5(group_type=[Filament, Crowder], h5_data_path=h5_filename,mode='LOAD')
+
+    def test_obsolete_IO(self):
+        with tempfile.TemporaryDirectory() as tmpdirname:
+            path_to_dump, GLOBAL_COUNTER = sim_inst.init_pickle_dump(
+                path_to_dump=os.path.join(tmpdirname, "testfile.p.gz"))
+            dungeon_witch_list = list(sim_inst.sys.part.all())
+            sim_inst.dump_to_init(path_to_dump, dungeon_witch_list, GLOBAL_COUNTER)
+            path_to_dump, GLOBAL_COUNTER = sim_inst.load_pickle_dump(
+                os.path.join(tmpdirname, "testfile.p.gz"))
+        
 
        
 

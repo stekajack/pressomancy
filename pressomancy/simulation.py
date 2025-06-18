@@ -105,9 +105,6 @@ class Simulation():
         dump_to_init(path_to_dump, dungeon_witch_list, cnt):
             Appends simulation data for a specific timestep to an existing pickle dump.
 
-        generate_positions(min_distance):
-            Generates random positions for objects while ensuring a minimum distance between them.
-
     Notes:
         - The class assumes that the ESPResSo system is already instantiated and wraps the system handle during initialization. The initialisation and lifetime is managed by the decorator class.
         - Many methods rely on specific attributes or methods being implemented in the stored objects. This is why any object that is to be safely used by Simulation should use the SimulationObject metaclass.
@@ -209,7 +206,6 @@ class Simulation():
         assert all(isinstance(item, type(objects[0])) for item in objects), "Not all items have the same type!"
         # centeres, polymer_positions = partition_cubic_volume_oriented_rectangles(big_box_dim=self.sys.box_l, num_spheres=len(
         #     filaments), small_box_dim=np.array([filaments[0].sigma, filaments[0].sigma, filaments[0].size]), num_monomers=filaments[0].n_parts)
-        # positions= generate_positions(len(objects), self.sys.box_l, 7.)
         if len(self.part_positions)== 0:
             # First placement: generate exactly len(objects) positions.
             centeres, positions, orientations = partition_cubic_volume(
@@ -528,23 +524,6 @@ class Simulation():
         f = gzip.open(path_to_dump, 'wb')
         pickle.dump(dict_of_god, f, pickle.HIGHEST_PROTOCOL)
         f.close()
-
-    def generate_positions(self, min_distance):
-        """
-        Generates random positions for objects in the simulation box, ensuring minimum distance between positions. Completely naive implementation
-
-        :param min_distance: float | The minimum allowed distance between objects.
-        :return: np.ndarray | Array of generated positions.
-        """
-        object_positions = []
-        while len(object_positions) < self.no_objects:
-            new_position = np.random.random(3) * self.sys.box_l
-            if all(np.linalg.norm(new_position - pos) >= min_distance for pos in self.sys.part.all().pos):
-                if all(np.linalg.norm(new_position - existing_position) >= min_distance for existing_position in object_positions):
-                    object_positions.append(new_position)
-            logging.info(f'position casing progress: {len(object_positions)/self.no_objects}')
-
-        return np.array(object_positions)
     
     def collect_instances_recursively(self, roots):
         """
