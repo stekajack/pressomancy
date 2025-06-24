@@ -893,6 +893,7 @@ def partition_cuboid_volume(box_lengths, num_spheres, sphere_diameter, routine_p
         - points (array-like): The generated points within the sphere (or center if no routine)
         - orientation (array-like): The orientation vector for the sphere
     """
+    box_lengths= np.asarray(box_lengths)
     sphere_radius = sphere_diameter * 0.5    
     scaling = 1.0
     
