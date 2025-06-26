@@ -1254,3 +1254,181 @@ class BondWrapper:
         Returns the raw object being wrapped.
         """
         return self._bond_handle
+    
+import espressomd
+
+def add_box_constraints_func(simulation_inst, wall_type=0, sides=['all'], inter=None, types_=None, object_types=None, bottom=None, top=None, left=None, right=None, back=None, front=None):
+    """
+    Adds wall constraints to the simulation box along specified sides.
+
+    This method places flat wall constraints (using `espressomd.shapes.Wall`) perpendicular to the box axes, typically used to confine particles within the simulation domain. By default, walls are added on all six faces of the box. You can customize which walls to include or exclude, their positions, and interaction types with other particles.
+    By default:
+        bottom - z=0; top - z=simulation_inst.sys.box_l[2];
+        left - y=0  ; right - y=simulation_inst.sys.box_l[1];
+        back - x=0  ; front - z=simulation_inst.sys.box_l[0];
+
+    Parameters
+    ----------
+    wall_type : int, optional
+        Particle type used for the wall (default: 0).
+    sides : list of str, optional
+        Specifies which sides to add walls on. Default is ['all'], which includes all six box faces.
+        Supported values:
+            - 'all': add walls on all six faces.
+            - 'sides': add walls on all but the top and bottom.
+            - Individual sides: 'top', 'bottom', 'left', 'right', 'front', 'back'.
+            - 'no-<side>': exclude specific sides, e.g., 'no-top', 'no-right', 'no-sides'.
+    inter : str or list of str, optional
+        Type(s) of interaction to enable between wall and specified particle types. Currently supports:
+            - 'wca': Weeks–Chandler–Andersen potential with large epsilon.
+    types_ : list of int, optional
+        Particle types that will interact with the walls. If None, all non-wall types in the system are used.
+    bottom, top, left, right, back, front : float, optional
+        Position of each wall, defined as the distance to the xOy plane (for top/bottom), xOz plane (for left/right),
+        or yOz plane (for front/back). If not specified, the position defaults to the corresponding boundary of the simulation box.
+
+
+    Returns
+    -------
+    list of espressomd.constraints.ShapeBasedConstraint
+        List of wall constraint objects added to the system. (can be used to later specify which walls to remove).
+        Organized as: bottom->top->left->right->back->front
+
+    Notes
+    -----
+    - If `sides` includes any entry starting with 'no-', that side will be excluded even if 'all' or 'sides' is specified.
+    - The wall interaction can be configured by specifying `inter` and, optionally, `types_`.
+    - Walls are defined using outward-pointing normals and placed at specified distances from the origin.
+    - The method adds constraints to `simulation_inst.sys.constraints` directly.
+    """
+    try:
+        PartDictSafe({'wall': wall_type})
+    except:
+        raise ValueError("wall_type must be unique from all other particle types. Default is 0.")
+
+    sides = np.array([sides]).ravel().tolist()
+    if "no-" in sides[0]:
+        sides.append('all')
+
+    if bottom is None:
+        bottom = 0
+    else:
+        sides.append('bottom')
+    if top is None:
+        top = simulation_inst.sys.box_l[2]
+    else:
+        sides.append('top')
+    if left is None:
+        left = 0
+    else:
+        sides.append('left')
+    if right is None:
+        right = simulation_inst.sys.box_l[1]
+    else:
+        sides.append('right')
+    if back is None:
+        back = 0
+    else:
+        sides.append('back')
+    if front is None:
+        front = simulation_inst.sys.box_l[0]
+    else:
+        sides.append('front')
+
+    wall_constraints = []
+
+    ###########################
+    # top - bottom - const. z #
+    ###########################
+    if 'bottom' in sides or ('all' in sides and 'no-bottom' not in sides):
+        wall = espressomd.shapes.Wall(dist=bottom, normal=[0,0,1])
+        wall_constraint = espressomd.constraints.ShapeBasedConstraint(shape=wall, particle_type=wall_type)
+        simulation_inst.sys.constraints.add(wall_constraint)
+        wall_constraints.append(wall_constraint)
+    if 'top' in sides or ('all' in sides and 'no-top' not in sides):
+        wall = espressomd.shapes.Wall(dist=-top, normal=[0,0,-1])
+        wall_constraint = espressomd.constraints.ShapeBasedConstraint(shape=wall, particle_type=wall_type)
+        simulation_inst.sys.constraints.add(wall_constraint)
+        wall_constraints.append(wall_constraint)
+    if 'no-sides' not in sides:
+        ###########################
+        # left - right - const. y #
+        ###########################
+        if 'left' in sides or ('sides' in sides and 'no-left' not in sides) or ('all' in sides and 'no-left' not in sides):
+            wall = espressomd.shapes.Wall(dist=left, normal=[0,1,0])
+            wall_constraint = espressomd.constraints.ShapeBasedConstraint(shape=wall, particle_type=wall_type)
+            simulation_inst.sys.constraints.add(wall_constraint)
+            wall_constraints.append(wall_constraint)
+        if 'right' in sides or ('sides' in sides and 'no-right' not in sides) or ('all' in sides and 'no-right' not in sides):
+            wall = espressomd.shapes.Wall(dist=-right, normal=[0,-1,0])
+            wall_constraint = espressomd.constraints.ShapeBasedConstraint(shape=wall, particle_type=wall_type)
+            simulation_inst.sys.constraints.add(wall_constraint)
+            wall_constraints.append(wall_constraint)
+        ###########################
+        # back - front - const. x #
+        ###########################
+        if 'back' in sides or ('sides' in sides and 'no-back' not in sides) or ('all' in sides and 'no-back' not in sides):
+            wall = espressomd.shapes.Wall(dist=back, normal=[1,0,0])
+            wall_constraint = espressomd.constraints.ShapeBasedConstraint(shape=wall, particle_type=wall_type)
+            simulation_inst.sys.constraints.add(wall_constraint)
+            wall_constraints.append(wall_constraint)
+        if 'front' in sides or ('sides' in sides and 'no-front' not in sides) or ('all' in sides and 'no-front' not in sides):
+            wall = espressomd.shapes.Wall(dist=-front, normal=[-1,0,0])
+            wall_constraint = espressomd.constraints.ShapeBasedConstraint(shape=wall, particle_type=wall_type)
+            simulation_inst.sys.constraints.add(wall_constraint)
+            wall_constraints.append(wall_constraint)
+
+    # set interactions
+    if inter is not None:
+        inter= np.array([inter]).ravel()
+
+        if types_ is None:
+            if object_types is None:
+                types_= set([type_ for type_ in simulation_inst.sys.part.all().type if type_ != wall_type])
+            else:
+                types_ = set([ele.part_types[typ] for ele in object_types for typ in ele.part_types])
+        else:
+            types_= np.array([types_]).ravel()
+
+        if 'wca' in inter:
+            for type_ in types_:
+                sigma = simulation_inst.sys.non_bonded_inter[type_,type_].wca.sigma/2 / 2**(1/6)
+                simulation_inst.sys.non_bonded_inter[wall_type,type_].wca.set_params(epsilon=1E6, sigma=sigma)
+
+    return wall_constraints
+
+def remove_box_constraints_func(simulation_inst, wall_constraints=None, part_types=None, object_types=None):
+    """ Removes wall_constraints from system. Default: removes all espressomd.shapes.Wall constraints.
+        If part_types is not None, remove only interactions with those particle types.
+    system
+    list of espressomd.constraints.ShapeBasedConstraint wall_constraints
+    list of particles types to stop interactoin with box part_types
+    """
+    system_constraints = list(simulation_inst.sys.constraints)
+    if wall_constraints is None:
+        wall_constraints = [constraint for constraint in system_constraints
+                            if ( isinstance(constraint, espressomd.constraints.ShapeBasedConstraint)
+                            and isinstance(constraint.shape, espressomd.shapes.Wall) ) ]
+    else:
+        wall_constraints = np.array([wall_constraints]).ravel()
+
+        
+    if part_types is None and object_types is None: #removes actual cosntraints (removes interactions, if no more walls of that type)
+        part_types= set([type_ for type_ in simulation_inst.sys.part.all().type])
+
+        original_wall_types = set([constraint.particle_type for constraint in system_constraints])
+        for wall in wall_constraints: #remove walls
+            simulation_inst.sys.constraints.remove(wall)
+        leftover_wall_types = set([constraint.particle_type for constraint in list(simulation_inst.sys.constraints)])
+        box_types_remove = original_wall_types - leftover_wall_types
+    elif part_types is None: # removes only interactions (based on objects)
+        object_types = np.array([object_types]).ravel()
+        part_types = set([ele.part_types[typ] for ele in object_types for typ in ele.part_types])
+    else: # removes only interactions (based on part_types)
+        box_types_remove = set([constraint.particle_type for constraint in wall_constraints])
+        part_types = np.array([part_types]).ravel()
+
+    # remove inter for specific types
+    for box_type in box_types_remove:
+        for type_ in part_types:
+            simulation_inst.sys.non_bonded_inter[box_type, type_].reset()
