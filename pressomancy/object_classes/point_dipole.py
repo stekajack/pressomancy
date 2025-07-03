@@ -1,4 +1,3 @@
-import espressomd
 from pressomancy.object_classes.object_class import Simulation_Object, ObjectConfigParams 
 from pressomancy.helper_functions import PartDictSafe, SinglePairDict
 
@@ -10,7 +9,7 @@ class PointDipolePermanent(metaclass=Simulation_Object):
     required_features=['DIPOLES']	
     numInstances = 0
     simulation_type= SinglePairDict('point_dipole_permanent', 3)
-    part_types = PartDictSafe({'real': 1})
+    part_types = PartDictSafe({'pdp_real': 3})
     config = ObjectConfigParams(
          dipm=1.
     )
@@ -23,8 +22,8 @@ class PointDipolePermanent(metaclass=Simulation_Object):
         self.params=config
         PointDipolePermanent.numInstances += 1
         self.who_am_i = PointDipolePermanent.numInstances
-        self.associated_objects=config['associated_objects']
         self.type_part_dict=PartDictSafe({key: [] for key in PointDipolePermanent.part_types.keys()})
+        assert config['associated_objects'] is None, "Point dipoles can not have associated objects. They are singular particles, as basic as possible."
 
     def set_object(self,  pos, ori, **kwargs):
         '''
@@ -40,6 +39,9 @@ class PointDipolePermanent(metaclass=Simulation_Object):
 
         return self
     
+    def set_steric(self, epsilon=1.):
+        self.sys.non_bonded_inter[self.part_types['pdp_real'], self.part_types['pdp_real']].wca.set_params(epsilon=epsilon, sigma=self.params['size'])
+    
 class PointDipoleSuperpara(metaclass=Simulation_Object):
     '''
     Class that contains superparamagnetic point dipole particles relevant paramaters and methods. At construction one must pass an espresso handle because the class manages parameters that are both internal and external to espresso. It is assumed that in any simulation instanse there will be only one type of a PointDipoleSuperpara. Therefore many relevant parameters are class specific, not instance specific.
@@ -47,8 +49,8 @@ class PointDipoleSuperpara(metaclass=Simulation_Object):
 
     required_features=['DIPOLES', 'DIPOLE_FIELDS_TRACKING']	
     numInstances = 0
-    simulation_type= SinglePairDict('point_dipole_superpara', 666)
-    part_types = PartDictSafe({'real': 1, 'virt': 666})
+    simulation_type= SinglePairDict('point_dipole_superpara', 4)
+    part_types = PartDictSafe({'pds_real': 4, 'pds_virt': 666})
     config = ObjectConfigParams(
          dipm=1.
     )
@@ -80,3 +82,6 @@ class PointDipoleSuperpara(metaclass=Simulation_Object):
         particl_virt.vs_auto_relate_to(particl_real)
 
         return self
+    
+    def set_steric(self, epsilon=1.):
+        self.sys.non_bonded_inter[self.part_types['pds_real'], self.part_types['pds_real']].wca.set_params(epsilon=epsilon, sigma=self.params['size'])

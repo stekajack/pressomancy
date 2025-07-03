@@ -213,14 +213,14 @@ class Simulation():
         self.part_types.update(temp_dict)
         logging.info(f'{iterable_list[0].__class__.__name__}s stored')
 
-    def set_objects(self, objects, box_lenghts=None, shift=[0,0,0]):
+    def set_objects(self, objects, box_lengths=None, shift=[0,0,0]):
         """Set objects' positions and orientations in a box. Defaults to the Simulation box.
         This method places objects in the simulation box using a partitioning scheme. For the first placement, it generates exactly the required number of positions. For subsequent placements, it searches for non-overlapping positions with existing objects. This guarantees non-overlapping of the objects.
         Parameters
         ----------
         objects : list
             A list of simulation objects to place. All objects must be instances of the same type.
-        box_lenghts : array-like of shape (3,), optional
+        box_lengths : array-like of shape (3,), optional
             Dimensions of the box into which the objects will be placed. If not provided,
             the default system box dimensions (`self.sys.box_l`) are used.
         shift : array-like of shape (3,), optional
@@ -236,9 +236,9 @@ class Simulation():
         -----
         The current implementation supports placing objects either in an empty system or in a system with exactly one previous partition. The method uses partition_cuboid_volume to generate positions and orientations, and for subsequent placements, ensures no overlaps with existing objects through get_cross_lattice_nonintersecting_volumes. The method automatically adjusts the search space (by increasing the factor) if it cannot find enough non-overlapping positions in subsequent placements.
         """
-        if box_lenghts is None:
-            box_lenghts = self.sys.box_l
-        box_lenghts = np.asarray(box_lenghts)
+        if box_lengths is None:
+            box_lengths = self.sys.box_l
+        box_lengths = np.asarray(box_lengths)
         shift = np.asarray(shift)
         
         # Ensure all objects are of the same type.
@@ -249,7 +249,7 @@ class Simulation():
         if len(self.part_positions)== 0:
             # First placement: generate exactly len(objects) positions.
             centeres, positions, orientations = partition_cuboid_volume(
-                box_lengths=box_lenghts,
+                box_lengths=box_lengths,
                 num_spheres=len(objects),
                 sphere_diameter=objects[0].params['size'],
                 routine_per_volume=objects[0].build_function
@@ -262,7 +262,7 @@ class Simulation():
             factor = 1
             while True:
                 centeres, positions, orientations = partition_cuboid_volume(
-                    box_lengths=box_lenghts,
+                    box_lengths=box_lengths,
                     num_spheres=len(objects) * factor,
                     sphere_diameter=objects[0].params['size'],
                     routine_per_volume=objects[0].build_function
@@ -274,7 +274,7 @@ class Simulation():
                     other_lattice_centers=self.volume_centers[0],
                     other_lattice_grouped_part_pos=self.part_positions[0],
                     other_lattice_diam=self.volume_size,
-                    box_lenghts=box_lenghts
+                    box_lengths=box_lengths
                     )
                 mask=[key for key,val in res.items() if all(val)]
                 positions=positions[mask]
@@ -498,7 +498,7 @@ class Simulation():
         - Walls are defined using outward-pointing normals and placed at specified distances from the origin.
         - The method adds constraints to `self.sys.constraints` directly.
         """
-        wall_constraints = add_box_constraints_func(self, wall_type=wall_type, sides=sides, inter=inter, types_=types_, object_types=object_types, bottom=bottom, top=top, left=left, right=right, back=back, front=front)
+        wall_constraints = add_box_constraints_func(self.sys, wall_type=wall_type, sides=sides, inter=inter, types_=types_, object_types=object_types, bottom=bottom, top=top, left=left, right=right, back=back, front=front)
 
         return wall_constraints
     
@@ -511,7 +511,7 @@ class Simulation():
         list of espressomd.constraints.ShapeBasedConstraint wall_constraints
         list of particles types to stop interactoin with box part_types
         """
-        remove_box_constraints_func(self, wall_constraints=wall_constraints, part_types=part_types, object_types=object_types)
+        remove_box_constraints_func(self.sys, wall_constraints=wall_constraints, part_types=part_types, object_types=object_types)
         
 
     def init_lb(self, kT, agrid, dens, visc, gamma, timestep=0.01):

@@ -3,6 +3,7 @@ from itertools import product
 from collections import defaultdict
 import inspect
 import logging
+import warnings
 
 class MissingFeature(Exception):
     pass
@@ -657,13 +658,62 @@ def get_neighbours(lattice_points: np.ndarray, volume_side: float, cuttoff: floa
     -------
     grouped_indices : defaultdict[int, list[int]]
         Dictionary mapping each particle index to a list of neighbor indices.
+    """
+    # map indices (optional)
+    if map_indices is None:
+        map_indices = [i for i in range(len(lattice_points))]
+
+    # Use cuttoff as the grid cell size.
+    cell_size = cuttoff
+    grid, adjacent_cells = build_grid_and_adjacent(lattice_points, volume_side, cell_size)
+    
+    grouped_indices = defaultdict(list)
+    box_dim = np.ones(3) * volume_side
+    
+    # For each occupied cell in the grid...
+    for cell, indices in grid.items():
+        # Get the list of adjacent cells (neighbors) for this cell.
+        neighbor_cells = adjacent_cells[cell]
+        # For every particle in the current cell...
+        for i in indices:
+            # Check particles in each neighboring cell.
+            for adj_cell in neighbor_cells:
+                for j in grid.get(adj_cell, []):
+                    if j == i:
+                        continue
+                    # Use min_img_dist to compute the distance with periodic boundaries.
+                    diff = min_img_dist(lattice_points[i], lattice_points[j], box_dim=box_dim)
+                    if np.linalg.norm(diff) <= cuttoff:
+                        grouped_indices[i].append(j)
+
+    return grouped_indices
+
+def get_neighbours_ordered(lattice_points: np.ndarray, volume_side: float, cuttoff: float = 1., map_indices=None) -> defaultdict:
+    """
+    Returns grouped_indices, where grouped_indices is a dictionary that maps each particle index
+    to a list of neighbor indices within the cuttoff distance. Uses a grid-based method for efficiency,
+    and reuses the min_img_dist function for distance calculations.
+    
+    Parameters
+    ----------
+    lattice_points : np.ndarray of shape (N, 3)
+        Array of particle positions.
+    volume_side : float
+        The side length of the cubic volume.
+    cuttoff : float, optional
+        The neighbor distance threshold.
+    
+    Returns
+    -------
+    grouped_indices : defaultdict[int, list[int]]
+        Dictionary mapping each particle index to a list of neighbor indices.
 
     note:
         - if no index mapping is provided, particle indices will be assumed to start on 0 and end on n_particles-1
     """
     # map indices (optional)
     if map_indices is None:
-        idx_map = [i for i in range(len(lattice_points))]
+        map_indices = [i for i in range(len(lattice_points))]
     # Use cuttoff as the grid cell size.
     cell_size = cuttoff
     grid, adjacent_cells = build_grid_and_adjacent(lattice_points, volume_side, cell_size)
@@ -686,13 +736,13 @@ def get_neighbours(lattice_points: np.ndarray, volume_side: float, cuttoff: floa
                     # Use min_img_dist to compute the distance with periodic boundaries.
                     diff = min_img_dist(lattice_points[i], lattice_points[j], box_dim=box_dim)
                     dist = np.linalg.norm(diff)
-                    if np.linalg.norm(diff) <= cuttoff:
+                    if dist <= cuttoff:
                         grouped_indices_dist.append((j, dist))
-            grouped_indices_dist.sort()
-            grouped_indices[map_indices[i]] = [map_indices[j] for j, _ in grouped_indices_dist]
+            grouped_indices_dist = list(set(id_ for id_, _ in sorted(grouped_indices_dist, key=lambda x: x[1])))
+            grouped_indices[map_indices[i]] = [map_indices[j] for j in grouped_indices_dist]
     return grouped_indices
 
-def get_neighbours_cross_lattice(lattice1, lattice2, box_lenghts, cuttoff=1.):
+def get_neighbours_cross_lattice(lattice1, lattice2, box_lengths, cuttoff=1.):
     """
     Get neighbors between two lattices in a cuboid under PBC using minimum image convention.
 
@@ -708,14 +758,16 @@ def get_neighbours_cross_lattice(lattice1, lattice2, box_lenghts, cuttoff=1.):
     dict
         {index in lattice1: [indices in lattice2 within cutoff]}
     """
-    box_lenghts = np.asarray(box_lenghts)
+    if isinstance(box_lengths, float):
+        box_lengths = box_lengths * np.ones(3)
+    box_lengths = np.asarray(box_lengths)
     grouped_indices = defaultdict(list)
     points_a = np.atleast_2d(lattice1)
     points_b = np.atleast_2d(lattice2)
     num_b = len(points_b)
     indices_b = np.arange(num_b)
     for id,point in enumerate(points_a):
-        distances=np.linalg.norm(min_img_dist(point, points_b, box_dim=box_lenghts), axis=-1)
+        distances=np.linalg.norm(min_img_dist(point, points_b, box_dim=box_lengths), axis=-1)
         mask=np.where(distances<=cuttoff)
         grouped_indices[id]=list(indices_b[mask])
     
@@ -739,7 +791,10 @@ def calculate_pair_distances(points_a, points_b, box_lengths):
     distances : np.ndarray, shape (N*M,)
         1D array of distances between all pairs (a_i, b_j). dist(i,j) = distances[i*M + j]
     """
-    
+    if isinstance(box_lengths, float):
+        box_lengths = box_lengths * np.ones(3)
+    box_lengths = np.asarray(box_lengths)
+
     # Ensure inputs are numpy arrays
     points_a = np.atleast_2d(points_a)
     points_b = np.atleast_2d(points_b)
@@ -760,7 +815,7 @@ def calculate_pair_distances(points_a, points_b, box_lengths):
     point_pairs_b = points_b[index_combinations[:, 1]]  # Points from the second set
     
     # Calculate the minimum image distance with periodic boundary conditions
-    distances = np.linalg.norm(min_img_dist(point_pairs_a, point_pairs_b, box_dim=np.ones(3) * box_lengths), axis=-1)
+    distances = np.linalg.norm(min_img_dist(point_pairs_a, point_pairs_b, box_dim=box_lengths), axis=-1)
 
     # displacements = np.linalg.norm(min_img_dist(points_a[:, None, :], points_b[None, :, :], box_dim), axis=-1)
     
@@ -821,7 +876,7 @@ def fcc_lattice(radius, volume_sides, scaling_factor=1., max_points_per_side=100
     #     warnings.warn('box_l is not big enough to avoid pbc clipping of the partitioning!')
     return lattice_points
 
-def make_centered_rand_orient_point_array(center=np.array([0,0,0]), sphere_radius=1., num_monomers=1, spacing=None):
+def make_centered_rand_orient_point_array(center=np.array([0,0,0]), sphere_radius=1., num_monomers=1, spacing=None, box_lengths=None):
     """
     Creates an array of points centered at a given position with random orientation.This function generates a linear array of points in 3D space, centered at a specified position with random orientation. It also returns the normalized orientation vector of the array.
 
@@ -919,21 +974,22 @@ def partition_cuboid_volume(box_lengths, num_spheres, sphere_diameter, routine_p
     take_index = take_index[:num_spheres]
     sphere_centers=sphere_centers[take_index]  
     # Initialize an array to store the generated points inside each spherical region
-    results = np.empty((num_spheres, routine_per_volume.num_monomers, 3))
-    orientations=np.empty((num_spheres,3))
+    results = [None] * num_spheres
+    orientations = [None] * num_spheres
     # Perform the point generation routine if `num_monomers` not 0
     if routine_per_volume.num_monomers>1:
-        assert np.all(box_lengths==box_lengths[0]), "this methods assumes cubic box for num_monomers > 1"
+        if np.all(box_lengths==box_lengths[0]):
+            warnings.warn("this methods assumes cubic system box for num_monomers > 1")
         box_length = box_lengths[0]
         grouped_positions = defaultdict(list)
-        #grouped_volumes is a dictionary that contains all neighouring lattice sites sphere_diameter  
+        #grouped_volumes is a dictionary that contains all neighouring lattice sites sphere_diameter 
         grouped_volumes=get_neighbours(sphere_centers,volume_side=box_length,cuttoff=sphere_diameter)
         for i, center in enumerate(sphere_centers):
             valid_placement = False
             while not valid_placement:
                 orientation, points = routine_per_volume(
-                    center=center, num_monomers=routine_per_volume.num_monomers, sphere_radius=sphere_radius, spacing=routine_per_volume.spacing
-                    )
+                    center=center, num_monomers=routine_per_volume.num_monomers, sphere_radius=sphere_radius, spacing=routine_per_volume.spacing,
+                    box_lengths=box_lengths)
                 should_proceed = True
                 
                 # Check for overlaps with points in neighboring spheres
@@ -1113,7 +1169,7 @@ def get_orientation_vec(pos):
     pr_comp /= np.linalg.norm(pr_comp)
     return np.array(pr_comp, float)
 
-def get_cross_lattice_nonintersecting_volumes(current_lattice_centers, current_lattice_grouped_part_pos, current_lattice_diam,other_lattice_centers, other_lattice_grouped_part_pos,other_lattice_diam,box_lenghts, mode='cross_volumes'):
+def get_cross_lattice_nonintersecting_volumes(current_lattice_centers, current_lattice_grouped_part_pos, current_lattice_diam,other_lattice_centers, other_lattice_grouped_part_pos,other_lattice_diam,box_lengths, mode='cross_volumes'):
     """
     Calculate non-intersecting volumes between particles in two different lattices. This function determines which volumes from one lattice do not intersect with volumes from another lattice,
     considering periodic boundary conditions.
@@ -1132,7 +1188,7 @@ def get_cross_lattice_nonintersecting_volumes(current_lattice_centers, current_l
         Particle positions grouped by volume for the second lattice.
     other_lattice_diam : float
         Diameter of particles in the second lattice.
-    box_lenghts : float
+    box_lengths : float
         Length of the periodic box.
     mode : str, optional
         Mode of calculation, either 'cross_parts' or 'cross_volumes'. Default is 'cross_volumes'.
@@ -1153,7 +1209,7 @@ def get_cross_lattice_nonintersecting_volumes(current_lattice_centers, current_l
     """
     
     neigh=get_neighbours_cross_lattice(current_lattice_centers,other_lattice_centers,
-    box_lenghts, cuttoff=(current_lattice_diam+other_lattice_diam)*0.5)
+    box_lengths, cuttoff=(current_lattice_diam+other_lattice_diam)*0.5)
     aranged_cross_lattice_options={}
     if mode=='cross_parts':
         fact=pow(2,1/6)
@@ -1171,7 +1227,7 @@ def get_cross_lattice_nonintersecting_volumes(current_lattice_centers, current_l
         mask=[]
         if associated_vol_ids:
             for as_vol_id in associated_vol_ids:
-                res=calculate_pair_distances(current_lattice_dat[vol_id], other_lattice_dat[as_vol_id], box_lengths=box_lenghts)
+                res=calculate_pair_distances(current_lattice_dat[vol_id], other_lattice_dat[as_vol_id], box_lengths=box_lengths)
                 mask.append(all([x>=new_crit for x in res if not np.isclose(x,0.)])) 
         aranged_cross_lattice_options[vol_id]=mask
     return aranged_cross_lattice_options
@@ -1257,15 +1313,15 @@ class BondWrapper:
     
 import espressomd
 
-def add_box_constraints_func(simulation_inst, wall_type=0, sides=['all'], inter=None, types_=None, object_types=None, bottom=None, top=None, left=None, right=None, back=None, front=None):
+def add_box_constraints_func(sys, wall_type=0, sides=['all'], inter=None, types_=None, object_types=None, bottom=None, top=None, left=None, right=None, back=None, front=None):
     """
     Adds wall constraints to the simulation box along specified sides.
 
     This method places flat wall constraints (using `espressomd.shapes.Wall`) perpendicular to the box axes, typically used to confine particles within the simulation domain. By default, walls are added on all six faces of the box. You can customize which walls to include or exclude, their positions, and interaction types with other particles.
     By default:
-        bottom - z=0; top - z=simulation_inst.sys.box_l[2];
-        left - y=0  ; right - y=simulation_inst.sys.box_l[1];
-        back - x=0  ; front - z=simulation_inst.sys.box_l[0];
+        bottom - z=0; top - z=sys.box_l[2];
+        left - y=0  ; right - y=sys.box_l[1];
+        back - x=0  ; front - z=sys.box_l[0];
 
     Parameters
     ----------
@@ -1299,7 +1355,7 @@ def add_box_constraints_func(simulation_inst, wall_type=0, sides=['all'], inter=
     - If `sides` includes any entry starting with 'no-', that side will be excluded even if 'all' or 'sides' is specified.
     - The wall interaction can be configured by specifying `inter` and, optionally, `types_`.
     - Walls are defined using outward-pointing normals and placed at specified distances from the origin.
-    - The method adds constraints to `simulation_inst.sys.constraints` directly.
+    - The method adds constraints to `sys.constraints` directly.
     """
     try:
         PartDictSafe({'wall': wall_type})
@@ -1315,7 +1371,7 @@ def add_box_constraints_func(simulation_inst, wall_type=0, sides=['all'], inter=
     else:
         sides.append('bottom')
     if top is None:
-        top = simulation_inst.sys.box_l[2]
+        top = sys.box_l[2]
     else:
         sides.append('top')
     if left is None:
@@ -1323,7 +1379,7 @@ def add_box_constraints_func(simulation_inst, wall_type=0, sides=['all'], inter=
     else:
         sides.append('left')
     if right is None:
-        right = simulation_inst.sys.box_l[1]
+        right = sys.box_l[1]
     else:
         sides.append('right')
     if back is None:
@@ -1331,7 +1387,7 @@ def add_box_constraints_func(simulation_inst, wall_type=0, sides=['all'], inter=
     else:
         sides.append('back')
     if front is None:
-        front = simulation_inst.sys.box_l[0]
+        front = sys.box_l[0]
     else:
         sides.append('front')
 
@@ -1343,12 +1399,12 @@ def add_box_constraints_func(simulation_inst, wall_type=0, sides=['all'], inter=
     if 'bottom' in sides or ('all' in sides and 'no-bottom' not in sides):
         wall = espressomd.shapes.Wall(dist=bottom, normal=[0,0,1])
         wall_constraint = espressomd.constraints.ShapeBasedConstraint(shape=wall, particle_type=wall_type)
-        simulation_inst.sys.constraints.add(wall_constraint)
+        sys.constraints.add(wall_constraint)
         wall_constraints.append(wall_constraint)
     if 'top' in sides or ('all' in sides and 'no-top' not in sides):
         wall = espressomd.shapes.Wall(dist=-top, normal=[0,0,-1])
         wall_constraint = espressomd.constraints.ShapeBasedConstraint(shape=wall, particle_type=wall_type)
-        simulation_inst.sys.constraints.add(wall_constraint)
+        sys.constraints.add(wall_constraint)
         wall_constraints.append(wall_constraint)
     if 'no-sides' not in sides:
         ###########################
@@ -1357,12 +1413,12 @@ def add_box_constraints_func(simulation_inst, wall_type=0, sides=['all'], inter=
         if 'left' in sides or ('sides' in sides and 'no-left' not in sides) or ('all' in sides and 'no-left' not in sides):
             wall = espressomd.shapes.Wall(dist=left, normal=[0,1,0])
             wall_constraint = espressomd.constraints.ShapeBasedConstraint(shape=wall, particle_type=wall_type)
-            simulation_inst.sys.constraints.add(wall_constraint)
+            sys.constraints.add(wall_constraint)
             wall_constraints.append(wall_constraint)
         if 'right' in sides or ('sides' in sides and 'no-right' not in sides) or ('all' in sides and 'no-right' not in sides):
             wall = espressomd.shapes.Wall(dist=-right, normal=[0,-1,0])
             wall_constraint = espressomd.constraints.ShapeBasedConstraint(shape=wall, particle_type=wall_type)
-            simulation_inst.sys.constraints.add(wall_constraint)
+            sys.constraints.add(wall_constraint)
             wall_constraints.append(wall_constraint)
         ###########################
         # back - front - const. x #
@@ -1370,12 +1426,12 @@ def add_box_constraints_func(simulation_inst, wall_type=0, sides=['all'], inter=
         if 'back' in sides or ('sides' in sides and 'no-back' not in sides) or ('all' in sides and 'no-back' not in sides):
             wall = espressomd.shapes.Wall(dist=back, normal=[1,0,0])
             wall_constraint = espressomd.constraints.ShapeBasedConstraint(shape=wall, particle_type=wall_type)
-            simulation_inst.sys.constraints.add(wall_constraint)
+            sys.constraints.add(wall_constraint)
             wall_constraints.append(wall_constraint)
         if 'front' in sides or ('sides' in sides and 'no-front' not in sides) or ('all' in sides and 'no-front' not in sides):
             wall = espressomd.shapes.Wall(dist=-front, normal=[-1,0,0])
             wall_constraint = espressomd.constraints.ShapeBasedConstraint(shape=wall, particle_type=wall_type)
-            simulation_inst.sys.constraints.add(wall_constraint)
+            sys.constraints.add(wall_constraint)
             wall_constraints.append(wall_constraint)
 
     # set interactions
@@ -1384,42 +1440,44 @@ def add_box_constraints_func(simulation_inst, wall_type=0, sides=['all'], inter=
 
         if types_ is None:
             if object_types is None:
-                types_= set([type_ for type_ in simulation_inst.sys.part.all().type if type_ != wall_type])
+                types_= set([type_ for type_ in sys.part.all().type if type_ != wall_type])
             else:
-                types_ = set([ele.part_types[typ] for ele in object_types for typ in ele.part_types])
+                types_ = set([ele.part_types['real'] for ele in object_types])
         else:
             types_= np.array([types_]).ravel()
 
         if 'wca' in inter:
             for type_ in types_:
-                sigma = simulation_inst.sys.non_bonded_inter[type_,type_].wca.sigma/2 / 2**(1/6)
-                simulation_inst.sys.non_bonded_inter[wall_type,type_].wca.set_params(epsilon=1E6, sigma=sigma)
+                sigma = sys.non_bonded_inter[type_,type_].wca.sigma/2 / 2**(1/6)
+                if sigma < 0.001:
+                    raise ValueError(f"Interaction of type {type_} with wall is 0, has these particles have no interaction defined. If you would like to have no interactions between particles, but only with wall, then hange this function or do it with normal espresso constraints.")
+                sys.non_bonded_inter[wall_type,type_].wca.set_params(epsilon=1E6, sigma=sigma)
 
     return wall_constraints
 
-def remove_box_constraints_func(simulation_inst, wall_constraints=None, part_types=None, object_types=None):
+def remove_box_constraints_func(sys, wall_type=0, wall_constraints=None, part_types=None, object_types=None):
     """ Removes wall_constraints from system. Default: removes all espressomd.shapes.Wall constraints.
         If part_types is not None, remove only interactions with those particle types.
     system
     list of espressomd.constraints.ShapeBasedConstraint wall_constraints
     list of particles types to stop interactoin with box part_types
     """
-    system_constraints = list(simulation_inst.sys.constraints)
+    system_constraints = list(sys.constraints)
     if wall_constraints is None:
         wall_constraints = [constraint for constraint in system_constraints
-                            if ( isinstance(constraint, espressomd.constraints.ShapeBasedConstraint)
-                            and isinstance(constraint.shape, espressomd.shapes.Wall) ) ]
+                            if ( isinstance(constraint, espressomd.constraints.ShapeBasedConstraint) and isinstance(constraint.shape, espressomd.shapes.Wall)
+                            and ( constraint.particle_type == wall_type or wall_type == 'all') ) ]
     else:
         wall_constraints = np.array([wall_constraints]).ravel()
 
         
     if part_types is None and object_types is None: #removes actual cosntraints (removes interactions, if no more walls of that type)
-        part_types= set([type_ for type_ in simulation_inst.sys.part.all().type])
+        part_types= set([type_ for type_ in sys.part.all().type])
 
         original_wall_types = set([constraint.particle_type for constraint in system_constraints])
         for wall in wall_constraints: #remove walls
-            simulation_inst.sys.constraints.remove(wall)
-        leftover_wall_types = set([constraint.particle_type for constraint in list(simulation_inst.sys.constraints)])
+            sys.constraints.remove(wall)
+        leftover_wall_types = set([constraint.particle_type for constraint in list(sys.constraints)])
         box_types_remove = original_wall_types - leftover_wall_types
     elif part_types is None: # removes only interactions (based on objects)
         object_types = np.array([object_types]).ravel()
@@ -1431,4 +1489,48 @@ def remove_box_constraints_func(simulation_inst, wall_constraints=None, part_typ
     # remove inter for specific types
     for box_type in box_types_remove:
         for type_ in part_types:
-            simulation_inst.sys.non_bonded_inter[box_type, type_].reset()
+            sys.non_bonded_inter[box_type, type_].reset()
+
+def check_free_cuboid(sys, cuboid_l, cuboid_l_shift=None):
+    if cuboid_l_shift is None:
+        cuboid_l_shift = np.zeros((3))
+    pos = sys.part.all().pos
+    if len(pos) == 0:
+        return True
+    else:
+        return np.all(np.any((pos < cuboid_l_shift) | (pos > cuboid_l_shift + cuboid_l), axis=1))
+
+def avoid_explosion(sys, F_TOL, MAX_STEPS=5, F_incr=100, I_incr=100):
+        """
+        Iteratively caps forces to prevent simulation instabilities.
+        :param F_TOL: float | Force change tolerance between iterations to determine convergence.
+        :param MAX_STEPS: int | Maximum number of steps for force iteration. Default is 5.
+        :param F_incr: int | Amount to increase force cap by each iteration. Default is 100.
+        :param I_incr: int | Amount to increase integration steps by each iteration. Default is 100.
+        :return: None
+
+        The method gradually increases both the force cap and integration timestep while monitoring the relative force change between iterations. If the relative change falls below F_TOL or MAX_STEPS is reached, the iteration stops.
+        """
+        timestep_og=sys.time_step
+        timestep_icr=timestep_og/MAX_STEPS
+        logging.info('iterating with a force cap.')
+        sys.integrator.run(0)
+        STEP=1
+        while True:
+            sys.time_step=timestep_icr*STEP
+            old_force = np.max(np.linalg.norm(
+                sys.part.all().f, axis=1))
+            sys.force_cap = F_incr
+            sys.integrator.run(I_incr)
+            force = np.max(np.linalg.norm(sys.part.all().f, axis=1))
+            rel_force = np.abs((force - old_force) / old_force)
+            logging.info(f'rel. force change: {rel_force:.2e}')
+            if (rel_force < F_TOL) or (STEP >= MAX_STEPS):
+                break
+            STEP += 1
+            I_incr += I_incr
+            F_incr += F_incr
+
+        sys.force_cap = 0
+        sys.time_step=timestep_og
+        logging.info('explosions avoided sucessfully!')
