@@ -49,6 +49,31 @@ class Elastomer(metaclass=Simulation_Object):
         self.type_part_dict=PartDictSafe({key: [] for key in Elastomer.part_types.keys()})
         assert  Elastomer.numInstances <= 1, "It is only possible to have an elastomer at a time."
 
+    def to_dict_of_god(self, father=True):
+        raise NotImplementedError("Does not work for pickle'ing whole elastomer. May work for other purposes.")
+        # Start with obj's own attributes (handle metaclass attributes carefully)
+        if hasattr(self, 'get_params'):
+            base_dict = self.get_params().copy()
+            print("1", base_dict.keys())
+        else:
+            # fallback: serialize __dict__ if available
+            base_dict = getattr(self, '__dict__', {}).copy()
+            print("2", base_dict.keys())
+
+        # Remove or transform attributes that cause problems (e.g., handles to espresso system)
+        base_dict.pop('sys', None)
+        base_dict.get('associated_objects', None)  # handle separately
+
+        # Recursively serialize associated objects if present
+        super_associated_objs = collect_objs_recursively(self)[1:]
+        for obj in super_associated_objs:
+            obj.to_dict_of_god(father=False)
+
+        if father:
+            for part_list in self.type_part_dict.values():
+                for part in part_list:
+                    part.to_dict_of_god()
+
     def set_object(self, pos, ori):
         '''
         Sets the particles in espresso according to self.build_funciton. Particles created here are treated according to their class set_object functions. Indices of added particles stored in self.realz_indices.append attribute.
@@ -243,44 +268,65 @@ class Elastomer(metaclass=Simulation_Object):
             self.sys.time_step = old_time_step
 
     def save_gzip(self, file):
-        n_objects_lookup = len(self.associated_objects)
-        line_save = f"{n_objects_lookup}\n"
+        line_save=""
+        for key, value in self.params:
+            if key not in ("associeated_objects", "espresso_instance"):
+                line_save += f"{key} {value} "
+        line_save = line_save[:-1] + "\n"
         file.write(line_save.encode())
-        for config in obj_configs:
-            config_copy = config.copy()
-            type_saved = config_copy.pop('type')
-            type_name_saved = config_copy.pop('type_name')
-            line_save = f"{type_name_saved} {type_saved}"
-            for key in sorted(config_copy.keys()):
-                if key in ('espresso_handle'):
-                    continue
-                value = config_copy[key]
-                if isinstance(value, (list, tuple)):
-                    str_value = ','.join(str(item) for item in value)
-                    line_save += f" {key}:{str_value}"
+
+        if self.associated_objects is not None:
+            raise NotImplementedError("Will implement soon soon.")
+            n_objects_lookup = len(self.associated_objects)
+            line_save = f"{n_objects_lookup}\n"
+            file.write(line_save.encode())
+            for obj in self.associated_objects:
+                config_copy = config.copy()
+                type_saved = config_copy.pop('type')
+                type_name_saved = config_copy.pop('type_name')
+                line_save = f"{type_name_saved} {type_saved}"
+                for key in sorted(config_copy.keys()):
+                    if key in ('espresso_handle'):
+                        continue
+                    value = config_copy[key]
+                    if isinstance(value, (list, tuple)):
+                        str_value = ','.join(str(item) for item in value)
+                        line_save += f" {key}:{str_value}"
+                    else:
+                        line_save += f" {key}:{value}"
+                line_save += "\n"
+                file.write(line_save.encode())
+                parts_type_saved = self.sys.part.select(type=type_saved)
+                n_parts_lookup = len(parts_type_saved)
+                line_save = f"{n_parts_lookup}\n"
+                file.write(line_save.encode())
+                if type_name_saved == "SUBSTRATE":
+                    for part in parts_type_saved:
+                        line_save = f"{part.id} {part.pos[0]} {part.pos[1]} {part.pos[2]}"
+                        line_save += f" {part.fix[0]} {part.fix[1]} {part.fix[2]}"
+                        line_save += "\n"
+                        file.write(line_save.encode())
                 else:
-                    line_save += f" {key}:{value}"
-            line_save += "\n"
-            file.write(line_save.encode())
-            parts_type_saved = self.sys.part.select(type=type_saved)
-            n_parts_lookup = len(parts_type_saved)
-            line_save = f"{n_parts_lookup}\n"
-            file.write(line_save.encode())
-            if type_name_saved == "SUBSTRATE":
-                for part in parts_type_saved:
-                    line_save = f"{part.id} {part.pos[0]} {part.pos[1]} {part.pos[2]}"
-                    line_save += f" {part.fix[0]} {part.fix[1]} {part.fix[2]}"
-                    line_save += "\n"
-                    file.write(line_save.encode())
-            else:
-                for part in parts_type_saved:
-                    line_save = f"{part.id} {part.pos[0]} {part.pos[1]} {part.pos[2]}"
+                    for part in parts_type_saved:
+                        line_save = f"{part.id} {part.pos[0]} {part.pos[1]} {part.pos[2]}"
+                        line_save += f" {part.dip[0]} {part.dip[1]} {part.dip[2]}"
+                        line_save += f" {part.fix[0]} {part.fix[1]} {part.fix[2]}"
+                        for bond in part.bonds:
+                            line_save += f" {bond[0].k},{bond[0].r_0},{bond[1]}"
+                        line_save += "\n"
+                        file.write(line_save.encode())
+        else:
+            for typ, hndls in self.type_part_dict.items():
+                line_save = f"parts len({hndls}) {typ}\n"
+                for part in hndls:
+                    line_save += f"{part.id} {part.pos[0]} {part.pos[1]} {part.pos[2]}"
                     line_save += f" {part.dip[0]} {part.dip[1]} {part.dip[2]}"
                     line_save += f" {part.fix[0]} {part.fix[1]} {part.fix[2]}"
+                    line_save += f" {part.virtual} {part.vs_relative[0]}"
                     for bond in part.bonds:
                         line_save += f" {bond[0].k},{bond[0].r_0},{bond[1]}"
                     line_save += "\n"
-                    file.write(line_save.encode())
+                file.write(line_save.encode())
 
     def add_anchors(self,type_keys='all'): #TO BE DONE FOR ROTATION CONSTRAINTS
         '''
@@ -491,7 +537,7 @@ class Elastomer(metaclass=Simulation_Object):
             self.sys.periodicity = old_periodicity
     
     def add_volume_potencial(self): #TO BE DONE TO TRY TO GET INCOMPRESSIBILITY (looking into CGAL alpha shapes)
-        # flat_part_list=[]
+        flat_part_list=[]
         # if self.associated_objects is not None:
         #     for obj in self.associated_objects:
         #         flat_part_list.extend(obj.type_part_dict[type_key])
@@ -639,3 +685,23 @@ def check_type_keys_recursive(obj, type_keys):
     if obj.associated_objects is not None:
         for child in obj.associated_objects:
             check_type_keys_recursive(child, type_keys)
+
+def collect_objs_recursively(parents, keep_parents=True):
+    """
+    Traverse each obj in `parents` and return a flat preorder list
+    of every object reachable via `.associated_objects`.
+    Raises RuntimeError on any duplicate.
+    """
+    seen = set()
+    result = []
+    stack = list(parents)
+
+    while stack:
+        obj = stack.pop()
+        if obj in seen:
+            raise RuntimeError(f"Duplicate object detected: {obj!r}")
+        seen.add(obj)
+        result.append(obj)
+        stack.extend(getattr(obj, "associated_objects", []) or [])
+
+    return result
