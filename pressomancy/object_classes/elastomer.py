@@ -269,7 +269,7 @@ class Elastomer(metaclass=Simulation_Object):
 
     def save_gzip(self, file):
         line_save=""
-        for key, value in self.params:
+        for key, value in self.params.items():
             if key not in ("associeated_objects", "espresso_instance"):
                 line_save += f"{key} {value} "
         line_save = line_save[:-1] + "\n"
