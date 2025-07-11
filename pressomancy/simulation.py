@@ -124,7 +124,7 @@ class Simulation():
         self.part_positions=[]
         self.volume_size=None
         self.volume_centers=[]
-        self.io_dict={'h5_file': None,'properties':[('id',1), ('type',1), ('pos',3), ('f',3),('dip',3)],'flat_part_view':defaultdict(list),'registered_group_type': None}
+        self.io_dict={'h5_file': None,'properties':[('id', 1), ('type', 1), ('pos', 3), ('pos_folded', 3), ('f', 3), ('dip', 3)],'flat_part_view':defaultdict(list),'registered_group_type': None}
         # self.sys=espressomd.System(box_l=box_dim) is added and managed by the singleton decrator!
 
     def set_sys(self, timestep=0.01, min_global_cut=3.0):
@@ -266,7 +266,7 @@ class Simulation():
     def init_magnetic_inter(self, actor_handle):
         logging.info('direct summation magnetic interactions initiated')
         dds = actor_handle
-        self.sys.actors.add(dds)
+        self.sys.magnetostatics.solver = dds
 
     def set_steric(self, key=('nonmagn',), wca_eps=1., sigma=1.):
         '''
@@ -452,7 +452,6 @@ class Simulation():
             inv_dip_tri = 1.0/(dip_tri)
             inv_tanh_dip_tri = 1.0/np.tanh(dip_tri)
             part.dip = dip_magnitude/tri*(inv_tanh_dip_tri-inv_dip_tri)*H_tot
-            logging.info(part.dip)
 
     def set_H_ext(self, H=(0, 0, 1.)):
         """
