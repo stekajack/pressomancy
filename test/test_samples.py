@@ -11,6 +11,7 @@ from pressomancy.helper_functions import MissingFeature
 class SampleScriptTest(BaseTestCase):
     def tearDown(self) -> None:
         sim_inst.reinitialize_instance()
+        sim_inst.sys.thermostat.turn_off()
 
     def test_sample_scripts(self):
         def get_current_sim_instance(*args, **kwargs):
@@ -26,5 +27,6 @@ class SampleScriptTest(BaseTestCase):
                         logging.warning(f"Skipping {module_name} because it requires a feature that is not available.")
                         continue
             sim_inst.reinitialize_instance()
+            sim_inst.sys.thermostat.turn_off()
             self.assertEqual(len(sim_inst.objects), 0)
             self.assertEqual(len(sim_inst.sys.part), 0)

@@ -385,6 +385,8 @@ class Simulation():
         :param slip_vel: tuple | Velocity of the slip boundary in the format (vx, vy, vz). Default is (0, 0, 0).
         :return: None
         """
+        if 'LB_BOUNDARIES' not in espressomd.features():
+            raise MissingFeature('LB_BOUNDARIES feature is required for this method. Please enable it in your ESPResSo installation.')
         logging.info("Setup LB boundaries.")
         top_wall = shapes.Wall(normal=[1, 0, 0], dist=1) # type: ignore
         bottom_wall = shapes.Wall( # type: ignore
@@ -443,6 +445,8 @@ class Simulation():
         :return: None
 
         '''
+        if 'DIPOLE_FIELD_TRACKING' not in espressomd.features():
+            raise MissingFeature('DIPOLE_FIELD_TRACKING feature is required for this method. Please enable it in your ESPResSo installation.')
         for part in part_list:
             H_tot = part.dip_fld+H_ext
             tri = np.linalg.norm(H_tot)

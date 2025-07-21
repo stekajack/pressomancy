@@ -1,4 +1,3 @@
-import espressomd
 from pressomancy.object_classes.object_class import Simulation_Object, ObjectConfigParams 
 from pressomancy.helper_functions import PartDictSafe, SinglePairDict
 

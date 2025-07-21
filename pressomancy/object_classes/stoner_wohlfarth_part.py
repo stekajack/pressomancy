@@ -1,4 +1,3 @@
-import espressomd
 from pressomancy.object_classes.object_class import Simulation_Object, ObjectConfigParams 
 from pressomancy.helper_functions import PartDictSafe, SinglePairDict
 
@@ -7,8 +6,7 @@ class SWPart(metaclass=Simulation_Object):
     '''
     Class that contains quadriplex relevant paramaters and methods. At construction one must pass an espresso handle becaouse the class manages parameters that are both internal and external to espresso. It is assumed that in any simulation instanse there will be only one type of a Quadriplex. Therefore many relevant parameters are class specific, not instance specific.
     '''
-    # required_features=['MAGNETODYNAMICS_TSW_MODEL',]	
-    required_features=list()
+    required_features=['MAGNETODYNAMICS_TSW_MODEL',]	
 
     numInstances = 0
     simulation_type= SinglePairDict('sw_part', 13)
