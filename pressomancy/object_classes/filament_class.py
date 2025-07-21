@@ -76,27 +76,31 @@ class Filament(metaclass=Simulation_Object):
         :None:
 
         '''
+        handles=[]
         if self.associated_objects!=None:
             assert all([type_key in x.part_types.keys() for x in self.associated_objects]), 'type key must exist in the part_types of all associated monomers!'
-            raise NotImplementedError('add_anchors is still WIP for generic objects')
+            warnings.warn('add_anchors should be used with caution for generic objects')
+            for obj in self.associated_objects:
+                handles.extend(obj.type_part_dict[type_key])
         else:
-            self.fronts_indices=[]
-            self.backs_indices=[]
-
             handles = self.type_part_dict[type_key]
-            director = self.orientor
-            for pp in handles:
-                pp.director = director
-            logic_front = ((self.add_particle(type_name='virt', pos=pp.pos + 0.5 * self.params['sigma'] * director, rotation=(False, False, False)), pp) for pp in handles)
-            logic_back = ((self.add_particle(type_name='virt', pos=pp.pos - 0.5 * self.params['sigma'] * director, rotation=(False, False, False)), pp) for pp in handles)
+            
+                
+        self.fronts_indices=[]
+        self.backs_indices=[]
+        director = self.orientor
+        for pp in handles:
+            pp.director = director
+        logic_front = ((self.add_particle(type_name='virt', pos=pp.pos + 0.5 * self.params['sigma'] * director, rotation=(False, False, False)), pp) for pp in handles)
+        logic_back = ((self.add_particle(type_name='virt', pos=pp.pos - 0.5 * self.params['sigma'] * director, rotation=(False, False, False)), pp) for pp in handles)
 
-            for p_hndl_front, pp in logic_front:
-                p_hndl_front.vs_auto_relate_to(pp)
-                self.fronts_indices.append(p_hndl_front.id)
+        for p_hndl_front, pp in logic_front:
+            p_hndl_front.vs_auto_relate_to(pp)
+            self.fronts_indices.append(p_hndl_front.id)
 
-            for p_hndl_back, pp in logic_back:
-                p_hndl_back.vs_auto_relate_to(pp)
-                self.backs_indices.append(p_hndl_back.id)
+        for p_hndl_back, pp in logic_back:
+            p_hndl_back.vs_auto_relate_to(pp)
+            self.backs_indices.append(p_hndl_back.id)
             # logging.info(f'anchors added for Filament {self.who_am_i}')
 
     def bond_overlapping_virtualz(self, crit=0.):
