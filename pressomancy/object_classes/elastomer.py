@@ -407,7 +407,8 @@ class Elastomer(metaclass=Simulation_Object):
             max_bonds = len(particles)
 
         box_size= self.sys.box_l[0]
-        assert all(ele == box_size for ele in self.sys.box_l[1:]), "method assumes cubic box for system PBC"
+        if self.sys.periodicity[2]:
+            assert all(ele == box_size for ele in self.sys.box_l[1:]), "method assumes cubic box for system PBC"
 
         if isinstance(bond_k, (float, int)):
             bond_k = [bond_k, bond_k]
@@ -428,7 +429,7 @@ class Elastomer(metaclass=Simulation_Object):
 
         n_bonds_dict= defaultdict(int)
 
-        pair_dict = get_neighbours_ordered(particles.pos, box_size, r_catch, map_indices=particles.id)
+        pair_dict = get_neighbours_ordered(particles.pos, box_size, r_catch, map_indices=particles.id, periodicity=self.sys.periodicity)
 
         n_bonds= 0
         for particle in particles:
@@ -484,7 +485,8 @@ class Elastomer(metaclass=Simulation_Object):
             self.sys.periodicity = [True, True, False]
 
         box_size= self.sys.box_l[0]
-        assert all(ele == box_size for ele in self.sys.box_l[1:]), "method assumes cubic box for system PBC"
+        if self.sys.periodicity[2]:
+            assert all(ele == box_size for ele in self.sys.box_l[1:]), "method assumes cubic box for system PBC"
 
         if isinstance(bond_k, (float, int)):
             bond_k = [bond_k, bond_k]
@@ -505,7 +507,7 @@ class Elastomer(metaclass=Simulation_Object):
         else:
             raise ValueError(f"Tried to use unsupported distribution for elastomer bond strenght: '{dist}'. Supported distributions: 'normal'.")
         
-        neighbours_dict = get_neighbours_ordered(parts.pos, box_size, r_catch, map_indices=parts.id)
+        neighbours_dict = get_neighbours_ordered(parts.pos, box_size, r_catch, map_indices=parts.id, periodicity=self.sys.periodicity)
         for id1 in parts.id:
             particle = self.sys.part.by_id(id1)
             n_count = 0
