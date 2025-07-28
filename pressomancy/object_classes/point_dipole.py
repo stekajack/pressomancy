@@ -22,8 +22,9 @@ class PointDipolePermanent(metaclass=Simulation_Object):
         self.params=config
         PointDipolePermanent.numInstances += 1
         self.who_am_i = PointDipolePermanent.numInstances
+        self.associated_objects=config['associated_objects']
         self.type_part_dict=PartDictSafe({key: [] for key in PointDipolePermanent.part_types.keys()})
-        assert config['associated_objects'] is None, "Point dipoles can not have associated objects. They are singular particles, as basic as possible."
+        assert self.associated_objects is None, "Point dipoles can not have associated objects. They are singular particles, as basic as possible."
 
     def set_object(self,  pos, ori, **kwargs):
         '''
@@ -35,13 +36,16 @@ class PointDipolePermanent(metaclass=Simulation_Object):
         '''
         assert all(key not in kwargs for key in ('dipm', 'dip')), "magnetic dipole is defined in the config"
         dipm= self.params['dipm']
-        self.add_particle(type_name='real', pos=pos, rotation=(True, True, True), dip=(dipm * ori), **kwargs)
+        hndl = self.add_particle(type_name='pdp_real', pos=pos, rotation=(True, True, True), dip=(dipm * ori), **kwargs)
+
+        # Very Important Particle. To use to bond, calculate distances, and other Very Important Things. Usually on at the center of mass, and usually a real particle
+        self.vip = hndl
 
         return self
     
     def set_steric(self, epsilon=1.):
         self.sys.non_bonded_inter[self.part_types['pdp_real'], self.part_types['pdp_real']].wca.set_params(epsilon=epsilon, sigma=self.params['size'])
-    
+
 class PointDipoleSuperpara(metaclass=Simulation_Object):
     '''
     Class that contains superparamagnetic point dipole particles relevant paramaters and methods. At construction one must pass an espresso handle because the class manages parameters that are both internal and external to espresso. It is assumed that in any simulation instanse there will be only one type of a PointDipoleSuperpara. Therefore many relevant parameters are class specific, not instance specific.
@@ -65,6 +69,7 @@ class PointDipoleSuperpara(metaclass=Simulation_Object):
         self.who_am_i = PointDipoleSuperpara.numInstances
         self.associated_objects=config['associated_objects']
         self.type_part_dict=PartDictSafe({key: [] for key in PointDipoleSuperpara.part_types.keys()})
+        assert self.associated_objects is None, "Point dipoles can not have associated objects. They are singular particles, as basic as possible."
 
     def set_object(self,  pos, ori, **kwargs):
         '''
@@ -76,10 +81,13 @@ class PointDipoleSuperpara(metaclass=Simulation_Object):
         '''
         assert all(key not in kwargs for key in ('dipm', 'dip')), "magnetic dipole is defined in the config"
         dipm= self.params['dipm']
-        particl_real=self.add_particle(type_name='real', pos=pos, rotation=(True, True, True), director=ori, **kwargs)
+        particl_real=self.add_particle(type_name='pds_real', pos=pos, rotation=(True, True, True), director=ori, **kwargs)
         
-        particl_virt=self.add_particle(type_name='virt', pos=pos, rotation=(False, False, False), dipm=dipm)
+        particl_virt=self.add_particle(type_name='pds_virt', pos=pos, rotation=(False, False, False), dipm=dipm)
         particl_virt.vs_auto_relate_to(particl_real)
+
+        # Very Important Particle. To use to bond, calculate distances, and other Very Important Things. Usually on at the center of mass, and usually a real particle
+        self.vip = particl_real
 
         return self
     

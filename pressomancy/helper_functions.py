@@ -121,7 +121,8 @@ class ManagedSimulation:
             self.instance.sys.bonded_inter.clear()
             self.instance.sys.thermostat.turn_off()
             self.instance.sys.constraints.clear()
-            self.instance.sys.actors.clear()
+            # self.instance.sys.actors.clear()
+            self.instance.sys.magnetostatics.clear()
 
     def __getattr__(self, name):
         """

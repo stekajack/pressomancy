@@ -2,7 +2,8 @@ import espressomd
 import numpy as np
 from collections import defaultdict
 from pressomancy.object_classes.object_class import Simulation_Object, ObjectConfigParams
-from pressomancy.helper_functions import RoutineWithArgs, PartDictSafe, SinglePairDict, BondWrapper, get_neighbours, add_box_constraints_func, remove_box_constraints_func, check_free_cuboid, calculate_pair_distances, fcc_lattice, generate_random_unit_vectors, normalize_vectors, get_neighbours_ordered
+from pressomancy.object_classes.point_dipole import PointDipolePermanent
+from pressomancy.helper_functions import RoutineWithArgs, PartDictSafe, SinglePairDict, BondWrapper, get_neighbours, add_box_constraints_func, remove_box_constraints_func, check_free_cuboid, calculate_pair_distances, fcc_lattice, generate_random_unit_vectors, normalize_vectors, get_neighbours_ordered, str_to_bool
 import logging
 import warnings
 import os
@@ -39,6 +40,9 @@ class Elastomer(metaclass=Simulation_Object):
             warnings.warn('monomer size assumed to be 1. and inferred number of particles from volume of Elastomer (to get 0.3 volume fraction)')
         self.params=config
         self.associated_objects=self.params['associated_objects']
+        if self.associated_objects is not None:
+            self.part_types.update({nam: typ for obj in self.associated_objects for nam, typ in obj.part_types.items()})
+        print(self.part_types)
         self.substrate=None
         self.build_function=RoutineWithArgs(
             func=self.build_Elastomer,
@@ -48,6 +52,80 @@ class Elastomer(metaclass=Simulation_Object):
         Elastomer.numInstances += 1
         self.type_part_dict=PartDictSafe({key: [] for key in Elastomer.part_types.keys()})
         assert  Elastomer.numInstances <= 1, "It is only possible to have an elastomer at a time."
+
+    @classmethod
+    def load_gzip(cls, file, pressomancy_system, associated_class={PointDipolePermanent: (1.0, PointDipolePermanent.config)}):
+        """
+        Works only for point dipoles, ferro- or paramagnetic, for elastomer created with elastomer.save_gzip without associated objects.
+        """
+        espresso_handle = pressomancy_system.sys
+        assert Elastomer.numInstances < 1, "Failed to create elastomer from file. It is only possible to have an Elastomer instance at a time."
+        data = file.readline()
+        print("data eval", data)
+        config_tmp= eval(data, {"array": np.array, "np": np})
+        print("config_tmp", config_tmp)
+        data = file.readline().split()
+        assert data[0] == "None" and int(data[1])>0, "Not implemented for asssociated objects. Soon to come. Save using elastomer.save_gzip(). Also there must be at least one particle!! In the elastomer!!! Check the file."
+
+        assert np.isclose(sum(conc for conc, _ in associated_class.values()), 1.)
+
+        associated_objects = []
+
+        n_parts_left= config_tmp['n_parts']
+        keys_tmp= list(associated_class.keys())
+        for key in keys_tmp[:-1]:
+            n_parts_tmp= round(associated_class[key][0] * config_tmp['n_parts'])
+            associated_objects.extend([key(config=associated_class[key][1]) for _ in range(n_parts_tmp)])
+            n_parts_left -= n_parts_tmp
+        associated_objects.extend([keys_tmp[-1](config=associated_class[keys_tmp[-1]][1]) for _ in range(n_parts_left)])
+
+        config_E = Elastomer.config.specify(**config_tmp, associated_objects=associated_objects, espresso_handle=espresso_handle)
+        elastomer = cls(config=config_E)
+        pressomancy_system.store_objects([elastomer])
+
+        points= [] * config_tmp['n_parts']
+        orientations= [] * config_tmp['n_parts']
+        id_list= [] * config_tmp['n_parts']
+        fix_list= [] * config_tmp['n_parts']
+        # virtual_list= [] * config_tmp['n_parts']
+        bonds_list= [] * config_tmp['n_parts']
+
+        n_types = int(data[1])
+        for typ_i in range(n_types):
+            data = file.readline().split()
+            assert data[0]=="parts", "Not implemented for complex samples. Look at the save_gzip without any associated objects. That's the stuff"
+            typ = int(data[2])
+            n_parts_tmp = int(data[1])
+            for part_i in range(n_parts_tmp):
+                data = file.readline().split()
+                id_list.append(int(data[0]))
+                points.append(list(map(float, data[1:4])))
+                orientations.append(list(map(float, data[4:7])))
+                fix_list.append(list(map(str_to_bool, data[7:10])))
+                # virtual_list.append(tuple(str_to_bool(data[10]), int(data[11])))
+                bonds_list.append(data[12:])
+
+        radius_not_good = associated_class[keys_tmp[-1]][1]['size'] / 2
+
+        points= np.asarray(points)
+        orientations= np.asarray(orientations)
+        elastomer.set_associated_objects(sphere_radius=radius_not_good, sphere_centers=points, sphere_orientations=orientations)
+
+        id_to_idx= {}
+        vip_list= [None] * config_tmp['n_parts']
+        for i in range(config_tmp['n_parts']):
+            id_to_idx[id_list[i]] = i
+            vip_list[i] = elastomer.associated_objects[i].vip
+        for i, vip in enumerate(vip_list):
+            vip.fix = fix_list[i]
+            for part_bond in bonds_list[i]:
+                part_bond_split = part_bond.split(",")
+                elastic_bond = espressomd.interactions.HarmonicBond(k=float(part_bond_split[0]), r_0=float(part_bond_split[1]), r_cut=-1.0)
+                elastomer.sys.bonded_inter.add(elastic_bond)
+                vip_2 = vip_list[id_to_idx[int(part_bond_split[2])]]
+                vip.add_bond((elastic_bond, vip_2))
+
+        return elastomer
 
     def to_dict_of_god(self, father=True):
         raise NotImplementedError("Does not work for pickle'ing whole elastomer. May work for other purposes.")
@@ -109,7 +187,7 @@ class Elastomer(metaclass=Simulation_Object):
             for obj in self.associated_objects:
                 obj.set_steric(epsilon=epsilon)
     
-    def build_Elastomer(self, box_lengths, center=np.array([0,0,0]), sphere_radius=1., num_monomers=1, spacing=None, flag='rand'):
+    def build_Elastomer(self, box_lengths, center=None, sphere_radius=1., num_monomers=1, spacing=None, flag='rand'):
         box_lengths= np.asarray(box_lengths)
         scaling = 1.0
         
@@ -139,6 +217,28 @@ class Elastomer(metaclass=Simulation_Object):
 
         return orientations, points
     
+    def set_associated_objects(self, sphere_radius, sphere_centers, sphere_orientations):
+        assert self.params['n_parts'] == len(sphere_centers) == len(sphere_orientations)
+
+        orientations, points = build_function_generic(self, box_l=self.params['box_E'], num_children=self.params['n_parts'], children_centers=sphere_centers, children_orientations=sphere_orientations, children_size=sphere_radius)
+
+        pos=np.asarray(points)
+        ori=np.asarray(orientations)
+        assert check_free_cuboid(self.sys, self.params['box_E'], self.params['box_E_shift']), "Elastomer must be build on empty space. Adjust box_E and box_E_shift or remove non-elastomer particles to make space."
+        assert len(
+            pos) == self.params['n_parts'], 'there is a missmatch between the pos lenth and Elastomer n_parts'
+
+        assert self.params['n_parts'] == len(
+            self.associated_objects), " there doest seem to be enough particles stored!!! "
+        if not all(hasattr(obj, 'set_object') and callable(getattr(obj, 'set_object')) for obj in self.associated_objects):
+            raise TypeError("One or more objects do not implement a callable 'set_object'")
+        logic = (obj_el.set_object(pos_el, ori_el)
+                    for obj_el, pos_el, ori_el in zip(self.associated_objects, pos, ori))
+        for part in logic:
+            pass
+        
+        return self
+    
     def mix_elastomer_stuff(self, iter_multiplier=1, substrate=None, test=False):
         if isinstance(self, list):
             raise ValueError("Must be used on Elastomer object type")
@@ -149,7 +249,7 @@ class Elastomer(metaclass=Simulation_Object):
             n_iter_1 = 0
         else:
             n_inter_0 = 100
-            n_iter_1 = int(2000000 * iter_multiplier)
+            n_iter_1 = int(200000 * iter_multiplier)
 
         old_time_step= float(self.sys.time_step)
 
@@ -256,27 +356,25 @@ class Elastomer(metaclass=Simulation_Object):
         if test:
             n_iter_1 = 0
         else:
-            n_iter_1 = int(2000000 * iter_multiplier)
+            n_iter_1 = int(200000 * iter_multiplier)
 
-        if time_step is not None:
-            old_time_step= float(self.sys.time_step)
-            self.sys.time_step = time_step
+        old_time_step= float(self.sys.time_step)
+        self.sys.time_step = time_step if time_step is not None else 0.001
 
         self.sys.thermostat.set_langevin(kT=kT, gamma=gamma, seed=self.params['seed'])
         self.sys.integrator.run(n_iter_1)
-        if time_step is not None:
-            self.sys.time_step = old_time_step
+        self.sys.time_step = old_time_step
+        self.sys.thermostat.turn_off()
 
     def save_gzip(self, file):
         line_save=""
-        for key, value in self.params:
-            if key not in ("associeated_objects", "espresso_instance"):
-                line_save += f"{key} {value} "
-        line_save = line_save[:-1] + "\n"
+        params_save= {key: value for key, value in self.params.items() if key not in ("associated_objects", "espresso_handle") }
+        print("params_save", params_save)
+        line_save = str(params_save) + "\n"
         file.write(line_save.encode())
 
         if self.associated_objects is not None:
-            raise NotImplementedError("Will implement soon soon.")
+            raise NotImplementedError("Will implement soon-ish.")
             n_objects_lookup = len(self.associated_objects)
             line_save = f"{n_objects_lookup}\n"
             file.write(line_save.encode())
@@ -316,13 +414,14 @@ class Elastomer(metaclass=Simulation_Object):
                         line_save += "\n"
                         file.write(line_save.encode())
         else:
+            file.write(f"None {len(self.type_part_dict.keys())}\n".encode())
             for typ, hndls in self.type_part_dict.items():
-                line_save = f"parts len({hndls}) {typ}\n"
+                line_save = f"parts {len(hndls)} {self.part_types[typ]}\n"
                 for part in hndls:
                     line_save += f"{part.id} {part.pos[0]} {part.pos[1]} {part.pos[2]}"
                     line_save += f" {part.dip[0]} {part.dip[1]} {part.dip[2]}"
                     line_save += f" {part.fix[0]} {part.fix[1]} {part.fix[2]}"
-                    line_save += f" {part.virtual} {part.vs_relative[0]}"
+                    line_save += f" {part.is_virtual()} {part.vs_relative[0]}"
                     for bond in part.bonds:
                         line_save += f" {bond[0].k},{bond[0].r_0},{bond[1]}"
                     line_save += "\n"
@@ -554,16 +653,22 @@ class Elastomer(metaclass=Simulation_Object):
         #     flat_part_list[iid].add_bond((bond_handle, flat_part_list[iid+1],  flat_part_list[iid-1]))
 
     def create_substrate(self, geometry: str = 'wall'):
-        if geometry == 'wall':
-            self.create_substrate_wall()
+        if self.substrate is None:
+            if geometry == 'wall':
+                self.create_substrate_wall()
+            else:
+                self.create_substrate_part()
         else:
-            self.create_substrate_part()
+            warnings.warn("Substrate already set. Will ignore this call.")
 
     def remove_substrate(self, geometry: str = 'wall'):
-        if geometry == 'wall':
-            self.remove_substrate_wall()
+        if self.substrate is not None:
+            if geometry == 'wall':
+                self.remove_substrate_wall()
+            else:
+                self.remove_substrate_part()
         else:
-            self.remove_substrate_part()
+            warnings.warn("Substrate not yet set. Will ignore this call.")
 
     def create_substrate_part(self):
         n_substrate_x = int(np.ceil(self.params['box_E'][0]))
@@ -573,8 +678,6 @@ class Elastomer(metaclass=Simulation_Object):
                                     np.linspace(0.5, self.params['box_E'][1]-0.5, n_substrate_y) )
         pos = np.column_stack((pos_x.ravel(), pos_y.ravel(), ( np.zeros(n_substrate) - 0.5 + self.params['box_E_shift'][2] ) ))
         substrate = self.sys.part.add(type=[self.part_types['substrate']]*n_substrate, pos=pos, virtual=[True]*n_substrate, fix=[[True,True,True]]*n_substrate)
-        for part in substrate:
-            part.vs_relative = (part.id, 0.0, (1,0,0,0))
         self.substrate = substrate
 
         for key, typ in self.part_types.items():
@@ -605,43 +708,50 @@ class Elastomer(metaclass=Simulation_Object):
 
 
 # Make generic build funciton to recursively call objects build functions
-def build_function_generic(parent_obj, box_l, num_children, children_centers, children_size, spacing=None):
+def build_function_generic(parent_obj, box_l, num_children, children_centers, children_size, spacing=None, children_orientations=None):
         # copy from partition cuboid volume
         points_list = [None] * num_children
         orientations_list = [None] * num_children
 
         if parent_obj.associated_objects is None:
-            children_orientations = random_like_nested_3d_vectors(children_centers)
+            if children_orientations is None:
+                children_orientations = random_like_nested_3d_vectors(children_centers)
             return children_orientations, children_centers
         else:
             children_handels = [obj for obj in parent_obj.associated_objects]
 
-            assert np.all(box_l==box_l[0]), "this methods assumes cubic box for num_monomers > 1"
+            assert np.all(box_l[1]==box_l[0]), "this methods assumes square x-y box base for n_monores > 1"
             box_length = box_l[0]
             grouped_positions = defaultdict(list)
             #grouped_volumes is a dictionary that contains all neighouring lattice sites sphere_diameter  
-            grouped_volumes=get_neighbours(children_centers,volume_side=box_length,cuttoff=children_size)
-            for i, (child_obj, center) in enumerate(zip(children_handels, children_centers)):
-                valid_placement = False
-                while not valid_placement:
-                    orientation, points = child_obj.routine_per_volume(
-                        center=center, num_monomers=child_obj.routine_per_volume.num_monomers, sphere_radius=(child_obj.params['size'] / 2), spacing=child_obj.routine_per_volume.spacing,
-                        box_lengths=box_l)
-                    should_proceed = True
-                    
-                    # Check for overlaps with points in neighboring spheres
-                    for volume_id in grouped_volumes[i]:
-                        if grouped_positions[volume_id]:
-                            distances = calculate_pair_distances(points, grouped_positions[volume_id], box_lengths=box_l)
-                            if np.any(distances <= child_obj.routine_per_volume.monomer_size):
-                                should_proceed = False
-                                break
-                    
-                    if should_proceed:
-                        grouped_positions[i].extend(points)
-                        points_list[i] = points
-                        orientations_list[i] = orientation
-                        valid_placement = True
+            grouped_volumes=get_neighbours_ordered(children_centers,volume_side=box_length,cuttoff=children_size, periodicity=parent_obj.sys.periodicity)
+            for i, (child_obj, center, ori) in enumerate(zip(children_handels, children_centers, children_orientations)):
+                if hasattr(child_obj, "routine_per_volume"):
+                    raise NotImplementedError("Not yet implemented.")
+                    valid_placement = False
+                    while not valid_placement:
+                        orientation, points = child_obj.routine_per_volume(
+                            center=center, num_monomers=child_obj.routine_per_volume.num_monomers, sphere_radius=(child_obj.params['size'] / 2), spacing=child_obj.routine_per_volume.spacing,
+                            box_lengths=box_l)
+                        should_proceed = True
+                        
+                        # Check for overlaps with points in neighboring spheres
+                        for volume_id in grouped_volumes[i]:
+                            if grouped_positions[volume_id]:
+                                distances = calculate_pair_distances(points, grouped_positions[volume_id], box_lengths=box_l)
+                                if np.any(distances <= child_obj.routine_per_volume.monomer_size):
+                                    should_proceed = False
+                                    break
+                        
+                        if should_proceed:
+                            grouped_positions[i].extend(points)
+                            points_list[i] = points
+                            orientations_list[i] = orientation
+                            valid_placement = True
+                else:
+                    # temporary fix
+                    points_list[i] = center
+                    orientations_list[i] = ori
 
             return orientations_list, points_list
         
