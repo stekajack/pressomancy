@@ -1,5 +1,5 @@
 import espressomd
-from espressomd.virtual_sites import VirtualSitesRelative
+# from espressomd.virtual_sites import VirtualSitesRelative
 from espressomd import shapes
 import espressomd.polymer
 import sys as sysos
@@ -137,8 +137,8 @@ class Simulation():
         self.sys.time_step = time_step
         self.sys.cell_system.skin = 0.5
         self.sys.min_global_cut = min_global_cut
-        self.sys.virtual_sites = VirtualSitesRelative(have_quaternion=have_quaternion)
-        assert type(self.sys.virtual_sites) is VirtualSitesRelative, 'VirtualSitesRelative must be set. If not, anything involving virtual particles will not work correctly, but it might be very hard to figure out why. I have wasted days debugging issues only to remember i commented out this line!!!'
+        # self.sys.virtual_sites = VirtualSitesRelative(have_quaternion=have_quaternion)
+        # assert type(self.sys.virtual_sites) is VirtualSitesRelative, 'VirtualSitesRelative must be set. If not, anything involving virtual particles will not work correctly, but it might be very hard to figure out why. I have wasted days debugging issues only to remember i commented out this line!!!'
         logging.info(f'System params have been autoset. The values of min_global_cut and skin are not guaranteed to be optimal for your simualtion and should be tuned by hand!!!')
 
     def modify_system_attribute(self, requester, attribute_name, action):

@@ -121,7 +121,8 @@ class ManagedSimulation:
             self.instance.sys.bonded_inter.clear()
             self.instance.sys.thermostat.turn_off()
             self.instance.sys.constraints.clear()
-            self.instance.sys.actors.clear()
+            # self.instance.sys.actors.clear()
+            self.instance.sys.magnetostatics.clear()
 
     def __getattr__(self, name):
         """
@@ -688,7 +689,7 @@ def get_neighbours(lattice_points: np.ndarray, volume_side: float, cuttoff: floa
 
     return grouped_indices
 
-def get_neighbours_ordered(lattice_points: np.ndarray, volume_side: float, cuttoff: float = 1., map_indices=None) -> defaultdict:
+def get_neighbours_ordered(lattice_points: np.ndarray, volume_side: float, cuttoff: float = 1., map_indices=None, periodicity=[True,True,True]) -> defaultdict:
     """
     Returns grouped_indices, where grouped_indices is a dictionary that maps each particle index
     to a list of neighbor indices within the cuttoff distance. Uses a grid-based method for efficiency,
@@ -720,6 +721,10 @@ def get_neighbours_ordered(lattice_points: np.ndarray, volume_side: float, cutto
     
     grouped_indices = defaultdict(list)
     box_dim = np.ones(3) * volume_side
+
+    for i, p in enumerate(periodicity):
+        if not p:
+            box_dim[i] = 1000000
     
     # For each occupied cell in the grid...
     for cell, indices in grid.items():
