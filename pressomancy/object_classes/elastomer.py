@@ -249,7 +249,8 @@ class Elastomer(metaclass=Simulation_Object):
             n_iter_1 = 0
         else:
             n_inter_0 = 100
-            n_iter_1 = int(200000 * iter_multiplier)
+            n_iter_1 = int(2000000 * iter_multiplier)
+            timestep_iter_1 = 0.0001
 
         old_time_step= float(self.sys.time_step)
 
@@ -267,7 +268,7 @@ class Elastomer(metaclass=Simulation_Object):
 
         # First relaxation (high T)
         self.sys.thermostat.set_langevin(kT=0.5, gamma=10, seed=self.params['seed'])
-        self.sys.time_step = 0.0001
+        self.sys.time_step = timestep_iter_1
         self.sys.integrator.run(n_iter_1)
 
         # Remove temporary box particles
@@ -348,21 +349,21 @@ class Elastomer(metaclass=Simulation_Object):
                     lonely_M.append(id)
             self.bond_to_neighbors(parts=self.sys.part.by_ids(lonely_M), n_nghb=n_bonds_if_0, bond_k=bond_k, r_cut=-1, r_catch=r_catch_if_0, dist=dist, std_scaling=6)
 
-    def relax_langevin(self, iter_multiplier=1, kT=1E-3, gamma=10, time_step=None, test=False):
+    def relax_langevin(self, iter_multiplier=1, kT=1E-3, gamma=10, time_step=0.001, test=False):
         if isinstance(self, list):
             raise ValueError("Must be used on Elastomer object type")
 
         # add iniziatilation process, to get a nice random distribution before bonding
         if test:
-            n_iter_1 = 0
+            n_iter = 0
         else:
-            n_iter_1 = int(200000 * iter_multiplier)
+            n_iter = int(200000 * iter_multiplier)
 
         old_time_step= float(self.sys.time_step)
-        self.sys.time_step = time_step if time_step is not None else 0.001
+        self.sys.time_step = time_step
 
         self.sys.thermostat.set_langevin(kT=kT, gamma=gamma, seed=self.params['seed'])
-        self.sys.integrator.run(n_iter_1)
+        self.sys.integrator.run(n_iter)
         self.sys.time_step = old_time_step
         self.sys.thermostat.turn_off()
 
