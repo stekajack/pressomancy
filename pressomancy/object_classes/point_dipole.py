@@ -51,7 +51,7 @@ class PointDipoleSuperpara(metaclass=Simulation_Object):
     Class that contains superparamagnetic point dipole particles relevant paramaters and methods. At construction one must pass an espresso handle because the class manages parameters that are both internal and external to espresso. It is assumed that in any simulation instanse there will be only one type of a PointDipoleSuperpara. Therefore many relevant parameters are class specific, not instance specific.
     '''
 
-    required_features=['DIPOLES', 'DIPOLE_FIELDS_TRACKING']	
+    required_features=['DIPOLES', 'DIPOLE_FIELD_TRACKING']	
     numInstances = 0
     simulation_type= SinglePairDict('point_dipole_superpara', 4)
     part_types = PartDictSafe({'pds_real': 4, 'pds_virt': 666})
