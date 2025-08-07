@@ -65,7 +65,7 @@ sim_inst.store_objects(filaments)
 sim_inst.set_objects(filaments)
 
 for filament in filaments:
-    filament.bond_center_to_center(type_key='crowder')
+    filament.bond_center_to_center(type_name='crowder')
     
 
 sim_inst.set_steric(key=('real', 'virt','crowder'), wca_eps=1.)

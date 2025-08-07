@@ -32,19 +32,19 @@ class FilamentTest(BaseTestCase):
     def test_bond_center_to_center(self):
         instance=Filament(config=Filament.config.specify(
             n_parts=10, size=self.size_filament,espresso_handle=sim_inst.sys))
-        instance.bond_center_to_center(type_key='real')
+        instance.bond_center_to_center(type_name='real')
         quartets = [Quartet(config=Quartet.config.specify(espresso_handle=sim_inst.sys)) for x in range(10)]
         instance=Filament(config=Filament.config.specify(
             n_parts=10,size=self.size_filament,espresso_handle=sim_inst.sys,associated_objects=quartets))
-        instance.bond_center_to_center(type_key='real')
+        instance.bond_center_to_center(type_name='real')
 
     def test_bending_potential(self):
         
         instance=Filament(config=Filament.config.specify(
             n_parts=10, size=self.size_filament, espresso_handle=sim_inst.sys)) 
         angle_harmonic=espressomd.interactions.AngleHarmonic(bend=1., phi0=3.)
-        instance.add_bending_potential(type_key='real',bond_handle=angle_harmonic)
+        instance.add_bending_potential(type_name='real',bond_handle=angle_harmonic)
         quartets = [Quartet(config=Quartet.config.specify(espresso_handle=sim_inst.sys)) for x in range(10)]
         instance=Filament(config=Filament.config.specify(
             n_parts=10, size=self.size_filament, espresso_handle=sim_inst.sys,associated_objects=quartets))
-        instance.add_bending_potential(type_key='real',bond_handle=angle_harmonic)
+        instance.add_bending_potential(type_name='real',bond_handle=angle_harmonic)

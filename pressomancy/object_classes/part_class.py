@@ -1,32 +1,30 @@
-from pressomancy.object_classes.part_class import GenericPart
-from pressomancy.object_classes.object_class import ObjectConfigParams 
+from pressomancy.object_classes.object_class import Simulation_Object, ObjectConfigParams 
 from pressomancy.helper_functions import PartDictSafe, SinglePairDict
 
-class EGGPart(GenericPart):
+class GenericPart(metaclass=Simulation_Object):
 
     '''
     Class that contains quadriplex relevant paramaters and methods. At construction one must pass an espresso handle becaouse the class manages parameters that are both internal and external to espresso. It is assumed that in any simulation instanse there will be only one type of a Quadriplex. Therefore many relevant parameters are class specific, not instance specific.
     '''
-    required_features=['EGG_MODEL',]	
+    required_features=list()	
     numInstances = 0
-    simulation_type= SinglePairDict('egg_part', 74)
-    part_types = PartDictSafe({'real': 1,'yolk': 11})
+    simulation_type= SinglePairDict('generic_particle', 42)
+    part_types = PartDictSafe({'real': 1,'virt': 2})
     config = ObjectConfigParams(
-         dipm=1, 
-         egg_gamma=1., 
-         aniso_energy=1.
+        espresso_part_kwargs=dict(),
+        alias=None
     )
 
     def __init__(self, config: ObjectConfigParams):
         '''
-        Initialisation of a EGGPart object requires the specification of particle size and a handle to the espresso system
+        Initialisation of a crowder object requires the specification of particle size and a handle to the espresso system
         '''
         self.sys=config['espresso_handle']
         self.params=config
-        self.who_am_i = EGGPart.numInstances
-        EGGPart.numInstances += 1
-        self.associated_objects=config['associated_objects']
-        self.type_part_dict=PartDictSafe({key: [] for key in EGGPart.part_types.keys()})
+        self.associated_objects=self.params['associated_objects']
+        self.who_am_i = GenericPart.numInstances
+        GenericPart.numInstances += 1
+        self.type_part_dict=PartDictSafe({key: [] for key in GenericPart.part_types.keys()})
 
     def set_object(self,  pos, ori):
         '''
@@ -36,9 +34,6 @@ class EGGPart(GenericPart):
         :return: None
 
         '''
-        particl_real=self.add_particle(type_name='real', pos=pos, rotation=(True, True, True), director=ori)
-
-        particl_virt=self.add_particle(type_name='yolk', pos=pos, rotation=(True, True, True), dipm=self.params['dipm'], egg_model_params = (True, self.params['egg_gamma'], self.params['aniso_energy']))
-        particl_virt.vs_auto_relate_to(particl_real)
-
+        particle=self.add_particle(type_name='real', pos=pos, rotation=(True, True, True), **self.params['espresso_part_kwargs'])
+        particle.director = ori
         return self

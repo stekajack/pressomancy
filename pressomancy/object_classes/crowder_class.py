@@ -1,11 +1,13 @@
-from pressomancy.object_classes.object_class import Simulation_Object, ObjectConfigParams 
+from pressomancy.object_classes.part_class import GenericPart
+from pressomancy.object_classes.object_class import ObjectConfigParams 
 from pressomancy.helper_functions import PartDictSafe, SinglePairDict
 
-class Crowder(metaclass=Simulation_Object):
+class Crowder(GenericPart):
 
     '''
     Class that contains quadriplex relevant paramaters and methods. At construction one must pass an espresso handle becaouse the class manages parameters that are both internal and external to espresso. It is assumed that in any simulation instanse there will be only one type of a Quadriplex. Therefore many relevant parameters are class specific, not instance specific.
     '''
+    
     required_features=list()	
     numInstances = 0
     simulation_type= SinglePairDict('crowder', 5)

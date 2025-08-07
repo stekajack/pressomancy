@@ -19,7 +19,7 @@ filaments = [Filament(config=configuration) for x in range(5)]
 sim_inst.store_objects(filaments)
 sim_inst.set_objects(filaments)
 for filament in filaments:
-    filament.add_anchors(type_key='real')
+    filament.add_anchors(type_name='real')
     filament.bond_overlapping_virtualz()
     filament.add_dipole_to_embedded_virt(type_name='real',dip_magnitude=1.)
 

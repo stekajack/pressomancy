@@ -13,6 +13,7 @@ from pressomancy.object_classes import *
 from pressomancy.helper_functions import *
 import logging
 import h5py
+from collections import Counter
 
 @ManagedSimulation
 class Simulation():
@@ -161,7 +162,7 @@ class Simulation():
         if not all(feature in espressomd.features() for feature in object.required_features):
             raise MissingFeature
 
-    def store_objects(self, iterable_list):
+    def store_objects(self, iterable_list, report=True):
         '''
         Method stores objects in the self.objects dict, if the object has a n_part and part_types attributes,
         and the list of objects passed to the method is commesurate with the system level attribute n_tot_parts.
@@ -171,9 +172,13 @@ class Simulation():
         temp_dict={}
         for element in iterable_list:
             if element.params['associated_objects'] != None:
-                check=all(associated in self.objects for associated in element.params['associated_objects'])
-                if not check:
-                    self.store_objects(element.params['associated_objects'])
+                check_any=any(associated in self.objects for associated in element.params['associated_objects'])
+                if check_any:
+                    check_all=all(associated in self.objects for associated in element.params['associated_objects'])
+                    if not check_all:
+                        raise ValueError(f"Some associated objects {element.params['associated_objects']} but not all  associated objects are stored in the simulation. This is a sign that smth major is fucked...Suffer in silence.")
+                else:
+                    self.store_objects(element.params['associated_objects'],report=False)
             assert element not in self.objects, "Lists have common elements!"
             self.sanity_check(element)
             element.modify_system_attribute = self.modify_system_attribute
@@ -182,7 +187,11 @@ class Simulation():
                 temp_dict[key]=val
             self.no_objects += 1
         self.part_types.update(temp_dict)
-        logging.info(f'{iterable_list[0].__class__.__name__}s stored')
+        if report:
+            names = [element.__class__.__name__ for element in self.objects]
+            counts = Counter(names)
+            formatted = ", ".join(f"{count} {name}" for name, count in counts.items())
+            logging.info(f"{formatted} stored")
 
     def set_objects(self, objects):
         """Set objects' positions and orientations in the simulation box.
@@ -249,7 +258,10 @@ class Simulation():
         
         for obj, pos, ori in zip(objects, positions, orientations):
             obj.set_object(pos, ori)
-        logging.info('%s set!!!', objects[0].__class__.__name__)
+        names = [element.__class__.__name__ for element in objects]
+        counts = Counter(names)
+        formatted = ", ".join(f"{count} {name}" for name, count in counts.items())
+        logging.info(f"{formatted} set!!!")
 
     def mark_for_collision_detection(self, object_type=Quadriplex, part_type=666):
         assert any(isinstance(ele, object_type) for ele in self.objects), "method assumes simulation holds correct type object"
