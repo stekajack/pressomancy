@@ -274,7 +274,7 @@ class Simulation():
             obj_el.mark_covalent_bonds(part_type=part_type)
 
     def init_magnetic_inter(self, actor_handle):
-        logging.info('direct summation magnetic interactions initiated')
+        logging.info(f'{actor_handle} magnetic interactions actor initiated')
         dds = actor_handle
         self.sys.actors.add(dds)
 
