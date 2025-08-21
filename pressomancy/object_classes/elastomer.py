@@ -261,9 +261,12 @@ class Elastomer(metaclass=Simulation_Object):
         # Make sure particles are not overlapping walls or substrate
         self.sys.integrator.set_steepest_descent(f_max=0, gamma=100, max_displacement=0.1)
         energy_non_bonded = self.sys.analysis.energy()['non_bonded']
+        count_while= 0
         while energy_non_bonded > 0 and not test:
             self.sys.integrator.run(n_inter_0)
             energy_non_bonded = self.sys.analysis.energy()['non_bonded']
+            if count_while > 100 and energy_non_bonded < 0.1/self.params['n_parts']:
+                break
         self.sys.integrator.set_vv()
 
         # First relaxation (high T)

@@ -80,10 +80,9 @@ class PointDipoleSuperpara(metaclass=Simulation_Object):
 
         '''
         assert all(key not in kwargs for key in ('dipm', 'dip')), "magnetic dipole is defined in the config"
-        dipm= self.params['dipm']
         particl_real=self.add_particle(type_name='pds_real', pos=pos, rotation=[True, True, True], director=ori, **kwargs)
         
-        particl_virt=self.add_particle(type_name='pds_virt', pos=pos, rotation=[False, False, False], dip=(ori * dipm))
+        particl_virt=self.add_particle(type_name='pds_virt', pos=pos, rotation=[False, False, False], dip=(ori * 1e-6))
         particl_virt.vs_auto_relate_to(particl_real)
 
         # Very Important Particle. To use to bond, calculate distances, and other Very Important Things. Usually on at the center of mass, and usually a real particle
