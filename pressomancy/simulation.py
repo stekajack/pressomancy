@@ -563,7 +563,7 @@ class Simulation():
 
         return result
 
-    def inscribe_part_group_to_h5(self, group_type=None, h5_data_path=None,mode='NEW'):
+    def inscribe_part_group_to_h5(self, group_type=None, h5_data_path=None,mode='NEW',force_resize_to_size=None):
         """
         Inscribe one or more groups of simulation objects into an HDF5 file.
 
@@ -603,6 +603,8 @@ class Simulation():
             raise ValueError("group_type must be a list of classes.")
         if mode not in ('NEW', 'LOAD', 'LOAD_NEW'):
             raise ValueError(f"Unknown mode: {mode}")
+        if force_resize_to_size is not None:
+            assert mode=='LOAD_NEW', 'force_resize_to_size can only be used in LOAD_NEW mode'
         self.io_dict['registered_group_type']=[grp_typ.__name__ for grp_typ in group_type]
 
         if mode=='NEW':
@@ -693,7 +695,25 @@ class Simulation():
                     f"Inconsistent step counts across groups: {candidate_lens}"
                 )
             GLOBAL_COUNTER=candidate_lens[0]
-            logging.info(f"Loading h5 file with GLOBAL_COUNTER={GLOBAL_COUNTER} ")
+            if force_resize_to_size is not None:
+                assert type(force_resize_to_size) is int, 'force_resize_to_size must be an integer'
+                assert force_resize_to_size<=GLOBAL_COUNTER, 'force_resize_to_size must be smaller than or equal to the current number of timesteps saved in file'
+                if force_resize_to_size==GLOBAL_COUNTER:
+                    logging.info(f'force_resize_to_size is equal to the current number of timesteps saved in file. No resizing will be done.')
+                else:
+                    for grp_typ in group_type:
+                        data_grp = particles_group[grp_typ.__name__]
+                        for prop,_ in self.io_dict['properties']:
+                            dataset_val = data_grp[f"{prop}/value"]
+                            step_dataset = data_grp[f"{prop}/step"]
+                            time_dataset = data_grp[f"{prop}/time"]
+                            step_dataset.resize((force_resize_to_size,))
+                            time_dataset.resize((force_resize_to_size,))
+                            dataset_val.resize((force_resize_to_size, dataset_val.shape[1], dataset_val.shape[2]))
+                    self.io_dict['h5_file'].flush()
+                    logging.info(f'Force resized all datasets from {GLOBAL_COUNTER} to size {force_resize_to_size}')
+                    GLOBAL_COUNTER=force_resize_to_size
+            logging.info(f"Loaded h5 file with GLOBAL_COUNTER={GLOBAL_COUNTER} ")
             return GLOBAL_COUNTER
         
         elif mode=='LOAD':
@@ -714,6 +734,7 @@ class Simulation():
                 )
             GLOBAL_COUNTER=candidate_lens[0]
             logging.info(f"Loading h5 file with GLOBAL_COUNTER={GLOBAL_COUNTER} ")
+
         return GLOBAL_COUNTER
         
     def write_part_group_to_h5(self, time_step=None):
