@@ -115,11 +115,12 @@ class Simulation():
     
     object_permissions=['part_types']
     _sys=espressomd.System
-    def __init__(self, box_dim):
+    def __init__(self, box_dim, kT=1):
         self.no_objects = 0
         self.objects = []
         self.part_types = PartDictSafe({})
         self.seed = int.from_bytes(os.urandom(2), sysos.byteorder)
+        self.kT = 1
         self.partitioned=None
         self.part_positions=[]
         self.volume_size=None
@@ -617,7 +618,7 @@ class Simulation():
         for part in part_list:
             H_tot = part.dip_fld+H_ext
             tri = np.linalg.norm(H_tot)
-            dip_tri = dip_magnitude*tri
+            dip_tri = dip_magnitude*tri / self.kT
             inv_dip_tri = 1.0/(dip_tri)
             inv_tanh_dip_tri = 1.0/np.tanh(dip_tri)
             part.dip = dip_magnitude/tri*(inv_tanh_dip_tri-inv_dip_tri)*H_tot
