@@ -755,3 +755,24 @@ class Simulation():
 
         logging.info(f"Successfully wrote timestep for {self.io_dict['registered_group_type']}.")
 
+    def set_part_prop_from_src(self, src_part, group_type, type_to_type_map, prop_to_prop_map, time_step=-1,):
+        src_file=h5py.File(src_part, "r")
+        src_data_grp=H5DataSelector(src_file,particle_group=group_type.__name__)
+        print(f'simulation containes types: {self.part_types}')
+        print(f'src datafile contains types: {np.unique(src_data_grp.type)}')
+        registered_objs=[obj for obj in self.objects if isinstance(obj,group_type)]
+        for grp_id in src_data_grp.get_connectivity_values(group_type.__name__):
+            for (src_typ,loc_typ),(prop_src,prop_loc) in zip(type_to_type_map,prop_to_prop_map):
+                print(f'Working on group {grp_id} type {src_typ}->{loc_typ} prop {prop_src}->{prop_loc}')
+                part_slice=src_data_grp.timestep[time_step].select_particles_by_object(object_name=group_type.__name__,connectivity_value=grp_id, predicate=lambda subset: subset.type==self.part_types[src_typ])
+                
+                reg_obj=[obj for obj in registered_objs if obj.who_am_i==grp_id][0]
+                part_hndls=[x for x in reg_obj.get_owned_part()[0] if x.type==self.part_types[loc_typ]]
+                for local,src in zip(part_hndls,part_slice.particles):
+                    if prop_src=='dip' and prop_loc=='director':
+                        val=getattr(src,prop_src)
+                        val/=np.linalg.norm(val)
+                        setattr(local,prop_loc,val)
+                    else:
+                        setattr(local,prop_loc,getattr(src,prop_src))
+            # break

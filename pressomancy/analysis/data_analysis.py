@@ -257,11 +257,9 @@ class H5DataSelector:
         connectivity_value=np.atleast_1d(connectivity_value)
         filter_mask = np.isin(connectivity_map, connectivity_value)
         particle_indices = np.flatnonzero(filter_mask)
-        print('particle_indices: ',len(particle_indices))
         subset=H5DataSelector(self.h5_file, self.particle_group, ts_slice=self.ts_slice, pt_slice=particle_indices.tolist())
         if predicate is not None:
             mask=predicate(subset).flatten()
-            print('mask: ',len(mask))
             particle_indices=particle_indices[mask]
             subset=H5DataSelector(self.h5_file, self.particle_group, ts_slice=self.ts_slice, pt_slice=particle_indices.tolist())
         return subset

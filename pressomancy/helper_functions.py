@@ -440,6 +440,23 @@ class PartDictSafe(dict):
         """
         self.default_factory = factory
 
+    def key_for(self, value):
+        """
+        Return the (unique) key for `value`.
+
+        Raises:
+            KeyError:   if no key maps to `value`.
+        """
+        rek_keys=[]
+        for val in np.atleast_1d(value):
+            for k, v in self.items():
+                if v == val:
+                    rek_keys.append(k)
+                else:
+                    raise KeyError(f"No key found for value {val}")
+
+        return rek_keys
+
 class RoutineWithArgs:
     """
     A wrapper class to manage callable routines with configurable arguments.
