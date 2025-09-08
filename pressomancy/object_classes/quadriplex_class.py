@@ -80,7 +80,7 @@ class Quartet(metaclass=Simulation_Object):
 
         if self.params['type'] == 'broken':
             self.change_part_type(particles[0],'real')
-            particles[0].q = 5
+            # particles[0].q = 5
 
             recepie_dict = {'assoc': {1: [2, 3, 6, 7, 8], 5: [4, 9, 10, 13, 14], 20: [11, 12, 15, 16, 21], 24: [
                 17, 18, 19, 22, 23]}, 'circ': [8, 13, 12, 17], 'squareA': [6, 4, 21, 19], 'squareB': [11, 3, 22, 14], 'charged': [7, 9, 16, 18]}
@@ -92,7 +92,7 @@ class Quartet(metaclass=Simulation_Object):
 
             for part in particles[np.array(recepie_dict['circ'])]:
                 self.change_part_type(part,'circ')
-                part.q = -1.25
+                # part.q = -1.25
 
             if self.params['bond_handle'] != None:
                 for part1, part2 in zip(particles[np.array(recepie_dict['squareA'])], particles[np.array(recepie_dict['squareB'])]):
