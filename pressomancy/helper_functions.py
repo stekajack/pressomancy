@@ -452,8 +452,8 @@ class PartDictSafe(dict):
             for k, v in self.items():
                 if v == val:
                     rek_keys.append(k)
-                else:
-                    raise KeyError(f"No key found for value {val}")
+            if not rek_keys:
+                raise KeyError(f"No key found for value {val}")
 
         return rek_keys
 
