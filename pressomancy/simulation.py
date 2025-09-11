@@ -601,13 +601,13 @@ class Simulation():
         """
         if not isinstance(group_type, list):
             raise ValueError("group_type must be a list of classes.")
-        if mode not in ('NEW', 'LOAD', 'LOAD_NEW'):
+        if mode not in ('NEW', 'LOAD', 'LOAD_NEW', 'INIT_SRC'):
             raise ValueError(f"Unknown mode: {mode}")
         if force_resize_to_size is not None:
             assert mode=='LOAD_NEW', 'force_resize_to_size can only be used in LOAD_NEW mode'
         self.io_dict['registered_group_type']=[grp_typ.__name__ for grp_typ in group_type]
 
-        if mode=='NEW':
+        if mode in ['NEW', 'INIT_SRC']:
             self.io_dict['h5_file'] = h5py.File(h5_data_path, "w")
             par_grp = self.io_dict['h5_file'].require_group(f"particles")
             for grp_typ in group_type:
@@ -755,24 +755,121 @@ class Simulation():
 
         logging.info(f"Successfully wrote timestep for {self.io_dict['registered_group_type']}.")
 
-    def set_part_prop_from_src(self, src_part, group_type, type_to_type_map, prop_to_prop_map, time_step=-1,):
-        src_file=h5py.File(src_part, "r")
-        src_data_grp=H5DataSelector(src_file,particle_group=group_type.__name__)
-        print(f'simulation containes types: {self.part_types}')
-        print(f'src datafile contains types: {np.unique(src_data_grp.type)}')
-        registered_objs=[obj for obj in self.objects if isinstance(obj,group_type)]
+    def set_part_prop_from_src(
+    self,
+    src_part,
+    group_type,
+    type_to_type_map,
+    prop_to_prop_map,
+    time_step: int = -1,
+):
+        """
+        Populate local particle properties from an HDF5 source file for a given group type.
+
+        This loads a particle group from an HDF5 file, validates that requested
+        type mappings exist both locally and in the source, then iterates over each
+        group instance (connectivity ID) to copy properties from source particles
+        into the corresponding local particles. A special-case normalization is
+        applied when mapping `dip` -> `director`.
+
+        Parameters
+        ----------
+        src_part : str or os.PathLike
+            Path to the HDF5 file containing source particle data.
+        group_type : type
+            Class/type of the particle group to operate on (e.g. `Filament`).
+            Used both to select the group within the HDF5 and to filter `self.objects`.
+        type_to_type_map : list[tuple[str, str]]
+            Pairs of `(src_type_name, local_type_name)` describing how source
+            numeric type IDs map onto local numeric type IDs. Example:
+            `[("real", "real"), ("real", "yolk")]`.
+        prop_to_prop_map : list[tuple[str, str]]
+            Pairs of `(src_prop_name, local_prop_name)` describing which properties
+            to copy. Must be the same length and aligned with `type_to_type_map`
+            (i.e., the i-th mapping applies to the i-th type pair).
+            Example: `[("pos", "pos"), ("dip", "director")]`.
+        time_step : int, optional
+            Index of the time step in the source HDF5 to read from. Defaults to -1
+            (the last available time step).
+
+        Notes
+        -----
+        * For the `(dip -> director)` mapping, vectors are normalized via
+        `np.linalg.norm`. Zero-norm dipoles would raise a warning or yield NaNs
+        if present—consider guarding if your data can contain zeros.
+
+        Raises
+        ------
+        AssertionError
+            If a mapped type is not present locally or in the source.
+        KeyError
+            If lookups via `self.part_types` fail (depends on your implementation).
+        """
+
+        # Open the source HDF5 and select the data group matching the requested type.
+        src_file = h5py.File(src_part, "r")
+        src_data_grp = H5DataSelector(src_file, particle_group=group_type.__name__)
+
+        # Discover the set of numeric type IDs present in the source for this group.
+        all_stc_types_numeric = np.unique(src_data_grp.type)
+
+        # Validate that each requested (src_type -> local_type) exists both locally and in the source file.
+        for src_typ, loc_typ in type_to_type_map:
+            assert (
+                loc_typ in self.part_types or src_typ in self.part_types
+            ), (
+                f"local type {loc_typ} or source type {src_typ} not found in "
+                f"simulation part types {self.part_types}"
+            )
+            assert (
+                self.part_types[src_typ] in all_stc_types_numeric
+            ), (
+                f"source type {src_typ} with numeric id {self.part_types[src_typ]} "
+                f"not found in source data part types {all_stc_types_numeric}"
+            )
+        logging.info(f"simulation contains types: {self.part_types}")
+        logging.info(
+            f"src datafile contains types: {self.part_types.key_for(all_stc_types_numeric)}"
+        )
+
+        # Restrict to registered objects of the given group type (e.g., all Filaments).
+        registered_objs = [obj for obj in self.objects if isinstance(obj, group_type)]
+
+        # Iterate over each connectivity group (i.e., each distinct instance of the group).
         for grp_id in src_data_grp.get_connectivity_values(group_type.__name__):
-            for (src_typ,loc_typ),(prop_src,prop_loc) in zip(type_to_type_map,prop_to_prop_map):
-                print(f'Working on group {grp_id} type {src_typ}->{loc_typ} prop {prop_src}->{prop_loc}')
-                part_slice=src_data_grp.timestep[time_step].select_particles_by_object(object_name=group_type.__name__,connectivity_value=grp_id, predicate=lambda subset: subset.type==self.part_types[src_typ])
-                
-                reg_obj=[obj for obj in registered_objs if obj.who_am_i==grp_id][0]
-                part_hndls=[x for x in reg_obj.get_owned_part()[0] if x.type==self.part_types[loc_typ]]
-                for local,src in zip(part_hndls,part_slice.particles):
-                    if prop_src=='dip' and prop_loc=='director':
-                        val=getattr(src,prop_src)
-                        val/=np.linalg.norm(val)
-                        setattr(local,prop_loc,val)
+
+            # Apply each aligned (type mapping, property mapping) pair.
+            for (src_typ, loc_typ), (prop_src, prop_loc) in zip(
+                type_to_type_map, prop_to_prop_map
+            ):
+                logging.info(
+                    f"Working on {group_type.__name__}: {grp_id} "
+                    f"type {src_typ}->{loc_typ} prop {prop_src}->{prop_loc}"
+                )
+
+                # Select source particles at the requested time step that belong to this group instance (connectivity == grp_id), and match the numeric type ID mapped from src_typ.
+                part_slice = src_data_grp.timestep[time_step].select_particles_by_object(
+                    object_name=group_type.__name__,
+                    connectivity_value=grp_id,
+                    predicate=lambda subset: subset.type == self.part_types[src_typ],
+                )
+
+                # Find the local group object with matching identity.
+                # (Assumes exactly one match; will raise IndexError if none.)
+                reg_obj = [obj for obj in registered_objs if obj.who_am_i == grp_id][0]
+
+                # Filter local particle handles to those of the destination type.
+                part_hndls = [
+                    x for x in reg_obj.get_owned_part()[0]
+                    if x.type == self.part_types[loc_typ]
+                ]
+                # Copy properties from source to local, element-wise.
+                for local, src in zip(part_hndls, part_slice.particles):
+                    if prop_src == "dip" and prop_loc == "director":
+                        # Normalize dipole to unit vector for director.
+                        val = getattr(src, prop_src)
+                        norm = np.linalg.norm(val)
+                        val /= norm
+                        setattr(local, prop_loc, val)
                     else:
-                        setattr(local,prop_loc,getattr(src,prop_src))
-            # break
+                        setattr(local, prop_loc, getattr(src, prop_src))

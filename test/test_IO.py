@@ -98,11 +98,6 @@ class IOTest(BaseTestCase):
         all_ts5 = [x for x in int_sel.particles]
         np.testing.assert_array_equal(lens, [2, 2, 2, 1, 2, 2, 2 ,1], err_msg="Slicing did not return expected lengths!")
 
-
-
-
-
-
     @staticmethod
     def get_and_check(data, view_type, identity, ref_parts):
         properties=['pos','f','dip']
