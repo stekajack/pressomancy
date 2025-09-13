@@ -10,7 +10,7 @@ class EGGPart(GenericPart):
     required_features=['EGG_MODEL',]	
     numInstances = 0
     simulation_type= SinglePairDict('egg_part', 74)
-    part_types = PartDictSafe({'real': 1,'yolk': 11})
+    part_types = PartDictSafe({'yolk': 11})
     config = ObjectConfigParams(
          dipm=1, 
          egg_gamma=1., 

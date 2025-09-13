@@ -140,6 +140,12 @@ class Simulation_Object(type):
             merged_config_data.update(base.config)
         merged_config_data.update(class_dict["config"])
         cls.config = ObjectConfigParams(**merged_config_data)
+         # Merge PartDictSafe from base classes
+        merged_config_data = {}
+        for base in bases:
+            merged_config_data.update(base.part_types)
+        merged_config_data.update(class_dict["part_types"])
+        cls.part_types = PartDictSafe(**merged_config_data)
         
     
     def __call__(cls, *args, **kwargs):
