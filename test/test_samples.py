@@ -2,6 +2,7 @@ import importlib
 import pkgutil
 import logging
 import samples 
+import os
 from create_system import sim_inst, BaseTestCase
 from unittest import mock
 from pressomancy.object_classes import Quadriplex
@@ -26,6 +27,12 @@ class SampleScriptTest(BaseTestCase):
                     except MissingFeature:
                         logging.warning(f"Skipping {module_name} because it requires a feature that is not available.")
                         continue
+                if os.getenv("PRESSOMANCY_TESTS_DUMP_VTF") in {"1", "true", "yes", "on"}:
+                    from espressomd.io.writer import vtf
+                    with open(f"test/{module_name}.vtf", mode="w+t") as fp:
+                        vtf.writevsf(sim_inst.sys, fp)
+                        vtf.writevcf(sim_inst.sys, fp)
+                        fp.flush()
             sim_inst.reinitialize_instance()
             sim_inst.sys.thermostat.turn_off()
             self.assertEqual(len(sim_inst.objects), 0)
