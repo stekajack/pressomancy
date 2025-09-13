@@ -124,8 +124,20 @@ class Simulation():
         self.volume_size=None
         self.volume_centers=[]
         self.io_dict={'h5_file': None,'properties':[('id',1), ('type',1), ('pos',3), ('f',3),('dip',3)],'flat_part_view':defaultdict(list),'registered_group_type': None}
+        self.src_params_set=False
         # self.sys=espressomd.System(box_l=box_dim) is added and managed by the singleton decrator!
+    
+    def set_init_src(self, path, pos_ori_src_type='real', type_to_type_map=[], prop_to_prop_map=[], declare_types=[]):
+        self.src_path_h5=path
+        self.pos_ori_src_type=pos_ori_src_type
+        self.type_to_type_map=type_to_type_map
+        self.prop_to_prop_map=prop_to_prop_map
+        self.src_params_set=True
+        for typ_decl in declare_types:
+            for x,y in typ_decl.items():
+                self.part_types[x]=y
 
+            
     def set_sys(self, timestep=0.01, min_global_cut=3.0,have_quaternion=False):
         '''
         Set espresso cellsystem params, and import virtual particle scheme. Run automatically on initialisation of the System class.
@@ -193,7 +205,7 @@ class Simulation():
             formatted = ", ".join(f"{count} {name}" for name, count in counts.items())
             logging.info(f"{formatted} stored")
 
-    def set_objects(self, objects):
+    def set_objects(self, objects, mode='NEW'):
         """Set objects' positions and orientations in the simulation box.
         This method places objects in the simulation box using a partitioning scheme. For the first placement, it generates exactly the required number of positions. For subsequent placements, it searches for non-overlapping positions with existing objects.
         Parameters
@@ -213,48 +225,50 @@ class Simulation():
         
         # Ensure all objects are of the same type.
         assert all(isinstance(item, type(objects[0])) for item in objects), "Not all items have the same type!"
-        # centeres, polymer_positions = partition_cubic_volume_oriented_rectangles(big_box_dim=self.sys.box_l, num_spheres=len(
-        #     filaments), small_box_dim=np.array([filaments[0].sigma, filaments[0].sigma, filaments[0].size]), num_monomers=filaments[0].n_parts)
-        if len(self.part_positions)== 0:
-            # First placement: generate exactly len(objects) positions.
-            centeres, positions, orientations = partition_cubic_volume(
-                box_length=self.sys.box_l[0],
-                num_spheres=len(objects),
-                sphere_diameter=objects[0].params['size'],
-                routine_per_volume=objects[0].build_function
-            )
-            self.volume_centers.append(centeres)
-            self.part_positions.append(positions)
-            self.volume_size = objects[0].params['size']
-        elif len(self.part_positions) == 1:
-            # Subsequent placements: search for positions without overlaps.
-            factor = 1
-            while True:
+        if mode=="INIT_SRC":
+            positions, orientations=self.get_pos_ori_from_src(objects)
+        else:
+            # centeres, polymer_positions = partition_cubic_volume_oriented_rectangles(big_box_dim=self.sys.box_l, num_spheres=len(filaments), small_box_dim=np.array([filaments[0].sigma, filaments[0].sigma, filaments[0].size]), num_monomers=filaments[0].n_parts)
+            if len(self.part_positions)== 0:
+                # First placement: generate exactly len(objects) positions.
                 centeres, positions, orientations = partition_cubic_volume(
                     box_length=self.sys.box_l[0],
-                    num_spheres=len(objects) * factor,
+                    num_spheres=len(objects),
                     sphere_diameter=objects[0].params['size'],
                     routine_per_volume=objects[0].build_function
                 )
-                res=get_cross_lattice_nonintersecting_volumes(
-                    current_lattice_centers=centeres,
-                    current_lattice_grouped_part_pos=positions,
-                    current_lattice_diam=objects[0].params['size'],
-                    other_lattice_centers=self.volume_centers[0],
-                    other_lattice_grouped_part_pos=self.part_positions[0],
-                    other_lattice_diam=self.volume_size,
-                    box_len=self.sys.box_l[0]
+                self.volume_centers.append(centeres)
+                self.part_positions.append(positions)
+                self.volume_size = objects[0].params['size']
+            elif len(self.part_positions) == 1:
+                # Subsequent placements: search for positions without overlaps.
+                factor = 1
+                while True:
+                    centeres, positions, orientations = partition_cubic_volume(
+                        box_length=self.sys.box_l[0],
+                        num_spheres=len(objects) * factor,
+                        sphere_diameter=objects[0].params['size'],
+                        routine_per_volume=objects[0].build_function
                     )
-                mask=[key for key,val in res.items() if all(val)]
-                positions=positions[mask]
-                orientations=orientations[mask]
-                if len(positions) >= len(objects):
-                    break
-                else :
-                    factor += 1
-                    logging.info('Failed to find enough space; (found, needed): (%d, %d). Will retry by requesting %d times the number of parts', len(positions), len(objects),factor)
-        else:
-            raise NotImplementedError('The repartitioning scheme can currently handle only the case where one previos partition exists. More than than is still not supported')
+                    res=get_cross_lattice_nonintersecting_volumes(
+                        current_lattice_centers=centeres,
+                        current_lattice_grouped_part_pos=positions,
+                        current_lattice_diam=objects[0].params['size'],
+                        other_lattice_centers=self.volume_centers[0],
+                        other_lattice_grouped_part_pos=self.part_positions[0],
+                        other_lattice_diam=self.volume_size,
+                        box_len=self.sys.box_l[0]
+                        )
+                    mask=[key for key,val in res.items() if all(val)]
+                    positions=positions[mask]
+                    orientations=orientations[mask]
+                    if len(positions) >= len(objects):
+                        break
+                    else :
+                        factor += 1
+                        logging.info('Failed to find enough space; (found, needed): (%d, %d). Will retry by requesting %d times the number of parts', len(positions), len(objects),factor)
+            else:
+                raise NotImplementedError('The repartitioning scheme can currently handle only the case where one previos partition exists. More than than is still not supported')
         
         for obj, pos, ori in zip(objects, positions, orientations):
             obj.set_object(pos, ori)
@@ -755,42 +769,22 @@ class Simulation():
 
         logging.info(f"Successfully wrote timestep for {self.io_dict['registered_group_type']}.")
 
-    def set_part_prop_from_src(
+    def set_prop_from_src(
     self,
-    src_part,
-    group_type,
-    type_to_type_map,
-    prop_to_prop_map,
+    registered_objs=None,
     time_step: int = -1,
 ):
         """
-        Populate local particle properties from an HDF5 source file for a given group type.
-
-        This loads a particle group from an HDF5 file, validates that requested
-        type mappings exist both locally and in the source, then iterates over each
-        group instance (connectivity ID) to copy properties from source particles
-        into the corresponding local particles. A special-case normalization is
-        applied when mapping `dip` -> `director`.
+        Update local particle properties from an HDF5 source file for a given group type. This loads a particle group from an HDF5 file, validates that requested type mappings exist both locally and in the source, then iterates over each group instance (connectivity ID) to copy properties from source particles into the corresponding local particles.
 
         Parameters
         ----------
-        src_part : str or os.PathLike
-            Path to the HDF5 file containing source particle data.
-        group_type : type
-            Class/type of the particle group to operate on (e.g. `Filament`).
-            Used both to select the group within the HDF5 and to filter `self.objects`.
-        type_to_type_map : list[tuple[str, str]]
-            Pairs of `(src_type_name, local_type_name)` describing how source
-            numeric type IDs map onto local numeric type IDs. Example:
-            `[("real", "real"), ("real", "yolk")]`.
-        prop_to_prop_map : list[tuple[str, str]]
-            Pairs of `(src_prop_name, local_prop_name)` describing which properties
-            to copy. Must be the same length and aligned with `type_to_type_map`
-            (i.e., the i-th mapping applies to the i-th type pair).
-            Example: `[("pos", "pos"), ("dip", "director")]`.
+        registered_objs : iterable
+            Collection of local group instances (e.g., Filament objects) whose
+            owned particles will be updated.
+
         time_step : int, optional
-            Index of the time step in the source HDF5 to read from. Defaults to -1
-            (the last available time step).
+            Index of the source time step to read. ``-1`` selects the last frame.
 
         Notes
         -----
@@ -807,14 +801,15 @@ class Simulation():
         """
 
         # Open the source HDF5 and select the data group matching the requested type.
-        src_file = h5py.File(src_part, "r")
-        src_data_grp = H5DataSelector(src_file, particle_group=group_type.__name__)
+        assert self.src_params_set==True, 'src_params_set must be set before calling this method'
+        src_file = h5py.File(self.src_path_h5, "r")
+        src_data_grp = H5DataSelector(src_file, particle_group=registered_objs[0].__class__.__name__)
 
         # Discover the set of numeric type IDs present in the source for this group.
-        all_stc_types_numeric = np.unique(src_data_grp.type)
+        all_src_types_numeric = np.unique(src_data_grp.type)
 
         # Validate that each requested (src_type -> local_type) exists both locally and in the source file.
-        for src_typ, loc_typ in type_to_type_map:
+        for src_typ, loc_typ in self.type_to_type_map:
             assert (
                 loc_typ in self.part_types or src_typ in self.part_types
             ), (
@@ -822,45 +817,37 @@ class Simulation():
                 f"simulation part types {self.part_types}"
             )
             assert (
-                self.part_types[src_typ] in all_stc_types_numeric
+                self.part_types[src_typ] in all_src_types_numeric
             ), (
                 f"source type {src_typ} with numeric id {self.part_types[src_typ]} "
-                f"not found in source data part types {all_stc_types_numeric}"
+                f"not found in source data part types {all_src_types_numeric}"
             )
         logging.info(f"simulation contains types: {self.part_types}")
         logging.info(
-            f"src datafile contains types: {self.part_types.key_for(all_stc_types_numeric)}"
+            f"src datafile contains types: {self.part_types.key_for(all_src_types_numeric)}"
         )
 
-        # Restrict to registered objects of the given group type (e.g., all Filaments).
-        registered_objs = [obj for obj in self.objects if isinstance(obj, group_type)]
-
         # Iterate over each connectivity group (i.e., each distinct instance of the group).
-        for grp_id in src_data_grp.get_connectivity_values(group_type.__name__):
+        for loc_obj in registered_objs:
 
             # Apply each aligned (type mapping, property mapping) pair.
             for (src_typ, loc_typ), (prop_src, prop_loc) in zip(
-                type_to_type_map, prop_to_prop_map
+                self.type_to_type_map, self.prop_to_prop_map
             ):
                 logging.info(
-                    f"Working on {group_type.__name__}: {grp_id} "
-                    f"type {src_typ}->{loc_typ} prop {prop_src}->{prop_loc}"
+                    f"Working on {loc_obj.__class__.__name__}: {loc_obj.who_am_i} type {src_typ}->{loc_typ} prop {prop_src}->{prop_loc}"
                 )
 
                 # Select source particles at the requested time step that belong to this group instance (connectivity == grp_id), and match the numeric type ID mapped from src_typ.
                 part_slice = src_data_grp.timestep[time_step].select_particles_by_object(
-                    object_name=group_type.__name__,
-                    connectivity_value=grp_id,
+                    object_name=loc_obj.__class__.__name__,
+                    connectivity_value=loc_obj.who_am_i,
                     predicate=lambda subset: subset.type == self.part_types[src_typ],
                 )
 
-                # Find the local group object with matching identity.
-                # (Assumes exactly one match; will raise IndexError if none.)
-                reg_obj = [obj for obj in registered_objs if obj.who_am_i == grp_id][0]
-
                 # Filter local particle handles to those of the destination type.
                 part_hndls = [
-                    x for x in reg_obj.get_owned_part()[0]
+                    x for x in loc_obj.get_owned_part()[0]
                     if x.type == self.part_types[loc_typ]
                 ]
                 # Copy properties from source to local, element-wise.
@@ -873,3 +860,87 @@ class Simulation():
                         setattr(local, prop_loc, val)
                     else:
                         setattr(local, prop_loc, getattr(src, prop_src))
+    
+    def get_pos_ori_from_src(
+    self,
+    registered_objs,
+    time_step: int = -1,
+):
+        """
+        Get pos and director data from an HDF5 source file for registered objects type. This loads a particle group from an HDF5 file, validates that requested type mappings exist both locally and in the source, then iterates over each group instance to load pos, director from source particles.
+
+        Parameters
+        ----------
+        registered_objs : iterable
+            Collection of local group instances (e.g., Filament objects) whose
+            owned particles will be updated.
+
+        time_step : int, optional
+            Index of the source time step to read. ``-1`` selects the last frame.
+
+        Notes
+        -----
+        * For the `(dip -> director)` mapping, vectors are normalized via
+        `np.linalg.norm`. Zero-norm dipoles would raise a warning or yield NaNs
+        if present—consider guarding if your data can contain zeros.
+
+        Raises
+        ------
+        AssertionError
+            If a mapped type is not present locally or in the source.
+        KeyError
+            If lookups via `self.part_types` fail (depends on your implementation).
+
+        Returns
+        -------
+        tupe(list,list)
+            positions,oriantations that will be passed to part setters
+        """
+
+        # Open the source HDF5 and select the data group matching the requested type.
+        assert self.src_params_set==True, 'src_params_set must be set before calling this method'
+        src_file = h5py.File(self.src_path_h5, "r")
+        src_data_grp = H5DataSelector(src_file, particle_group=registered_objs[0].__class__.__name__)
+
+        # Discover the set of numeric type IDs present in the source for this group.
+        all_src_types_numeric = np.unique(src_data_grp.type)
+
+        assert (self.pos_ori_src_type in self.part_types
+        ), (
+            f"source type {self.pos_ori_src_type} not found in "
+            f"simulation part types {self.part_types}"
+        )
+        assert (
+            self.part_types[self.pos_ori_src_type] in all_src_types_numeric
+        ), (
+            f"source type {self.pos_ori_src_type} with numeric id {self.part_types[self.pos_ori_src_type]} "
+            f"not found in source data part types {all_src_types_numeric}"
+        )
+        logging.info(f"simulation contains types: {self.part_types}")
+        logging.info(
+            f"src datafile contains types: {self.part_types.key_for(all_src_types_numeric)}"
+        )
+        positions,ori=[],[]
+        for loc_obj in registered_objs:
+            logging.info(
+                f"Loading data for {loc_obj.__class__.__name__}: {loc_obj.who_am_i} from SRC part type {self.pos_ori_src_type}."
+            )
+            # Select source particles at the requested time step that belong to this group instance (connectivity == loc_obj.who_am_i), with the correct pos_ori_src_type.
+            part_slice = src_data_grp.timestep[time_step].select_particles_by_object(
+                object_name=loc_obj.__class__.__name__,
+                connectivity_value=loc_obj.who_am_i,
+                predicate=lambda subset: subset.type == self.part_types[self.pos_ori_src_type],
+            )
+            positions.append(part_slice.pos)    
+            try:
+                ori.append(part_slice.director)
+            except Exception:
+                exc_type, value, traceback = sysos.exc_info()
+                logging.debug("Failed with exception [%s,%s ,%s]" %
+                    (exc_type, value, traceback))
+                val = part_slice.dip
+                norm = np.linalg.norm(val)
+                val /= norm
+                ori.append(val)
+                continue
+        return positions,ori
