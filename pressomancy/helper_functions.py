@@ -801,7 +801,8 @@ def make_centered_rand_orient_point_array(center=np.array([0,0,0]), sphere_radiu
     points = np.column_stack((x_points, y_points, z_points))
     direction_vector=points[-1]-points[0]
     orientation_vector = direction_vector / np.linalg.norm(direction_vector)
-    return orientation_vector,points
+    orientation_vectors = np.broadcast_to(orientation_vector, points.shape).copy()
+    return orientation_vectors,points
 
 def partition_cubic_volume(box_length, num_spheres, sphere_diameter, routine_per_volume=RoutineWithArgs(), flag='rand'):
     """
@@ -851,7 +852,7 @@ def partition_cubic_volume(box_length, num_spheres, sphere_diameter, routine_per
     sphere_centers=sphere_centers[take_index]  
     # Initialize an array to store the generated points inside each spherical region
     results = np.empty((num_spheres, routine_per_volume.num_monomers, 3))
-    orientations=np.empty((num_spheres,3))
+    res_orientations=np.empty((num_spheres, routine_per_volume.num_monomers, 3))
     # Perform the point generation routine if `num_monomers` not 0
     if routine_per_volume.num_monomers>1:
         grouped_positions = defaultdict(list)
@@ -860,7 +861,7 @@ def partition_cubic_volume(box_length, num_spheres, sphere_diameter, routine_per
         for i, center in enumerate(sphere_centers):
             valid_placement = False
             while not valid_placement:
-                orientation, points = routine_per_volume(
+                orientations, points = routine_per_volume(
                     center=center, num_monomers=routine_per_volume.num_monomers, sphere_radius=sphere_radius, spacing=routine_per_volume.spacing
                     )
                 should_proceed = True
@@ -876,13 +877,12 @@ def partition_cubic_volume(box_length, num_spheres, sphere_diameter, routine_per
                 if should_proceed:
                     grouped_positions[i].extend(points)
                     results[i] = points
-                    orientations[i] = orientation
+                    res_orientations[i] = orientations
                     valid_placement = True
     else:
         results=sphere_centers
-        orientations=generate_random_unit_vectors(len(sphere_centers))
-        
-    return sphere_centers, results, orientations
+        res_orientations=generate_random_unit_vectors(len(sphere_centers))
+    return sphere_centers, results, res_orientations
 
 def partition_cubic_volume_oriented_rectangles(big_box_dim, num_spheres, small_box_dim, num_monomers):
     """
@@ -981,7 +981,6 @@ def partition_cubic_volume_oriented_rectangles(big_box_dim, num_spheres, small_b
         result[i] = np.column_stack((x_points, y_points, z_points))
 
     return sphere_centers[take_index], result
-
 
 def generate_positions(self, min_distance):
     """

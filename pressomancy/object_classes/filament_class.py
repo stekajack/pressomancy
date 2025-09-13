@@ -3,7 +3,7 @@ import numpy as np
 import random
 from itertools import product, pairwise
 from pressomancy.object_classes.object_class import Simulation_Object, ObjectConfigParams 
-from pressomancy.helper_functions import RoutineWithArgs, make_centered_rand_orient_point_array, PartDictSafe, SinglePairDict, BondWrapper
+from pressomancy.helper_functions import RoutineWithArgs, make_centered_rand_orient_point_array, PartDictSafe, SinglePairDict, BondWrapper, get_orientation_vec
 import logging
 import warnings
 
@@ -51,19 +51,19 @@ class Filament(metaclass=Simulation_Object):
 
         '''
         pos=np.atleast_2d(pos)
+        ori=np.atleast_2d(ori)
         assert len(
             pos) == self.params['n_parts'], 'there is a missmatch between the pos lenth and Filament n_parts'
-        self.orientor = ori
+        self.orientor = get_orientation_vec(pos)
         if self.associated_objects is None:
-            logic = (self.add_particle(type_name='real',pos=pp, rotation=(True, True, True)) for pp in pos)
+            logic = (self.add_particle(type_name='real',pos=pos_el, director=ori_el, rotation=(True, True, True)) for pos_el, ori_el in zip(pos, ori))
         else:
             assert self.params['n_parts'] == len(
                 self.associated_objects), " there doest seem to be enough monomers stored!!! "
             if not all(hasattr(obj, 'set_object') and callable(getattr(obj, 'set_object')) for obj in self.associated_objects):
                 raise TypeError("One or more objects do not implement a callable 'set_object'")
-            type_str=self.associated_objects[0].simulation_type.key
-            logic = (obj_el.set_object(pos_el, self.orientor)
-                        for obj_el, pos_el in zip(self.associated_objects, pos))
+            logic = (obj_el.set_object(pos_el, ori_el)
+                        for obj_el, pos_el, ori_el in zip(self.associated_objects, pos, ori))
         for part in logic:
             pass
         return self
@@ -87,11 +87,8 @@ class Filament(metaclass=Simulation_Object):
                 
         self.fronts_indices=[]
         self.backs_indices=[]
-        director = self.orientor
-        for pp in handles:
-            pp.director = director
-        logic_front = ((self.add_particle(type_name='virt', pos=pp.pos + 0.5 * self.params['sigma'] * director, rotation=(False, False, False)), pp) for pp in handles)
-        logic_back = ((self.add_particle(type_name='virt', pos=pp.pos - 0.5 * self.params['sigma'] * director, rotation=(False, False, False)), pp) for pp in handles)
+        logic_front = ((self.add_particle(type_name='virt', pos=pp.pos + 0.5 * self.params['sigma'] * pp.director, rotation=(False, False, False)), pp) for pp in handles)
+        logic_back = ((self.add_particle(type_name='virt', pos=pp.pos - 0.5 * self.params['sigma'] * pp.director, rotation=(False, False, False)), pp) for pp in handles)
 
         for p_hndl_front, pp in logic_front:
             p_hndl_front.vs_auto_relate_to(pp)
@@ -101,6 +98,12 @@ class Filament(metaclass=Simulation_Object):
             p_hndl_back.vs_auto_relate_to(pp)
             self.backs_indices.append(p_hndl_back.id)
             # logging.info(f'anchors added for Filament {self.who_am_i}')
+
+    def bond_anchors(self):
+        handles_font = list(self.sys.part.by_ids(self.fronts_indices))
+        handles_back = list(self.sys.part.by_ids(self.backs_indices))
+        for pp_f, pp_b in zip(handles_font[:-1], handles_back[1:]):
+            self.bond_owned_part_pair(pp_f,pp_b)
 
     def bond_overlapping_virtualz(self, crit=0.):
         '''
@@ -114,13 +117,12 @@ class Filament(metaclass=Simulation_Object):
         for pp_f, pp_b in product(handles_font, handles_back):
             if np.isclose(np.linalg.norm(pp_f.pos-pp_b.pos), crit):
                 self.bond_owned_part_pair(pp_f,pp_b)
-        
-
+                
     def add_dipole_to_embedded_virt(self, type_name, dip_magnitude=1.):
         '''
         Adds virtual particles to the center of each particle whose index is stored in self.realz_indices. It is critical that said virtuals do not have a director and have disabled rotation!
 
-        :param dip_magnitude: float | magnitude of the dipole moment to be asigned using the self.orientor unit vector. Default=1.
+        :param dip_magnitude: float | magnitude of the dipole moment to be asigned using the part.director unit vector. Default=1.
         :return: None
 
         '''
@@ -136,7 +138,7 @@ class Filament(metaclass=Simulation_Object):
         else:
             handles = self.type_part_dict[type_name]
         for pp in handles:
-            p_hndl=self.add_particle(type_name='to_be_magnetized', pos=pp.pos,dip=Filament.dip_magnitude*self.orientor, rotation=(False, False, False))
+            p_hndl=self.add_particle(type_name='to_be_magnetized', pos=pp.pos,dip=Filament.dip_magnitude*pp.director, rotation=(False, False, False))
             p_hndl.vs_auto_relate_to(pp)
             self.magnetizable_virts.append(p_hndl.id)
 
@@ -144,14 +146,14 @@ class Filament(metaclass=Simulation_Object):
         '''
         Adds dipoles to real particles.
 
-        :param dip_magnitude: float | magnitude of the dipole moment to be asigned using the self.orientor unit vector. Default=1.
+        :param dip_magnitude: float | magnitude of the dipole moment to be asigned using the part.director unit vector. Default=1.
         :return: None
 
         '''
         Filament.dip_magnitude = dip_magnitude
         handles = self.type_part_dict[type_name]
         for x in handles:
-            x.dip = Filament.dip_magnitude*self.orientor
+            x.dip = Filament.dip_magnitude*x.director
 
     def center_filament(self):
         list_parts =self.type_part_dict['real']
