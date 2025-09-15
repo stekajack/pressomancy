@@ -115,12 +115,11 @@ class Simulation():
     
     object_permissions=['part_types']
     _sys=espressomd.System
-    def __init__(self, box_dim, kT=1):
+    def __init__(self, box_dim):
         self.no_objects = 0
         self.objects = []
         self.part_types = PartDictSafe({})
         self.seed = int.from_bytes(os.urandom(2), sysos.byteorder)
-        self.kT = 1
         self.partitioned=None
         self.part_positions=[]
         self.volume_size=None
@@ -141,6 +140,9 @@ class Simulation():
         # self.sys.virtual_sites = VirtualSitesRelative(have_quaternion=have_quaternion)
         # assert type(self.sys.virtual_sites) is VirtualSitesRelative, 'VirtualSitesRelative must be set. If not, anything involving virtual particles will not work correctly, but it might be very hard to figure out why. I have wasted days debugging issues only to remember i commented out this line!!!'
         logging.info(f'System params have been autoset. The values of min_global_cut and skin are not guaranteed to be optimal for your simualtion and should be tuned by hand!!!')
+
+    def set_kT(self, kT):
+        self.kT = kT
 
     def modify_system_attribute(self, requester, attribute_name, action):
         """
@@ -621,10 +623,52 @@ class Simulation():
             if tri < 1e-5:
                 part.dip = H_tot/tri * 1e-6
             else:
-                dip_tri = dip_magnitude*tri / self.kT
+                dip_tri = dip_magnitude*tri #/ self.kT
                 inv_dip_tri = 1.0/(dip_tri)
                 inv_tanh_dip_tri = 1.0/np.tanh(dip_tri)
                 part.dip = dip_magnitude/tri*(inv_tanh_dip_tri-inv_dip_tri)*H_tot
+            logging.info(part.dip)
+
+    def magnetize_lin(self, part_list, dip_magnitude, H_ext):
+        '''
+        Apply a linear magnetisation law to determine the magnitude of the dipole moment of each particle in part_list, projected along H_tot=H_ext+tot_dip_fld. part_list should be a iterable that contains espresso particleHandle objects.
+
+        :param part_list: iterable(ParticleHandle) | ParticleSlice could work but prefer to wrap with the list() constructor.
+        :param dip_magnitude: float
+        :param H_ext: float
+
+        :return: None
+
+        '''
+        assert H_tot < 1., "for magnetic fields above 1, the particle's dipm would surpass their saturation value"
+        for part in part_list:
+            H_tot = part.dip_fld+H_ext
+            tri = np.linalg.norm(H_tot)
+            if tri < 1e-5:
+                part.dip = H_tot/tri * 1e-6
+            else:
+                part.dip = dip_magnitude*H_tot
+            logging.info(part.dip)
+
+    def magnetize_froelich_kennelly(self, part_list, dip_magnitude, H_ext, Xi=0.5):
+        '''
+        Apply the empirical Frölich-Kennelly magnetisation law to determine the magnitude of the dipole moment of each particle in part_list, projected along H_tot=H_ext+tot_dip_fld. part_list should be a iterable that contains espresso particleHandle objects.
+
+        :param part_list: iterable(ParticleHandle) | ParticleSlice could work but prefer to wrap with the list() constructor.
+        :param dip_magnitude: float
+        :param H_ext: float
+        :param Xi: float (=0.5) | Susceptibility
+
+        :return: None
+
+        '''
+        for part in part_list:
+            H_tot = part.dip_fld+H_ext
+            tri = np.linalg.norm(H_tot)
+            if tri < 1e-5:
+                part.dip = H_tot/tri * 1e-6
+            else:
+                part.dip = Xi*dip_magnitude / (dip_magnitude + Xi*tri) * H_tot
             logging.info(part.dip)
 
     def set_H_ext(self, H=(0, 0, 1.)):
