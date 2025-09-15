@@ -618,10 +618,13 @@ class Simulation():
         for part in part_list:
             H_tot = part.dip_fld+H_ext
             tri = np.linalg.norm(H_tot)
-            dip_tri = dip_magnitude*tri / self.kT
-            inv_dip_tri = 1.0/(dip_tri)
-            inv_tanh_dip_tri = 1.0/np.tanh(dip_tri)
-            part.dip = dip_magnitude/tri*(inv_tanh_dip_tri-inv_dip_tri)*H_tot
+            if tri < 1e-5:
+                part.dip = H_tot/tri * 1e-6
+            else:
+                dip_tri = dip_magnitude*tri / self.kT
+                inv_dip_tri = 1.0/(dip_tri)
+                inv_tanh_dip_tri = 1.0/np.tanh(dip_tri)
+                part.dip = dip_magnitude/tri*(inv_tanh_dip_tri-inv_dip_tri)*H_tot
             logging.info(part.dip)
 
     def set_H_ext(self, H=(0, 0, 1.)):
