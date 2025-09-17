@@ -125,7 +125,7 @@ class Simulation():
         self.part_positions=[]
         self.volume_size=None
         self.volume_centers=[]
-        self.io_dict={'h5_file': None,'properties':[('id',1), ('type',1), ('pos',3),('pos_folded',3), ('f',3),('dip',3)],'flat_part_view':defaultdict(list),'registered_group_type': None}
+        self.io_dict={'h5_file': None,'properties':[('id',1), ('type',1), ('pos',3),('pos_folded',3), ('director',3),('image_box',3), ('f',3),('dip',3)],'flat_part_view':defaultdict(list),'registered_group_type': None}
         self.src_params_set=False
         # self.sys=espressomd.System(box_l=box_dim) is added and managed by the singleton decrator!
     
