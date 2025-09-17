@@ -768,6 +768,125 @@ class Simulation():
 
         logging.info(f"Successfully wrote timestep for {self.io_dict['registered_group_type']}.")
 
+    def add_missing_data(self, h5_file_path, prop_dim, time_step=None):
+        """
+        Create and append a single-step dataset for missing particle properties in an
+        existing HDF5 file.
+
+        For each registered particle group in ``self.io_dict['registered_group_type']``,
+        this function creates a new property group under ``/particles/<Group>/<prop>``
+        (if absent) with the standard layout:
+
+            - ``step`` : int32, shape ``(T,)`` (created empty, then resized to 1)
+            - ``time`` : float32, shape ``(T,)`` (created empty, then resized to 1)
+            - ``value``: float32, shape ``(T, N, D)`` compressed/chunked,
+                        created with ``T=0`` and then resized to ``T=1``
+
+        It then appends **one** time step (``T=1``) for each requested property using
+        in-memory particle data from ``self.io_dict['flat_part_view'][<GroupName>]``.
+        Both ``step`` and ``time`` for the appended frame are set to ``time_step``.
+
+        Parameters
+        ----------
+        h5_file_path : str
+            Path to the HDF5 file to modify (opened in append mode ``"a"``).
+        prop_dim : iterable[tuple[str, int]]
+            Iterable of ``(prop_name, dim)`` pairs describing properties to create and
+            write. For each property name ``prop``, the per-particle value is obtained
+            via ``getattr(part, prop)`` and must be broadcastable to shape ``(dim,)``.
+        time_step : int or float, optional
+            Value written to both ``step`` (int32) and ``time`` (float32) for the
+            appended frame. If ``None``, this function still writes a single frame
+            but will store ``None`` coerced types only if your HDF5 stack allows it.
+            (Typically you should provide an explicit number.)
+
+        Behavior
+        --------
+        - For each group ``grp_typ`` in ``self.io_dict['registered_group_type']``:
+            * ``N`` (number of particles) is determined by
+            ``len(self.io_dict['flat_part_view'][grp_typ])``.
+            * For each ``(prop, dim)`` in ``prop_dim``:
+                - Create the group ``/particles/<grp_typ>/<prop>`` if missing.
+                - Create empty datasets ``step``, ``time``, and ``value`` with
+                shapes ``(0,)``, ``(0,)``, and ``(0, N, dim)`` respectively.
+                - Resize each to add one frame (``T=1``).
+                - Write the new frame:
+                    - ``step[-1] = time_step``
+                    - ``time[-1] = time_step``
+                    - ``value[-1, :, :]`` is filled from the current in-memory parts.
+            * Finally, it asserts the dataset is non-ragged by checking that the
+            source selector exposes exactly one time step.
+
+        Returns
+        -------
+        None
+
+        Raises
+        ------
+        KeyError
+            If ``/particles`` or the expected group path is missing in the file.
+        ValueError / RuntimeError
+            If dataset creation fails (e.g., attempting to create a dataset that
+            already exists, or shape/dtype mismatches).
+        AssertionError
+            If the dataset appears ragged (``len(src_data_grp.timestep) != 1``).
+            Also raised implicitly by any internal assertions in your code.
+
+        Notes
+        -----
+        - **Single-step assumption:** This function is intended for files with a
+        single time step. It explicitly asserts that the source selector reports
+        exactly one step to guard against ragged histories.
+        - **Ordering/source of truth:** Particle values are taken from the current
+        in-memory list ``self.io_dict['flat_part_view'][grp_typ]`` in that order.
+        This assumes that order ``N`` matches the file’s particle order. If your
+        HDF5 uses a different stored order (e.g., per-step IDs), consider aligning
+        by ID instead of by list order.
+        - **Creation only:** Datasets are created with ``create_dataset``. If a
+        property group (and its datasets) already exists, this code will raise.
+        Switch to existence checks or use ``require_dataset`` if you need idempotent
+        behavior.
+        - **Storage layout:** ``value`` uses ``float32`` with chunks ``(1, N, dim)``
+        and ``gzip`` compression level 4, matching the layout used elsewhere in
+        your I/O code.
+
+        Examples
+        --------
+        Add single-step data for two new properties to all registered groups:
+
+        >>> self.add_missing_data(
+        ...     "data.h5",
+        ...     prop_dim=[("director", 3), ("image_box", 3)],
+        ...     time_step=0,
+        ... )
+        """
+        with h5py.File(h5_file_path, "a") as h5_file_handle: 
+            for grp_typ in self.io_dict['registered_group_type']:
+                particles_group = h5_file_handle["particles"]
+                data_grp = particles_group[grp_typ]
+                total_part_num=len(self.io_dict['flat_part_view'][grp_typ])
+                for prop,dim in prop_dim:
+                    prop_group = data_grp.require_group(prop)
+                    step_dataset=prop_group.create_dataset("step", shape=(0,), maxshape=(None,), dtype=np.int32)
+                    time_dataset=prop_group.create_dataset("time", shape=(0,), maxshape=(None,), dtype=np.float32)
+                    dataset_val=prop_group.create_dataset(
+                        "value",
+                        shape=(0, total_part_num, dim),  # Store all particles in a single dataset
+                        maxshape=(None, total_part_num, dim),
+                        dtype=np.float32,
+                        chunks=(1, total_part_num, dim),
+                        compression="gzip",
+                        compression_opts=4
+                    )
+                    step_dataset.resize((dataset_val.shape[0] + 1,))
+                    time_dataset.resize((dataset_val.shape[0] + 1,))
+                    dataset_val.resize((dataset_val.shape[0] + 1, dataset_val.shape[1], dataset_val.shape[2]))
+                    step_dataset[-1] = time_step
+                    time_dataset[-1] = time_step
+                    dataset_val[-1, :, :] = np.array([np.atleast_1d(getattr(part, prop)) for part in self.io_dict['flat_part_view'][grp_typ]], dtype=np.float32)
+                    src_data_grp = H5DataSelector(h5_file_handle, particle_group=grp_typ)
+                    assert len(src_data_grp.timestep)==1,'dataset is ragged!!!'
+            
     def set_prop_from_src(
     self,
     registered_objs=None,
