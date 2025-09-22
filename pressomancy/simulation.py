@@ -16,6 +16,7 @@ import h5py
 from collections import Counter
 import shutil
 from pathlib import Path
+import inspect
 
 @ManagedSimulation
 class Simulation():
@@ -173,7 +174,7 @@ class Simulation():
         Method that checks if the object has the required features to be stored in the simulation. If the object has the required features it is stored in the self.objects list.
         '''
         if not all(feature in espressomd.features() for feature in object.required_features):
-            raise MissingFeature
+            raise MissingFeature(f'{object.__class__.__name__} requires features: ',object.required_features)
 
     def store_objects(self, iterable_list, report=True):
         '''
@@ -413,7 +414,9 @@ class Simulation():
         :return: None
         """
         if 'LB_BOUNDARIES' not in espressomd.features():
-            raise MissingFeature('LB_BOUNDARIES feature is required for this method. Please enable it in your ESPResSo installation.')
+            name = f"{type(self).__name__}.{inspect.currentframe().f_code.co_name}"
+            raise MissingFeature(f"{name} requires LB_BOUNDARIES. Please enable it in your ESPResSo installation.")
+
         logging.info("Setup LB boundaries.")
         top_wall = shapes.Wall(normal=[1, 0, 0], dist=1) # type: ignore
         bottom_wall = shapes.Wall( # type: ignore
@@ -473,7 +476,8 @@ class Simulation():
 
         '''
         if 'DIPOLE_FIELD_TRACKING' not in espressomd.features():
-            raise MissingFeature('DIPOLE_FIELD_TRACKING feature is required for this method. Please enable it in your ESPResSo installation.')
+            name = f"{type(self).__name__}.{inspect.currentframe().f_code.co_name}"
+            raise MissingFeature(f"{name} requires DIPOLE_FIELD_TRACKING. Please enable it in your ESPResSo installation.")
         for part in part_list:
             H_tot = part.dip_fld+H_ext
             tri = np.linalg.norm(H_tot)
