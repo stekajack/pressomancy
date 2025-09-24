@@ -561,6 +561,9 @@ def load_coord_file(file_path):
             coordinates = np.vstack([coordinates, [x, y, z]])
     return coordinates
 
+def fold_coords(points, box_dim):
+    return np.mod(points, box_dim)
+
 def min_img_dist(s, t, box_dim):
     """
     Compute minimum image distance between s and t under periodic boundary conditions.
