@@ -29,7 +29,7 @@ class Quartet(GenericRigidObj):
         '''
         super().__init__(config)
         assert config['type'] == 'solid' or config['type'] == 'broken', 'type must be either solid or broken!!!'
-        assert config['n_parts'] ==len(self._referece_sheet[self.params['alias']]), 'n_parts must be equal to the number of parts in the reference sheet!!!'
+        assert config['n_parts'] ==len(self._reference_sheet[self.params['alias']]), 'n_parts must be equal to the number of parts in the reference sheet!!!'
         if self.params['type'] == 'broken':
             assert self.params['bond_handle'] != None, 'broken quartets require a bond to be set!!!'
             Quartet.part_types.update({'circ': 28,
@@ -48,7 +48,7 @@ class Quartet(GenericRigidObj):
 
         '''
         rotation_matrix = align_vectors(np.array([0.0,0.0,1.0]),ori) # 0,0,1 is the default director in espressomd
-        positions = np.dot(self._referece_sheet[self.params['alias']],rotation_matrix.T) + pos 
+        positions = np.dot(self._reference_sheet[self.params['alias']],rotation_matrix.T) + pos 
         particles=[self.add_particle(type_name='virt',pos=pos) for pos in positions]
         diag = np.sqrt(2)*4
         self.corner_particles = [part for part0, part in product(
