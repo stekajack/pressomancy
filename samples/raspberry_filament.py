@@ -24,7 +24,7 @@ sim_inst.set_objects(filaments)
 
 
 for filament in filaments:
-    filament.bond_nearest_part(type_key='virt')
+    filament.bond_nearest_part(type_name='virt')
     
 if espressomd.code_features.has_features('WALBERLA'):
     for rasp in raspberries:
