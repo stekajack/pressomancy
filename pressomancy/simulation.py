@@ -1,5 +1,4 @@
 import espressomd
-from espressomd.virtual_sites import VirtualSitesRelative
 from espressomd import shapes
 import espressomd.polymer
 from pressomancy.analysis import H5DataSelector
@@ -140,7 +139,7 @@ class Simulation():
             for x,y in typ_decl.items():
                 self.part_types[x]=y
     
-    def set_sys(self, timestep=0.01, min_global_cut=3.0,have_quaternion=False):
+    def set_sys(self, timestep=0.01, min_global_cut=3.0):
         '''
         Set espresso cellsystem params, and import virtual particle scheme. Run automatically on initialisation of the System class.
         '''
@@ -150,8 +149,7 @@ class Simulation():
         self.sys.time_step = timestep
         self.sys.cell_system.skin = 0.5
         self.sys.min_global_cut = min_global_cut
-        self.sys.virtual_sites = VirtualSitesRelative(have_quaternion=have_quaternion)
-        assert type(self.sys.virtual_sites) is VirtualSitesRelative, 'VirtualSitesRelative must be set. If not, anything involving virtual particles will not work correctly, but it might be very hard to figure out why. I have wasted days debugging issues only to remember i commented out this line!!!'
+        assert 'VIRTUAL_SITES_RELATIVE' in espressomd.features(), 'VirtualSitesRelative must be set. If not, anything involving virtual particles will not work correctly, but it might be very hard to figure out why. I have wasted days debugging issues only to remember i commented out this line!!!'
         logging.info(f'System params have been autoset. The values of min_global_cut and skin are not guaranteed to be optimal for your simualtion and should be tuned by hand!!!')
 
     def modify_system_attribute(self, requester, attribute_name, action):
@@ -292,7 +290,7 @@ class Simulation():
     def init_magnetic_inter(self, actor_handle):
         logging.info(f'{actor_handle} magnetic interactions actor initiated')
         dds = actor_handle
-        self.sys.actors.add(dds)
+        self.sys.magnetostatics.solver = dds
 
     def set_steric(self, key=('nonmagn',), wca_eps=1., sigma=1.):
         '''
@@ -385,17 +383,17 @@ class Simulation():
         :param timestep: float | Integration time step for the LB simulation. Default is 0.01.
         :return: LBFluid | The configured lattice Boltzmann fluid object.
         """
+        espressomd.code_features.assert_features('WALBERLA')
         self.sys.thermostat.turn_off()
         self.sys.part.all().v = (0, 0, 0)
         param_dict={'kT':kT, 'seed':self.seed, 'agrid':agrid, 'dens':dens, 'visc':visc, 'tau':timestep}
-        if 'CUDA' in espressomd.features():
+        if espressomd.code_features.has_features('CUDA' ):
             logging.info('GPU LB method is beeing initiated')
 
-            lbf = espressomd.lb.LBFluidGPU(**param_dict)
+            lbf = espressomd.lb.LBFluidWalberlaGPU(**param_dict)
         else:
             logging.info('CPU LB method is beeing initiated')
-
-            lbf = espressomd.lb.LBFluid(**param_dict)
+            lbf = espressomd.lb.LBFluidWalberla(**param_dict)
         if len(self.sys.actors.active_actors) == 2:
             self.sys.actors.remove(self.sys.actors.active_actors[-1])
         self.sys.actors.add(lbf)
@@ -485,7 +483,6 @@ class Simulation():
             inv_dip_tri = 1.0/(dip_tri)
             inv_tanh_dip_tri = 1.0/np.tanh(dip_tri)
             part.dip = dip_magnitude/tri*(inv_tanh_dip_tri-inv_dip_tri)*H_tot
-            logging.info(part.dip)
 
     def set_H_ext(self, H=(0, 0, 1.)):
         """
@@ -714,6 +711,7 @@ class Simulation():
                     f"Inconsistent step counts across groups: {candidate_lens}"
                 )
             GLOBAL_COUNTER=candidate_lens[0]
+
             if force_resize_to_size is not None:
                 assert type(force_resize_to_size) is int, 'force_resize_to_size must be an integer'
                 assert force_resize_to_size<=GLOBAL_COUNTER, 'force_resize_to_size must be smaller than or equal to the current number of timesteps saved in file'

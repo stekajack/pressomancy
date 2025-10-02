@@ -196,9 +196,6 @@ class IOTest(BaseTestCase):
             sim_inst.dump_to_init(path_to_dump, dungeon_witch_list, GLOBAL_COUNTER)
             path_to_dump, GLOBAL_COUNTER = sim_inst.load_pickle_dump(
                 os.path.join(tmpdirname, "testfile.p.gz"))
-        
-
-       
 
 
    
