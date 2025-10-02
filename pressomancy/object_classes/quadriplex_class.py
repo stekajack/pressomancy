@@ -1,28 +1,24 @@
-import espressomd
-import numpy as np
 from itertools import combinations, product
 import random
-import os
-from pressomancy.helper_functions import load_coord_file, PartDictSafe, SinglePairDict, align_vectors
-from pressomancy.object_classes.object_class import Simulation_Object, ObjectConfigParams
 import warnings
 import logging
+import espressomd
+import numpy as np
+from pressomancy.helper_functions import PartDictSafe, SinglePairDict, align_vectors
+from pressomancy.object_classes.object_class import Simulation_Object, ObjectConfigParams
+from pressomancy.object_classes.rigid_obj import GenericRigidObj
 from pressomancy.helper_functions import BondWrapper
 
-class Quartet(metaclass=Simulation_Object):
+class Quartet(GenericRigidObj):
 
     '''
     Class that contains quartet relevant paramaters and methods. At construction one must pass an espresso handle becaouse the class manages parameters that are both internal and external to espresso. It is assumed that in any simulation instanse there will be only one type of a Quartet. Therefore many relevant parameters are class specific, not instance specific.
     '''
-    required_features=list()	
     numInstances = 0
-    _resources_dir = os.path.join( os.path.dirname(__file__), '..', 'resources')
-    _resource_file = os.path.join(_resources_dir, 'g_quartet_mesh_coordinates.txt')
-    _referece_sheet = load_coord_file(_resource_file)
-    simulation_type=SinglePairDict('quartet', 11)
-    part_types = PartDictSafe({'real': 1, 'virt': 2})
+    part_types = PartDictSafe()
     config = ObjectConfigParams(
-        n_parts=len(_referece_sheet),
+        n_parts=25,
+        alias='quartet',
         type='solid', 
         bond_handle=BondWrapper(espressomd.interactions.FeneBond(k=0, r_0=0, d_r_max=0))
     )
@@ -31,22 +27,17 @@ class Quartet(metaclass=Simulation_Object):
         '''
         Initialisation of a quartet object requires the specification of particle size, number of parts and a handle to the espresso system
         '''
-
+        super().__init__(config)
         assert config['type'] == 'solid' or config['type'] == 'broken', 'type must be either solid or broken!!!'
-        assert config['n_parts'] == len(Quartet._referece_sheet), 'n_parts must be equal to the number of parts in the reference sheet!!!'
-        self.sys=config['espresso_handle']
-        self.params=config
+        assert config['n_parts'] ==len(self._reference_sheet[self.params['alias']]), 'n_parts must be equal to the number of parts in the reference sheet!!!'
         if self.params['type'] == 'broken':
             assert self.params['bond_handle'] != None, 'broken quartets require a bond to be set!!!'
             Quartet.part_types.update({'circ': 28,
                   'squareA': 24, 'squareB': 25, 'cation': 27})
         self.who_am_i = Quartet.numInstances
         Quartet.numInstances += 1
-
         self.orientor = np.empty(shape=3, dtype=float)
         self.corner_particles = []
-        self.type_part_dict=PartDictSafe({key: [] for key in Quartet.part_types.keys()})
-        self.associated_objects=self.params['associated_objects']
 
     def set_object(self,  pos, ori, triplet=None):
         '''
@@ -57,7 +48,7 @@ class Quartet(metaclass=Simulation_Object):
 
         '''
         rotation_matrix = align_vectors(np.array([0.0,0.0,1.0]),ori) # 0,0,1 is the default director in espressomd
-        positions = np.dot(Quartet._referece_sheet,rotation_matrix.T) + pos 
+        positions = np.dot(self._reference_sheet[self.params['alias']],rotation_matrix.T) + pos 
         particles=[self.add_particle(type_name='virt',pos=pos) for pos in positions]
         diag = np.sqrt(2)*4
         self.corner_particles = [part for part0, part in product(
@@ -80,7 +71,7 @@ class Quartet(metaclass=Simulation_Object):
 
         if self.params['type'] == 'broken':
             self.change_part_type(particles[0],'real')
-            particles[0].q = 5
+            # particles[0].q = 5
 
             recepie_dict = {'assoc': {1: [2, 3, 6, 7, 8], 5: [4, 9, 10, 13, 14], 20: [11, 12, 15, 16, 21], 24: [
                 17, 18, 19, 22, 23]}, 'circ': [8, 13, 12, 17], 'squareA': [6, 4, 21, 19], 'squareB': [11, 3, 22, 14], 'charged': [7, 9, 16, 18]}
@@ -92,7 +83,7 @@ class Quartet(metaclass=Simulation_Object):
 
             for part in particles[np.array(recepie_dict['circ'])]:
                 self.change_part_type(part,'circ')
-                part.q = -1.25
+                # part.q = -1.25
 
             if self.params['bond_handle'] != None:
                 for part1, part2 in zip(particles[np.array(recepie_dict['squareA'])], particles[np.array(recepie_dict['squareB'])]):

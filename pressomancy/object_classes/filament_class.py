@@ -3,7 +3,7 @@ import numpy as np
 import random
 from itertools import product, pairwise
 from pressomancy.object_classes.object_class import Simulation_Object, ObjectConfigParams 
-from pressomancy.helper_functions import RoutineWithArgs, make_centered_rand_orient_point_array, PartDictSafe, SinglePairDict, BondWrapper
+from pressomancy.helper_functions import RoutineWithArgs, make_centered_rand_orient_point_array, PartDictSafe, SinglePairDict, BondWrapper, get_orientation_vec
 import logging
 import warnings
 
@@ -14,7 +14,7 @@ class Filament(metaclass=Simulation_Object):
     required_features=list()	
     numInstances = 0
     simulation_type=SinglePairDict('filament', 54)
-    part_types = PartDictSafe({'real': 1, 'virt': 2,'to_be_magnetized':3})
+    part_types = PartDictSafe({'real': 1, 'virt': 2})
     config = ObjectConfigParams(
         bond_handle=BondWrapper(espressomd.interactions.FeneBond(k=0, r_0=0, d_r_max=0)),
         spacing=None,)
@@ -51,53 +51,59 @@ class Filament(metaclass=Simulation_Object):
 
         '''
         pos=np.atleast_2d(pos)
+        ori=np.atleast_2d(ori)
         assert len(
             pos) == self.params['n_parts'], 'there is a missmatch between the pos lenth and Filament n_parts'
-        self.orientor = ori
+        self.orientor = get_orientation_vec(pos)
         if self.associated_objects is None:
-            logic = (self.add_particle(type_name='real',pos=pp, rotation=(True, True, True)) for pp in pos)
+            logic = (self.add_particle(type_name='real',pos=pos_el, director=ori_el, rotation=(True, True, True)) for pos_el, ori_el in zip(pos, ori))
         else:
             assert self.params['n_parts'] == len(
                 self.associated_objects), " there doest seem to be enough monomers stored!!! "
             if not all(hasattr(obj, 'set_object') and callable(getattr(obj, 'set_object')) for obj in self.associated_objects):
                 raise TypeError("One or more objects do not implement a callable 'set_object'")
-            assert all([x.simulation_type==self.associated_objects[0].simulation_type for x in self.associated_objects[1:]]), 'all objects must have the same simulation type!'
-            type_str=self.associated_objects[0].simulation_type.key
-            logic = (obj_el.set_object(pos_el, self.orientor)
-                        for obj_el, pos_el in zip(self.associated_objects, pos))
+            logic = (obj_el.set_object(pos_el, ori_el)
+                        for obj_el, pos_el, ori_el in zip(self.associated_objects, pos, ori))
         for part in logic:
             pass
         return self
 
-    def add_anchors(self,type_key):
+    def add_anchors(self,type_name):
         '''
         Adds virtual particles at top and bottom of a particle with size sigma, as determined by the orientation vector calculated by the get_orientation_vec(). Logic firstly adds front anchors and then back anchors, so there is a consistent logic to track ids. Indices of particles added here are stored in self.fronts_indices/self.backs_indices attributes respectively.
 
         :None:
 
         '''
+        handles=[]
         if self.associated_objects!=None:
-            assert all([type_key in x.part_types.keys() for x in self.associated_objects]), 'type key must exist in the part_types of all associated monomers!'
-            raise NotImplementedError('add_anchors is still WIP for generic objects')
+            assert all([type_name in x.part_types.keys() for x in self.associated_objects]), 'type key must exist in the part_types of all associated monomers!'
+            warnings.warn('add_anchors should be used with caution for generic objects')
+            for obj in self.associated_objects:
+                handles.extend(obj.type_part_dict[type_name])
         else:
-            self.fronts_indices=[]
-            self.backs_indices=[]
+            handles = self.type_part_dict[type_name]
+            
+                
+        self.fronts_indices=[]
+        self.backs_indices=[]
+        logic_front = ((self.add_particle(type_name='virt', pos=pp.pos + 0.5 * self.params['sigma'] * pp.director, rotation=(False, False, False)), pp) for pp in handles)
+        logic_back = ((self.add_particle(type_name='virt', pos=pp.pos - 0.5 * self.params['sigma'] * pp.director, rotation=(False, False, False)), pp) for pp in handles)
 
-            handles = self.type_part_dict[type_key]
-            director = self.orientor
-            for pp in handles:
-                pp.director = director
-            logic_front = ((self.add_particle(type_name='virt', pos=pp.pos + 0.5 * self.params['sigma'] * director, rotation=(False, False, False)), pp) for pp in handles)
-            logic_back = ((self.add_particle(type_name='virt', pos=pp.pos - 0.5 * self.params['sigma'] * director, rotation=(False, False, False)), pp) for pp in handles)
+        for p_hndl_front, pp in logic_front:
+            p_hndl_front.vs_auto_relate_to(pp)
+            self.fronts_indices.append(p_hndl_front.id)
 
-            for p_hndl_front, pp in logic_front:
-                p_hndl_front.vs_auto_relate_to(pp)
-                self.fronts_indices.append(p_hndl_front.id)
-
-            for p_hndl_back, pp in logic_back:
-                p_hndl_back.vs_auto_relate_to(pp)
-                self.backs_indices.append(p_hndl_back.id)
+        for p_hndl_back, pp in logic_back:
+            p_hndl_back.vs_auto_relate_to(pp)
+            self.backs_indices.append(p_hndl_back.id)
             # logging.info(f'anchors added for Filament {self.who_am_i}')
+
+    def bond_anchors(self):
+        handles_font = list(self.sys.part.by_ids(self.fronts_indices))
+        handles_back = list(self.sys.part.by_ids(self.backs_indices))
+        for pp_f, pp_b in zip(handles_font[:-1], handles_back[1:]):
+            self.bond_owned_part_pair(pp_f,pp_b)
 
     def bond_overlapping_virtualz(self, crit=0.):
         '''
@@ -111,21 +117,28 @@ class Filament(metaclass=Simulation_Object):
         for pp_f, pp_b in product(handles_font, handles_back):
             if np.isclose(np.linalg.norm(pp_f.pos-pp_b.pos), crit):
                 self.bond_owned_part_pair(pp_f,pp_b)
-        
-
+                
     def add_dipole_to_embedded_virt(self, type_name, dip_magnitude=1.):
         '''
         Adds virtual particles to the center of each particle whose index is stored in self.realz_indices. It is critical that said virtuals do not have a director and have disabled rotation!
 
-        :param dip_magnitude: float | magnitude of the dipole moment to be asigned using the self.orientor unit vector. Default=1.
+        :param dip_magnitude: float | magnitude of the dipole moment to be asigned using the part.director unit vector. Default=1.
         :return: None
 
         '''
         self.magnetizable_virts=[]
         Filament.dip_magnitude = dip_magnitude
-        handles = self.type_part_dict[type_name]
+        handles=[]
+        self.__class__.part_types.update({'to_be_magnetized': 3})
+        if self.associated_objects!=None:
+            assert all([type_name in x.part_types.keys() for x in self.associated_objects]), 'type key must exist in the part_types of all associated monomers!'
+            warnings.warn('add_anchors should be used with caution for generic objects')
+            for obj in self.associated_objects:
+                handles.extend(obj.type_part_dict[type_name])
+        else:
+            handles = self.type_part_dict[type_name]
         for pp in handles:
-            p_hndl=self.add_particle(type_name='to_be_magnetized', pos=pp.pos,dip=Filament.dip_magnitude*self.orientor, rotation=(False, False, False))
+            p_hndl=self.add_particle(type_name='to_be_magnetized', pos=pp.pos,dip=Filament.dip_magnitude*pp.director, rotation=(False, False, False))
             p_hndl.vs_auto_relate_to(pp)
             self.magnetizable_virts.append(p_hndl.id)
 
@@ -133,14 +146,14 @@ class Filament(metaclass=Simulation_Object):
         '''
         Adds dipoles to real particles.
 
-        :param dip_magnitude: float | magnitude of the dipole moment to be asigned using the self.orientor unit vector. Default=1.
+        :param dip_magnitude: float | magnitude of the dipole moment to be asigned using the part.director unit vector. Default=1.
         :return: None
 
         '''
         Filament.dip_magnitude = dip_magnitude
         handles = self.type_part_dict[type_name]
         for x in handles:
-            x.dip = Filament.dip_magnitude*self.orientor
+            x.dip = Filament.dip_magnitude*x.director
 
     def center_filament(self):
         list_parts =self.type_part_dict['real']
@@ -152,19 +165,19 @@ class Filament(metaclass=Simulation_Object):
         self.sys.integrator.run(steps=0)
         logging.info('center_filament() moved parts')
 
-    def bond_center_to_center(self, type_key):
+    def bond_center_to_center(self, type_name):
         
         if self.associated_objects!=None:
-            assert all([type_key in x.part_types.keys() for x in self.associated_objects]), 'type key must exist in the part_types of all associated monomers!'
+            assert all([type_name in x.part_types.keys() for x in self.associated_objects]), 'type key must exist in the part_types of all associated monomers!'
 
             for el1,el2 in pairwise(self.associated_objects):
-                for x,y in zip(el1.type_part_dict[type_key],el2.type_part_dict[type_key]):
+                for x,y in zip(el1.type_part_dict[type_name],el2.type_part_dict[type_name]):
                     self.bond_owned_part_pair(x,y)
         else:
-            for x,y in pairwise(self.type_part_dict[type_key]):
+            for x,y in pairwise(self.type_part_dict[type_name]):
                 self.bond_owned_part_pair(x,y)
 
-    def bond_nearest_part(self, type_key):
+    def bond_nearest_part(self, type_name):
         '''
         Docstring for bond_nearest_part
         
@@ -172,28 +185,28 @@ class Filament(metaclass=Simulation_Object):
         :type self:  
         :param bond_handle: Description
         :type bond_handle:  
-        :param type_key: Description
-        :type type_key:  '''
-        assert all([type_key in x.part_types.keys() for x in self.associated_objects]), 'type key must exist in the part_types of all associated monomers!'
+        :param type_name: Description
+        :type type_name:  '''
+        assert all([type_name in x.part_types.keys() for x in self.associated_objects]), 'type key must exist in the part_types of all associated monomers!'
         assert self.associated_objects != None, 'self.associated_objects must not be None for this method ot work correctly'
         len_sq=pow(self.associated_objects[0].params['n_parts'],2)
         for el1,el2 in pairwise(self.associated_objects):
             el1_pos=np.mean([x.pos for x in el1.type_part_dict['real']],axis=0)
             el2_pos=np.mean([x.pos for x in el2.type_part_dict['real']],axis=0)
             midpoint = (el1_pos+el2_pos)*0.5
-            small_spheres1 = sorted(el1.type_part_dict[type_key], key=lambda s: np.linalg.norm(s.pos - midpoint))
-            small_spheres2 = sorted(el2.type_part_dict[type_key], key=lambda s: np.linalg.norm(s.pos - midpoint))
+            small_spheres1 = sorted(el1.type_part_dict[type_name], key=lambda s: np.linalg.norm(s.pos - midpoint))
+            small_spheres2 = sorted(el2.type_part_dict[type_name], key=lambda s: np.linalg.norm(s.pos - midpoint))
 
             x, y = small_spheres1[0], small_spheres2[0]
             self.bond_owned_part_pair(x,y)
     
-    def add_bending_potential(self, type_key, bond_handle):
+    def add_bending_potential(self, type_name, bond_handle):
         flat_part_list=[]
         if self.associated_objects!=None:
             for obj in self.associated_objects:
-                flat_part_list.extend(obj.type_part_dict[type_key])
+                flat_part_list.extend(obj.type_part_dict[type_name])
         else:
-            flat_part_list.extend(self.type_part_dict[type_key])
+            flat_part_list.extend(self.type_part_dict[type_name])
 
         if bond_handle not in self.sys.bonded_inter:
             self.sys.bonded_inter.add(bond_handle)

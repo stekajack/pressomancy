@@ -440,6 +440,23 @@ class PartDictSafe(dict):
         """
         self.default_factory = factory
 
+    def key_for(self, value):
+        """
+        Return the (unique) key for `value`.
+
+        Raises:
+            KeyError:   if no key maps to `value`.
+        """
+        rek_keys=[]
+        for val in np.atleast_1d(value):
+            for k, v in self.items():
+                if v == val:
+                    rek_keys.append(k)
+            if not rek_keys:
+                raise KeyError(f"No key found for value {val}")
+
+        return rek_keys
+
 class RoutineWithArgs:
     """
     A wrapper class to manage callable routines with configurable arguments.
@@ -784,7 +801,8 @@ def make_centered_rand_orient_point_array(center=np.array([0,0,0]), sphere_radiu
     points = np.column_stack((x_points, y_points, z_points))
     direction_vector=points[-1]-points[0]
     orientation_vector = direction_vector / np.linalg.norm(direction_vector)
-    return orientation_vector,points
+    orientation_vectors = np.broadcast_to(orientation_vector, points.shape).copy()
+    return orientation_vectors,points
 
 def partition_cubic_volume(box_length, num_spheres, sphere_diameter, routine_per_volume=RoutineWithArgs(), flag='rand'):
     """
@@ -834,7 +852,7 @@ def partition_cubic_volume(box_length, num_spheres, sphere_diameter, routine_per
     sphere_centers=sphere_centers[take_index]  
     # Initialize an array to store the generated points inside each spherical region
     results = np.empty((num_spheres, routine_per_volume.num_monomers, 3))
-    orientations=np.empty((num_spheres,3))
+    res_orientations=np.empty((num_spheres, routine_per_volume.num_monomers, 3))
     # Perform the point generation routine if `num_monomers` not 0
     if routine_per_volume.num_monomers>1:
         grouped_positions = defaultdict(list)
@@ -843,7 +861,7 @@ def partition_cubic_volume(box_length, num_spheres, sphere_diameter, routine_per
         for i, center in enumerate(sphere_centers):
             valid_placement = False
             while not valid_placement:
-                orientation, points = routine_per_volume(
+                orientations, points = routine_per_volume(
                     center=center, num_monomers=routine_per_volume.num_monomers, sphere_radius=sphere_radius, spacing=routine_per_volume.spacing
                     )
                 should_proceed = True
@@ -859,13 +877,12 @@ def partition_cubic_volume(box_length, num_spheres, sphere_diameter, routine_per
                 if should_proceed:
                     grouped_positions[i].extend(points)
                     results[i] = points
-                    orientations[i] = orientation
+                    res_orientations[i] = orientations
                     valid_placement = True
     else:
         results=sphere_centers
-        orientations=generate_random_unit_vectors(len(sphere_centers))
-        
-    return sphere_centers, results, orientations
+        res_orientations=generate_random_unit_vectors(len(sphere_centers))
+    return sphere_centers, results, res_orientations
 
 def partition_cubic_volume_oriented_rectangles(big_box_dim, num_spheres, small_box_dim, num_monomers):
     """
@@ -965,18 +982,22 @@ def partition_cubic_volume_oriented_rectangles(big_box_dim, num_spheres, small_b
 
     return sphere_centers[take_index], result
 
-def generate_positions(no_objects, box_l, min_distance):
-    quadriplex_positions = []
-    while len(quadriplex_positions) < no_objects:
-        center = box_l/2.
-        factor = 1-min_distance/box_l
-        new_position = center + factor*box_l*(np.random.random(3) - 0.5)
-        # new_position = np.random.random(3) * box_l
-        if all(np.linalg.norm(new_position - existing_position) >= min_distance
-                for existing_position in quadriplex_positions):
-            quadriplex_positions.append(new_position)
+def generate_positions(self, min_distance):
+    """
+    Generates random positions for objects in the simulation box, ensuring minimum distance between positions. Completely naive implementation
 
-    return np.array(quadriplex_positions)
+    :param min_distance: float | The minimum allowed distance between objects.
+    :return: np.ndarray | Array of generated positions.
+    """
+    object_positions = []
+    while len(object_positions) < self.no_objects:
+        new_position = np.random.random(3) * self.sys.box_l
+        if all(np.linalg.norm(new_position - pos) >= min_distance for pos in self.sys.part.all().pos):
+            if all(np.linalg.norm(new_position - existing_position) >= min_distance for existing_position in object_positions):
+                object_positions.append(new_position)
+        logging.info(f'position casing progress: {len(object_positions)/self.no_objects}')
+
+    return np.array(object_positions)
 
 def generate_positions_directed_triples(no_objects, box_l, min_distance, director_list):
     assert len(

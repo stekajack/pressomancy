@@ -3,7 +3,7 @@ import numpy as np
 import random
 from pressomancy.object_classes.quadriplex_class import *
 from pressomancy.object_classes.object_class import Simulation_Object, ObjectConfigParams 
-from pressomancy.helper_functions import RoutineWithArgs, make_centered_rand_orient_point_array, PartDictSafe, SinglePairDict, BondWrapper
+from pressomancy.helper_functions import RoutineWithArgs, make_centered_rand_orient_point_array, PartDictSafe, SinglePairDict, BondWrapper, get_orientation_vec
 import logging
 import warnings
 
@@ -80,7 +80,7 @@ class TelSeq(metaclass=Simulation_Object):
         pos=np.atleast_2d(pos)
         assert len(
             pos) == self.params['n_parts'], 'there is a missmatch between the pos lenth and TelSeq n_parts'
-        self.orientor = ori
+        self.orientor = get_orientation_vec(pos)
 
         assert self.params['n_parts'] == len(
             self.associated_objects), " there doest seem to be enough monomers stored!!! "

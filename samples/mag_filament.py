@@ -3,10 +3,12 @@ from pressomancy.helper_functions import BondWrapper
 from pressomancy.simulation import Simulation, Filament
 import numpy as np
 import logging
+from espressomd.magnetostatics import DipolarDirectSumCpu
+from espressomd.io.writer import vtf
 
 sigma = 1.
 n_part_tot = 10
-density=0.001
+density=0.1
 box_dim = np.power((4*n_part_tot*np.pi*np.power(sigma/2, 3))/(3*density), 1/3)*np.ones(3)
 logging.info('box_dim: ', box_dim)
 sim_inst = Simulation(box_dim=box_dim)
@@ -18,8 +20,8 @@ filaments = [Filament(config=configuration) for x in range(5)]
 sim_inst.store_objects(filaments)
 sim_inst.set_objects(filaments)
 for filament in filaments:
-    filament.add_anchors(type_key='real')
-    filament.bond_overlapping_virtualz()
+    filament.add_anchors(type_name='real')
+    filament.bond_overlapping_virtualz(crit=0.13)
     filament.add_dipole_to_embedded_virt(type_name='real',dip_magnitude=1.)
 
 sim_inst.set_vdW(key=('real',),lj_eps=3.)
@@ -33,6 +35,8 @@ sim_inst.get_H_ext()
 H_ext=sim_inst.get_H_ext()
 pats_to_magnetize=sim_inst.sys.part.select(lambda p:p.type==sim_inst.part_types['to_be_magnetized'])
 sim_inst.sys.integrator.run(0)
+sim_inst.avoid_explosion(F_TOL=1e-2)
 if espressomd.code_features.has_features('DIPOLE_FIELD_TRACKING'):
     sim_inst.magnetize(pats_to_magnetize,1.732,H_ext=H_ext)
 sim_inst.sys.integrator.run(1)
+sim_inst.init_magnetic_inter(DipolarDirectSumCpu( prefactor=1))

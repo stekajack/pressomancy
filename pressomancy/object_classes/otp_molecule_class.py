@@ -15,12 +15,12 @@ class OTP(metaclass=Simulation_Object):
 
     _resources_dir = os.path.join( os.path.dirname(__file__), '..', 'resources')
     _resource_file = os.path.join(_resources_dir, 'otp_coordinates.txt')
-    _referece_sheet = load_coord_file(_resource_file)[1:]
-    _referece_sheet-=np.mean(_referece_sheet, axis=0)
+    _reference_sheet = load_coord_file(_resource_file)[1:]
+    _reference_sheet-=np.mean(_reference_sheet, axis=0)
     simulation_type= SinglePairDict('otp', 6)
     part_types = PartDictSafe(simulation_type)
     config = ObjectConfigParams(
-        n_parts=len(_referece_sheet),
+        n_parts=len(_reference_sheet),
         sigma=0.483,
         long_side=0.7191944807239401,
         rig_bond_long = BondWrapper(espressomd.interactions.RigidBond(r=0.7191944807239401, ptol=1e-12, vtol=1e-12)), 
@@ -32,7 +32,7 @@ class OTP(metaclass=Simulation_Object):
         '''
         Initialisation of a crowder object requires the specification of particle size and a handle to the espresso system
         '''
-        assert config['n_parts'] == len(OTP._referece_sheet), 'n_parts must be equal to the number of parts in the reference sheet!!!'
+        assert config['n_parts'] == len(OTP._reference_sheet), 'n_parts must be equal to the number of parts in the reference sheet!!!'
         self.sys=config['espresso_handle']
         self.params=config
         self.who_am_i = OTP.numInstances
@@ -51,7 +51,7 @@ class OTP(metaclass=Simulation_Object):
 
         '''
         rotation_matrix = align_vectors(np.array([0.0,0.0,1.0]),ori) # 0,0,1 is the default director in espressomd
-        rotated_rigid_body = np.dot(OTP._referece_sheet,rotation_matrix.T) + np.tile(pos, (self.params['n_parts'],1))
+        rotated_rigid_body = np.dot(OTP._reference_sheet,rotation_matrix.T) + np.tile(pos, (self.params['n_parts'],1))
         parts = [self.add_particle(type_name='otp', pos=el_pos) for el_pos in rotated_rigid_body]
         self.bond_owned_part_pair(parts[0],parts[1], bond_handle=self.params['rig_bond_long'])
         self.bond_owned_part_pair(parts[0],parts[-1], bond_handle=self.params['rig_bond_short'])

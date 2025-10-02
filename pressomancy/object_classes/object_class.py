@@ -111,6 +111,10 @@ class Simulation_Object(type):
         NotImplementedError
             If a required attribute is missing or incorrectly typed.
         """
+        if len(bases) > 1:
+            raise TypeError(
+                f"Branching inheritance is not allowed in classes using Simulation_Object. Class '{name}' inherits from {[base.__name__ for base in bases]}."
+            )
         super().__init__(name, bases, class_dict)
         # Assign class-level __iter__, __eq__, and __hash__ to make them work consistently
         cls.__iter__ = Simulation_Object._cusiter
@@ -129,6 +133,20 @@ class Simulation_Object(type):
             # Check if attribute is of the correct type
             elif not isinstance(getattr(cls, attr), expected_type):
                 generic_type_exception(name, attr, expected_type)
+
+        # Merge ObjectConfigParams from base classes
+        merged_config_data = {}
+        for base in bases:
+            merged_config_data.update(base.config)
+        merged_config_data.update(class_dict["config"])
+        cls.config = ObjectConfigParams(**merged_config_data)
+         # Merge PartDictSafe from base classes
+        merged_config_data = {}
+        for base in bases:
+            merged_config_data.update(base.part_types)
+        merged_config_data.update(class_dict["part_types"])
+        cls.part_types = PartDictSafe(**merged_config_data)
+        
     
     def __call__(cls, *args, **kwargs):
         """
@@ -380,7 +398,6 @@ class ObjectConfigParams(dict):
         initial_data = {**self.common_keys, **kwargs}
         super().__init__(initial_data)
         self._allowed_keys = set(initial_data.keys())  # Track allowed keys
-
 
     def __setitem__(self, key, value):
         if key not in self._allowed_keys:

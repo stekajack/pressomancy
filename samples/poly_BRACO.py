@@ -3,6 +3,8 @@ from pressomancy.helper_functions import BondWrapper
 import espressomd
 import numpy as np
 import logging
+import os
+import tempfile
 N_avog = 6.02214076e23
 
 sigma = 1.
@@ -40,7 +42,9 @@ bond_pass = BondWrapper(espressomd.interactions.FeneBond(k=10., r_0=2., d_r_max=
 grouped_quadriplexes = [quadriplex[i:i+part_per_filament:]
                         for i in range(0, len(quadriplex), part_per_filament)]
 filament_configuration_list = [Filament.config.specify(size=quadriplex[0].params['size']*part_per_filament+np.sqrt(3)*bond_pass.r_0+(part_per_filament-1), n_parts=part_per_filament, espresso_handle=sim_inst.sys, bond_handle=bond_pass, associated_objects=elem, spacing=6.) for elem in grouped_quadriplexes]
+all_filaments=[]
 filaments = [Filament(config=configuration) for configuration in filament_configuration_list]
+all_filaments.extend(filaments)
 sim_inst.store_objects(filaments)
 sim_inst.set_objects(filaments)
 
@@ -61,12 +65,13 @@ bender_pass = BondWrapper(espressomd.interactions.FeneBond(
 filament_configuration_list = [Filament.config.specify(sigma=6,size=6*part_per_ligand, n_parts=part_per_ligand, espresso_handle=sim_inst.sys, bond_handle=bender_pass, associated_objects=elem) for elem in grouped_crowders]
 
 filaments = [Filament(config=elem) for elem in filament_configuration_list]
+all_filaments.extend(filaments)
 sim_inst.store_objects(filaments)
 sim_inst.set_objects(filaments)
 
 for filament in filaments:
-    filament.bond_center_to_center(type_key='crowder')
-    
+    filament.bond_center_to_center(type_name='crowder')
+
 
 sim_inst.set_steric(key=('real', 'virt','crowder'), wca_eps=1.)
 
@@ -74,6 +79,22 @@ sim_inst.set_steric(key=('real', 'virt','crowder'), wca_eps=1.)
 for el in quadriplex:
     el.add_patches_triples()
 sim_inst.set_vdW(key=('patch',), lj_eps=5, lj_size=2.)
-
+sim_inst.set_vdW_custom(pairs=[('patch','crowder'),], lj_eps=[5.,], lj_size=[1.,])
 sim_inst.sys.thermostat.set_langevin(kT=1.0, gamma=1.0, seed=sim_inst.seed)
-sim_inst.sys.integrator.run(0)
+with tempfile.TemporaryDirectory() as tmpdirname:
+    path=os.path.join(tmpdirname, "src_file.h5")
+    GLOBAL_COUNTER=sim_inst.inscribe_part_group_to_h5(group_type=[Filament,], h5_data_path=path, mode='NEW')
+    sim_inst.sys.integrator.run(1)
+    sim_inst.write_part_group_to_h5(time_step=GLOBAL_COUNTER)
+    old_pos=sim_inst.sys.part.all().pos.copy()
+    sim_inst.set_init_src(
+        path=path,
+        type_to_type_map=[('real','real'),('virt','virt'),('patch','patch'),('crowder','crowder')],
+        prop_to_prop_map=[('pos','pos'),('pos','pos'),('pos','pos'),('pos','pos')],)
+    sim_inst.set_prop_from_src(all_filaments)
+    sim_inst.sys.integrator.run(0, recalc_forces=True)
+    new_pos=sim_inst.sys.part.all().pos.copy()
+    assert np.allclose(old_pos, new_pos, rtol=1e-05, atol=1e-08), 'The positions differ after load from SRC. set_part_prop_from_src() is not working as intended'
+
+
+
