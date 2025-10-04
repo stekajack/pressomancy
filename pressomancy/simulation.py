@@ -288,9 +288,10 @@ class Simulation():
             obj_el.mark_covalent_bonds(part_type=part_type)
 
     def init_magnetic_inter(self, actor_handle):
-        logging.info(f'{actor_handle} magnetic interactions actor initiated')
+        self.sys.magnetostatics.clear()
         dds = actor_handle
         self.sys.magnetostatics.solver = dds
+        logging.info(f'{actor_handle} magnetic interactions actor initiated')
 
     def set_steric(self, key=('nonmagn',), wca_eps=1., sigma=1.):
         '''
@@ -698,8 +699,8 @@ class Simulation():
                 data_view=H5DataSelector(self.io_dict['h5_file'], particle_group=grp_typ.__name__)
                 ids=data_view.get_connectivity_values(grp_typ.__name__)
                 part_ids=[]
-                for id in ids:
-                    temp=data_view.select_particles_by_object(object_name=grp_typ.__name__,connectivity_value=id)
+                for iid in ids:
+                    temp=data_view.select_particles_by_object(object_name=grp_typ.__name__,connectivity_value=iid)
                     part_ids+=temp.timestep[-1].id.flatten().tolist()
                 part_ids=[int(x) for x in part_ids]
                 self.io_dict['flat_part_view'][grp_typ.__name__].extend(self.sys.part.by_ids(part_ids))
@@ -995,7 +996,19 @@ class Simulation():
                             setattr(local, prop_loc, val)
                         else:
                             setattr(local, prop_loc, getattr(src, prop_src))
-    
+
+    def rebind_sys(self, new_sys):
+        ''' Rebind the simulation to a new espresso system handle. This must be called after loading a checkpoint, otherwise the gloabal scope and internal reference to espressomd System will not match
+        :param new_sys: espressomd.System | Global scope system handle to bind to.
+        :return: None
+        '''
+
+        logging.debug('identity of local system',id(self.sys))
+        logging.debug('identity of loaded espresso system',id(new_sys))
+        self.sys=new_sys
+        logging.debug('identity of espresso system from rebind_sys',id(self.sys))
+        logging.info('successfully rebound to new espresso handle after checkpoint load!')
+
     def get_pos_ori_from_src(
     self,
     registered_objs,
