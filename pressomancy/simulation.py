@@ -292,9 +292,14 @@ class Simulation():
             obj_el.mark_covalent_bonds(part_type=part_type)
 
     def init_magnetic_inter(self, actor_handle):
-        self.sys.actors.clear()
-        dds = actor_handle
-        self.sys.actors.add(dds)
+        if espressomd.version.major()==4:
+            self.sys.actors.clear()
+            self.sys.actors.add(actor_handle)
+        elif espressomd.version.major()==5:
+            self.sys.magnetostatics.clear()
+            self.sys.magnetostatics.solver = actor_handle
+        else:
+            raise NotImplementedError('Only ESPResSo 4 and 5 are supported')
         logging.info(f'{actor_handle} magnetic interactions actor initiated')
 
     def set_steric(self, key=('nonmagn',), wca_eps=1., sigma=1.):
