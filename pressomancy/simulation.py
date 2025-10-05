@@ -1,6 +1,8 @@
 import espressomd
 from espressomd import shapes
-import espressomd.polymer
+import espressomd.version
+if espressomd.version.major() == 4:
+    from espressomd.virtual_sites import VirtualSitesRelative
 from pressomancy.analysis import H5DataSelector
 import sys as sysos
 import numpy as np
@@ -139,7 +141,7 @@ class Simulation():
             for x,y in typ_decl.items():
                 self.part_types[x]=y
     
-    def set_sys(self, timestep=0.01, min_global_cut=3.0):
+    def set_sys(self, timestep=0.01, min_global_cut=3.0, have_quaternion=False):
         '''
         Set espresso cellsystem params, and import virtual particle scheme. Run automatically on initialisation of the System class.
         '''
@@ -149,7 +151,9 @@ class Simulation():
         self.sys.time_step = timestep
         self.sys.cell_system.skin = 0.5
         self.sys.min_global_cut = min_global_cut
-        assert 'VIRTUAL_SITES_RELATIVE' in espressomd.features(), 'VirtualSitesRelative must be set. If not, anything involving virtual particles will not work correctly, but it might be very hard to figure out why. I have wasted days debugging issues only to remember i commented out this line!!!'
+        if espressomd.version.major()==4:
+            self.sys.virtual_sites = VirtualSitesRelative(have_quaternion=have_quaternion)
+        assert self.api_agnostic_feature_check('VIRTUAL_SITES_RELATIVE'), 'VirtualSitesRelative must be set. If not, anything involving virtual particles will not work correctly, but it might be very hard to figure out why. I have wasted days debugging issues only to remember i commented out this line!!!'
         logging.info(f'System params have been autoset. The values of min_global_cut and skin are not guaranteed to be optimal for your simualtion and should be tuned by hand!!!')
 
     def modify_system_attribute(self, requester, attribute_name, action):
@@ -171,7 +175,7 @@ class Simulation():
         '''
         Method that checks if the object has the required features to be stored in the simulation. If the object has the required features it is stored in the self.objects list.
         '''
-        if not all(feature in espressomd.features() for feature in object.required_features):
+        if not all(self.api_agnostic_feature_check(feature) for feature in object.required_features):
             raise MissingFeature(f'{object.__class__.__name__} requires features: ',object.required_features)
 
     def store_objects(self, iterable_list, report=True):
@@ -384,11 +388,13 @@ class Simulation():
         :param timestep: float | Integration time step for the LB simulation. Default is 0.01.
         :return: LBFluid | The configured lattice Boltzmann fluid object.
         """
-        espressomd.code_features.assert_features('WALBERLA')
+        if not self.api_agnostic_feature_check('WALBERLA'):
+            name = f"{type(self).__name__}.{inspect.currentframe().f_code.co_name}"
+            raise MissingFeature(f"{name} requires WALBERLA. Please enable it in your ESPResSo installation.")
         self.sys.thermostat.turn_off()
         self.sys.part.all().v = (0, 0, 0)
         param_dict={'kT':kT, 'seed':self.seed, 'agrid':agrid, 'dens':dens, 'visc':visc, 'tau':timestep}
-        if espressomd.code_features.has_features('CUDA' ):
+        if self.api_agnostic_feature_check('CUDA'):
             logging.info('GPU LB method is beeing initiated')
 
             lbf = espressomd.lb.LBFluidWalberlaGPU(**param_dict)
@@ -412,7 +418,7 @@ class Simulation():
         :param slip_vel: tuple | Velocity of the slip boundary in the format (vx, vy, vz). Default is (0, 0, 0).
         :return: None
         """
-        if 'LB_BOUNDARIES' not in espressomd.features():
+        if not self.api_agnostic_feature_check('LB_BOUNDARIES'):
             name = f"{type(self).__name__}.{inspect.currentframe().f_code.co_name}"
             raise MissingFeature(f"{name} requires LB_BOUNDARIES. Please enable it in your ESPResSo installation.")
 
@@ -474,7 +480,7 @@ class Simulation():
         :return: None
 
         '''
-        if 'DIPOLE_FIELD_TRACKING' not in espressomd.features():
+        if not self.api_agnostic_feature_check('DIPOLE_FIELD_TRACKING'):
             name = f"{type(self).__name__}.{inspect.currentframe().f_code.co_name}"
             raise MissingFeature(f"{name} requires DIPOLE_FIELD_TRACKING. Please enable it in your ESPResSo installation.")
         for part in part_list:
@@ -1008,6 +1014,21 @@ class Simulation():
         self.sys=new_sys
         logging.debug('identity of espresso system from rebind_sys',id(self.sys))
         logging.info('successfully rebound to new espresso handle after checkpoint load!')
+
+    def api_agnostic_feature_check(self,feature_name):
+        ret_val=None
+        espresso_major_version=espressomd.version.major()
+        try:
+            if espresso_major_version==5:
+                ret_val=espressomd.code_features.has_features(feature_name)
+            elif espresso_major_version==4:
+                ret_val=espressomd.has_features(feature_name)
+            else:
+                raise ValueError('This version of ESPResSo may not be supported!')
+        except RuntimeError:
+            logging.warning(f'feature check for {feature_name}, espresso version {espresso_major_version} failed with exception {sysos.exc_info()}')
+            return False
+        return ret_val
 
     def get_pos_ori_from_src(
     self,

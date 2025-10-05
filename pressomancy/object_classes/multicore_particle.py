@@ -85,7 +85,7 @@ class MulticorePart(GenericRigidObj):
             for x,dip_mom_per_part in zip(part_handles, dip_moments):
                 x.dip = dip_mom_per_part
         if anisotropy['kind']=='finite_egg':
-            if 'EGG_MODEL' not in self.sys.features():
+            if  not self.sys.api_agnostic_feature_check('EGG_MODEL'):
                 name = f"{type(self).__name__}.{inspect.currentframe().f_code.co_name}"
                 raise MissingFeature(f"{name} requires EGG_MODEL. Please enable it in your ESPResSo installation.") 
             MulticorePart.part_types.update({'yolk': 11})
