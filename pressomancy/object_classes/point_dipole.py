@@ -38,7 +38,7 @@ class PointDipolePermanent(metaclass=Simulation_Object):
         dipm= self.params['dipm']
         hndl = self.add_particle(type_name='pdp_real', pos=pos, rotation=[True, True, True], dip=(dipm * ori), **kwargs)
 
-        # Very Important Particle. To use to bond, calculate distances, and other Very Important Things. Usually on at the center of mass, and usually a real particle
+        # Very Important Particle. To use to bond, calculate distances, and other Very Important Things. Usually at the center of mass, and usually a real particle
         self.vip = hndl
 
         return self
@@ -49,6 +49,8 @@ class PointDipolePermanent(metaclass=Simulation_Object):
 class PointDipoleSuperpara(metaclass=Simulation_Object):
     '''
     Class that contains superparamagnetic point dipole particles relevant paramaters and methods. At construction one must pass an espresso handle because the class manages parameters that are both internal and external to espresso. It is assumed that in any simulation instanse there will be only one type of a PointDipoleSuperpara. Therefore many relevant parameters are class specific, not instance specific.
+
+    Requires to run a magnetization function every step. Eg. system.magnetize()
     '''
 
     required_features=['DIPOLES', 'DIPOLE_FIELD_TRACKING']	
@@ -85,7 +87,7 @@ class PointDipoleSuperpara(metaclass=Simulation_Object):
         particl_virt=self.add_particle(type_name='pds_virt', pos=pos, rotation=[False, False, False], dip=(ori * 1e-6))
         particl_virt.vs_auto_relate_to(particl_real)
 
-        # Very Important Particle. To use to bond, calculate distances, and other Very Important Things. Usually on at the center of mass, and usually a real particle
+        # Very Important Particle. To use to bond, calculate distances, and other Very Important Things. Usually at the center of mass, and usually a real particle
         self.vip = particl_real
 
         return self
