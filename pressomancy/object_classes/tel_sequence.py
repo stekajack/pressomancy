@@ -3,7 +3,7 @@ import numpy as np
 import random
 from pressomancy.object_classes.quadriplex_class import *
 from pressomancy.object_classes.object_class import Simulation_Object, ObjectConfigParams 
-from pressomancy.helper_functions import RoutineWithArgs, make_centered_rand_orient_point_array, PartDictSafe, SinglePairDict, BondWrapper
+from pressomancy.helper_functions import RoutineWithArgs, make_centered_rand_orient_point_array, PartDictSafe, SinglePairDict, BondWrapper, get_orientation_vec
 import logging
 import warnings
 
@@ -51,7 +51,6 @@ class TelSeq(metaclass=Simulation_Object):
         '''
         Initialisation of a TelSeq object requires the specification of particle size, number of parts and a handle to the espresso system
         '''
-        TelSeq.numInstances += 1
         self.sys=config['espresso_handle']
         self.params=config
         if self.params['associated_objects']==None:
@@ -66,6 +65,7 @@ class TelSeq(metaclass=Simulation_Object):
 
         self.build_function=RoutineWithArgs(func=make_centered_rand_orient_point_array,num_monomers=self.params['n_parts'],spacing=config['spacing'])  
         self.who_am_i = TelSeq.numInstances
+        TelSeq.numInstances += 1
         self.orientor = np.empty(shape=3, dtype=float)
         self.type_part_dict=PartDictSafe({key: [] for key in TelSeq.part_types.keys()})
 
@@ -80,7 +80,7 @@ class TelSeq(metaclass=Simulation_Object):
         pos=np.atleast_2d(pos)
         assert len(
             pos) == self.params['n_parts'], 'there is a missmatch between the pos lenth and TelSeq n_parts'
-        self.orientor = ori
+        self.orientor = get_orientation_vec(pos)
 
         assert self.params['n_parts'] == len(
             self.associated_objects), " there doest seem to be enough monomers stored!!! "

@@ -1,4 +1,6 @@
 import h5py
+import numpy as np
+import warnings
 
 class H5DataSelector:
     """
@@ -35,7 +37,7 @@ class H5DataSelector:
     def __init__(self, h5_file, particle_group, ts_slice=None, pt_slice=None):
         self.h5_file = h5_file
         self.particle_group = particle_group  # e.g., "Filament"
-        self.metadata = self.build_h5_tree(h5_file)
+        self.metadata = self._build_h5_tree(h5_file)
         # Validate that all properties in the given particle group share the same (timesteps, particles)
         self.common_dims = self.sanity_check(self.metadata, self.particle_group)
 
@@ -49,7 +51,7 @@ class H5DataSelector:
             "Use the 'timestep' or 'particles' accessor for slicing instead."
         )
 
-    def build_h5_tree(self, obj):
+    def _build_h5_tree(self, obj):
         """
         Recursively builds a nested dictionary representing the HDF5 file structure.
 
@@ -78,7 +80,7 @@ class H5DataSelector:
                 'members': list(obj.keys())
             }
             for key, item in obj.items():
-                tree[key] = self.build_h5_tree(item)
+                tree[key] = self._build_h5_tree(item)
         elif isinstance(obj, h5py.Dataset):
             tree = {
                 'type': 'Dataset',
@@ -187,7 +189,7 @@ class H5DataSelector:
         ds = self.h5_file[ds_path]
         return ds[self.ts_slice, self.pt_slice, :]
     
-    def get_connectivity_values(self, object_name):
+    def get_connectivity_values(self, object_name, predicate=None, fast=False):
         """
         Return the raw connectivity pairs for a given object, using the
         ParticleHandle_to_<object_name> dataset.
@@ -203,9 +205,43 @@ class H5DataSelector:
             Array of [particle_id, object_index] pairs.
         """
         ds_path = f"connectivity/{self.particle_group}/ParticleHandle_to_{object_name}"
-        return set(self.h5_file[ds_path][:][:, -1])
+        obj_ids=self.h5_file[ds_path][:,-1]
+        ids=np.unique(obj_ids)
+        ret_ids=[]
+        def divide_and_conquer():
+            nonlocal obj_ids, ids, predicate
+            left=0
+            right=len(ids)
+            while left<right:
+                mid = (left+right) // 2
+                filter_mask = obj_ids==ids[mid]
+                particle_indices = np.flatnonzero(filter_mask)
+                particle_indices = particle_indices.tolist()
+                subset = H5DataSelector(self.h5_file, self.particle_group, ts_slice=self.ts_slice, pt_slice=particle_indices)
+                if predicate(subset):
+                    left=mid+1
+                else:
+                    right=mid
+            return left
+        if predicate is not None:
+            if fast:
+                up_from_me=divide_and_conquer()
+                ret_ids=ids[:up_from_me]
+            else:
+                for i in ids:
+                    filter_mask = obj_ids==i
+                    particle_indices = np.flatnonzero(filter_mask)
+                    particle_indices = particle_indices.tolist()
+                    subset = H5DataSelector(self.h5_file, self.particle_group, ts_slice=self.ts_slice, pt_slice=particle_indices)
+                    if predicate(subset):
+                        ret_ids.append(i)
+                ret_ids=np.array(ret_ids)
+                
+        else:
+            ret_ids=ids
+        return ret_ids
 
-    def select_particles_by_object(self, object_name, connectivity_value=0):
+    def select_particles_by_object(self, object_name, connectivity_value=0,predicate=None):
         """
         Select a subset of particles based on a connectivity dataset. The indices are sorted and stored as a list (for correct slicing behavior).
 
@@ -217,15 +253,52 @@ class H5DataSelector:
             H5DataSelector: A new selector with the particle slice set to the selected indices.
         """
         ds_name = f"connectivity/{self.particle_group}/ParticleHandle_to_{object_name}"
-        connectivity_map = self.h5_file[ds_name][:]
-        particle_indices = connectivity_map[connectivity_map[:, 1] == connectivity_value][:, 0]
-        particle_indices.sort()
-        particle_indices = particle_indices.tolist()  # Ensure a Python list is used.
-        return H5DataSelector(self.h5_file, self.particle_group, ts_slice=self.ts_slice, pt_slice=particle_indices)
+        connectivity_map = self.h5_file[ds_name][:,1]
+        connectivity_value=np.atleast_1d(connectivity_value)
+        filter_mask = np.isin(connectivity_map, connectivity_value)
+        particle_indices = np.flatnonzero(filter_mask)
+        subset=H5DataSelector(self.h5_file, self.particle_group, ts_slice=self.ts_slice, pt_slice=particle_indices.tolist())
+        if predicate is not None:
+            mask=predicate(subset).flatten()
+            particle_indices=particle_indices[mask]
+            subset=H5DataSelector(self.h5_file, self.particle_group, ts_slice=self.ts_slice, pt_slice=particle_indices.tolist())
+        return subset
     
+    def select_particles_by_predicate(self, object_name, predicate):
+        """
+        Select particles linked to a connectivity object by applying a predicate,
+        without pre-filtering by a connectivity value.
+
+        Args:
+            object_name (str): Name of the connectivity object (e.g., "Filament").
+            predicate (callable): Function taking an H5DataSelector and returning a boolean mask.
+
+        Returns:
+            H5DataSelector: Selector with particle slice set to the indices passing the predicate.
+        """
+        ds_name = f"connectivity/{self.particle_group}/ParticleHandle_to_{object_name}"
+
+        # Take ALL particles represented by rows of the connectivity dataset (row index == particle index).
+        n_rows = self.h5_file[ds_name].shape[0]
+        particle_indices = np.arange(n_rows, dtype=int)
+
+        # Build subset over all those particles, then apply predicate.
+        subset = H5DataSelector(self.h5_file, self.particle_group,
+                                ts_slice=self.ts_slice, pt_slice=particle_indices.tolist())
+        mask = np.asarray(predicate(subset)).flatten()
+
+        # Keep only the particle indices where the predicate is True.
+        selected = particle_indices[mask]
+
+        return H5DataSelector(self.h5_file, self.particle_group,
+                            ts_slice=self.ts_slice, pt_slice=selected.tolist())
+
+
     def get_connectivity_map(self, parent_key, child_key):
         """
-        Retrieve the raw (parent_id, child_id) array for a given object–object connectivity table.
+        Retrieve the connectivity map between parent and child objects from the HDF5 file.
+
+        This method constructs a dataset path based on the particle group and the specified parent and child keys, then attempts to retrieve an array of [parent_id, child_id] pairs from the HDF5 connectivity group. If the dataset is not found, a warning is issued and None is returned.
 
         Parameters
         ----------
@@ -236,15 +309,23 @@ class H5DataSelector:
 
         Returns
         -------
-        ndarray of shape (N, 2)
-            Array of [parent_id, child_id] pairs.
+        ndarray of shape (N, 2) or None
+            An array containing [parent_id, child_id] pairs if the connectivity map exists; otherwise, None.
         """
         ds_path = f"connectivity/{self.particle_group}/{parent_key}_to_{child_key}"
-        return self.h5_file[ds_path][:]
+        return_map=None
+        try:
+            return_map = self.h5_file[ds_path][:]
+        except KeyError:
+            warnings.warn(f"Connectivity map '{ds_path}' not found in HDF5 file.")
+        return return_map
 
     def get_child_ids(self, parent_key, child_key, parent_id):
         """
-        Return a sorted list of child object IDs connected to a given parent_id.
+        Retrieve a sorted list of child object IDs connected to a given parent_id.
+
+        This method first attempts to obtain the connectivity map relating the parent and child objects. If the connectivity map is not found (i.e., None), a warning is issued and None is returned. Otherwise, it filters the connectivity entries to select rows with the matching parent_id,
+        extracts the corresponding child IDs, converts them to integers, sorts them, and returns the resulting list.
 
         Parameters
         ----------
@@ -253,18 +334,24 @@ class H5DataSelector:
         child_key : str
             Name of the child object type.
         parent_id : int
-            The who_am_i identifier of the parent object.
+            The identifier for the parent object.
 
         Returns
         -------
-        List[int]
-            Sorted list of child who_am_i IDs belonging to the parent.
+        List[int] or None
+            A sorted list of child object IDs connected to the given parent_id.
+            Returns None if the connectivity map is missing.
         """
         conn = self.get_connectivity_map(parent_key, child_key)
-        # Filter rows matching the parent_id, then extract child IDs
-        child_ids = conn[conn[:, 0] == parent_id, 1]
-        # Convert to Python ints and sort
-        return sorted(int(cid) for cid in child_ids)
+        return_map = None
+        if conn is None:
+            warnings.warn(f"No children with key {child_key} found for parent with key {parent_key}.")
+        else:
+            # Filter rows matching the parent_id, then extract child IDs
+            child_ids = conn[conn[:, 0] == parent_id, 1]
+            return_map = sorted(int(cid) for cid in child_ids)
+            # Convert to Python ints and sort
+        return return_map
 
     def get_parent_ids(self, parent_key, child_key, child_id):
         """

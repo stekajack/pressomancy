@@ -1,18 +1,19 @@
-from pressomancy.object_classes.part_class import GenericPart
-from pressomancy.object_classes.object_class import ObjectConfigParams 
+from pressomancy.object_classes.object_class import Simulation_Object, ObjectConfigParams 
 from pressomancy.helper_functions import PartDictSafe, SinglePairDict
 
-class Crowder(GenericPart):
+class GenericPart(metaclass=Simulation_Object):
 
     '''
     Class that contains quadriplex relevant paramaters and methods. At construction one must pass an espresso handle becaouse the class manages parameters that are both internal and external to espresso. It is assumed that in any simulation instanse there will be only one type of a Quadriplex. Therefore many relevant parameters are class specific, not instance specific.
     '''
-    
     required_features=list()	
     numInstances = 0
-    simulation_type= SinglePairDict('crowder', 5)
-    part_types = PartDictSafe({'crowder': 5})
-    config = ObjectConfigParams()
+    simulation_type= SinglePairDict('generic_particle', 42)
+    part_types = PartDictSafe({'real': 1,'virt': 2})
+    config = ObjectConfigParams(
+        espresso_part_kwargs=dict(),
+        alias=None
+    )
 
     def __init__(self, config: ObjectConfigParams):
         '''
@@ -21,9 +22,9 @@ class Crowder(GenericPart):
         self.sys=config['espresso_handle']
         self.params=config
         self.associated_objects=self.params['associated_objects']
-        self.who_am_i = Crowder.numInstances
-        Crowder.numInstances += 1
-        self.type_part_dict=PartDictSafe({key: [] for key in Crowder.part_types.keys()})
+        self.who_am_i = GenericPart.numInstances
+        GenericPart.numInstances += 1
+        self.type_part_dict=PartDictSafe({key: [] for key in GenericPart.part_types.keys()})
 
     def set_object(self,  pos, ori):
         '''
@@ -33,6 +34,6 @@ class Crowder(GenericPart):
         :return: None
 
         '''
-        particle=self.add_particle(type_name='crowder', pos=pos, rotation=(False, False, False))
+        particle=self.add_particle(type_name='real', pos=pos, rotation=(True, True, True), **self.params['espresso_part_kwargs'])
         particle.director = ori
         return self

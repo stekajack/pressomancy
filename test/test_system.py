@@ -23,8 +23,8 @@ class SimulationTest(BaseTestCase):
                 sim_inst.store_objects(instance)
                 sim_inst.set_objects(instance)
                 instance[0].delete_owned_parts()
-            except MissingFeature:
-                logging.warning(f"Skipping {cls.__name__} because it requires a feature that is not available.")
+            except MissingFeature as excp:
+                logging.warning(f"Skipping {cls.__name__} because it requires a feature that is not available.  Caught exception {excp}")
                 continue
             self.assertEqual(len(sim_inst.sys.part), 0)
 
