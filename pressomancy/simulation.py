@@ -127,7 +127,7 @@ class Simulation():
         self.part_positions=[]
         self.volume_size=None
         self.volume_centers=[]
-        self.io_dict={'h5_file': None,'properties':[('id',1), ('type',1), ('pos',3),('pos_folded',3), ('director',3),('image_box',3), ('f',3),('dip',3)],'flat_part_view':defaultdict(list),'registered_group_type': None}
+        self.io_dict={'h5_file': None,'properties':[('id',1), ('type',1), ('pos',3),('pos_folded',3), ('director',3),('image_box',3), ('f',3),('dip',3)], 'bonds':None,'flat_part_view':defaultdict(list),'registered_group_type': None}
         self.src_params_set=False
         # self.sys=espressomd.System(box_l=box_dim) is added and managed by the singleton decrator!
     
@@ -994,6 +994,25 @@ class Simulation():
                         compression="gzip",
                         compression_opts=4
                     )
+                # Create the datasets for the bonds
+                if self.io_dict['bonds'] is not None:
+                    bond_dtype = np.dtype([
+                        ("bond_type", h5py.string_dtype(encoding="utf-8")),
+                        ("k", np.float32),
+                        ("r_0", np.float32),
+                        ("r_cut", np.float32),
+                        ("partner_id", np.int32),
+                    ])
+                    vlen_bond_dtype = h5py.vlen_dtype(bond_dtype)    
+                    prop_group.create_dataset(
+                        "value",
+                        shape=(0, total_part_num),
+                        maxshape=(None, total_part_num),
+                        dtype=vlen_bond_dtype,
+                        chunks=(1, total_part_num),
+                        compression="gzip",
+                        compression_opts=4
+                    )
             GLOBAL_COUNTER=0
 
         elif mode=='LOAD_NEW':
@@ -1076,6 +1095,37 @@ class Simulation():
                 step_dataset[-1] = time_step
                 time_dataset[-1] = time_step
                 dataset_val[-1, :, :] = np.array([np.atleast_1d(getattr(part, prop)) for part in self.io_dict['flat_part_view'][grp_typ]], dtype=np.float32)
+
+            if self.io_dict['bonds'] is not None:
+                dataset_val = data_grp[f"{prop}/value"]
+                step_dataset = data_grp[f"{prop}/step"]
+                time_dataset = data_grp[f"{prop}/time"]
+                step_dataset.resize((dataset_val.shape[0] + 1,))
+                time_dataset.resize((dataset_val.shape[0] + 1,))
+                dataset_val.resize((dataset_val.shape[0] + 1, dataset_val.shape[1]))
+                step_dataset[-1] = time_step
+                time_dataset[-1] = time_step
+                bond_dtype = np.dtype([
+                    ("bond_type", h5py.string_dtype(encoding="utf-8")),
+                    ("k", np.float32),
+                    ("r_0", np.float32),
+                    ("r_cut", np.float32),
+                    ("partner_id", np.int32),
+                ])
+                bond_list = []
+                for bond_tuple in [part.bonds for part in self.io_dict['flat_part_view'][grp_typ]]:
+                    bond_list_part = []
+                    for (bond_obj, partner_id) in bond_tuple:
+                        bond_list_part.append((
+                            type(bond_obj).__name__,
+                            bond_obj.k,
+                            bond_obj.r_0,
+                            bond_obj.r_cut,
+                            partner_id
+                        ))
+                    bond_list.append(bond_list_part)
+                bond_array = np.array(bond_list, dtype=bond_dtype)
+                dataset_val[-1, :] = bond_array
 
         logging.info(f"Successfully wrote timestep for {self.io_dict['registered_group_type']}.")
 

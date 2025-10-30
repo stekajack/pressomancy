@@ -107,7 +107,7 @@ class H5DataSelector:
         try:
             particle_meta = metadata["particles"][particle_group]
         except KeyError:
-            raise ValueError(f"Particle group '{particle_group}' not found in metadata.")
+            raise ValueError(f"Particle group '{particle_group}' not found in metadata. \n metadata: {metadata.keys()} \n metadata/particles: {metadata["particles"].keys()}")
 
         reference_dims = None  # Expected dimensions as (timesteps, particles)
         for prop, prop_info in particle_meta.items():
@@ -241,21 +241,24 @@ class H5DataSelector:
             ret_ids=ids
         return ret_ids
 
-    def select_particles_by_object(self, object_name, connectivity_value=0,predicate=None):
+    def select_particles_by_object(self, object_name, connectivity_value=None,predicate=None):
         """
         Select a subset of particles based on a connectivity dataset. The indices are sorted and stored as a list (for correct slicing behavior).
 
         Args:
             object_name (str): Name of the connectivity object (e.g., "Filament").
-            connectivity_value (int, optional): The value to match in the connectivity map. Defaults to 0.
+            connectivity_value ([int, float or None], optional): The value to match in the connectivity map. Defaults to all values: None.
 
         Returns:
             H5DataSelector: A new selector with the particle slice set to the selected indices.
         """
         ds_name = f"connectivity/{self.particle_group}/ParticleHandle_to_{object_name}"
         connectivity_map = self.h5_file[ds_name][:,1]
-        connectivity_value=np.atleast_1d(connectivity_value)
-        filter_mask = np.isin(connectivity_map, connectivity_value)
+        if connectivity_value is None:
+            filter_mask = connectivity_map
+        else:
+            connectivity_value=np.atleast_1d(connectivity_value)
+            filter_mask = np.isin(connectivity_map, connectivity_value)
         particle_indices = np.flatnonzero(filter_mask)
         subset=H5DataSelector(self.h5_file, self.particle_group, ts_slice=self.ts_slice, pt_slice=particle_indices.tolist())
         if predicate is not None:

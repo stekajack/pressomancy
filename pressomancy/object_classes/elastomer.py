@@ -281,7 +281,7 @@ class Elastomer(metaclass=Simulation_Object):
         self.sys.time_step = old_time_step
         
     
-    def cure_elastomer(self, test=False):
+    def cure_elastomer(self, fold_coord=True, test=False):
         if isinstance(self, list):
             raise ValueError("Must be used on Elastomer object type")
 
@@ -290,6 +290,13 @@ class Elastomer(metaclass=Simulation_Object):
             n_inter_0 = 10
         else:
             n_inter_0 = 100
+
+        if fold_coord:
+            raise NotImplementedError("Not tested.")
+            part_list= [part for typ_ in self.part_types for part in self.type_part_dict[typ_]]
+            for part in part_list:
+                pos_folded = part.pos_folded
+                part.pos = pos_folded
 
         if self.substrate is not None:
             # Stuck the bottom layer particles to the z=R_M plane
