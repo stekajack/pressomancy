@@ -45,6 +45,9 @@ class H5DataSelector:
         self.ts_slice = ts_slice if ts_slice is not None else slice(None)
         self.pt_slice = pt_slice if pt_slice is not None else slice(None)
 
+        # Set sys group in its little wrapper to be nicer and more seperate from the rest of the suspicious looking groups - like connectivity, for real, what is that supossed to mean. We are indeed all connected, in a way, I guess, so why separate connections based on some set and arbitrary rule. And I stopped there. Long day of coding.
+        # TO IMPLEMENT
+
     def __getitem__(self, key):
         raise TypeError(
             "Direct indexing on a H5DataSelector is not allowed. "
@@ -187,7 +190,33 @@ class H5DataSelector:
         """
         ds_path = f"particles/{self.particle_group}/{prop}/value"
         ds = self.h5_file[ds_path]
-        return ds[self.ts_slice, self.pt_slice, :]
+        if prop != "bonds": # most properties have shape (_,_,3 or 1)
+            if ds.shape[2] == 1: # properly ouput things like id or type, in their correct type, not in a list
+                return ds[self.ts_slice, self.pt_slice, 0]
+            else:
+                return ds[self.ts_slice, self.pt_slice, :]
+        
+        else: # for bonds (special case, because of vlen arrays)
+            if hasattr(self.ts_slice, '__iter__'):
+                ts_slice = self.ts_slice
+            else:
+                ts_slice = [self.ts_slice]
+            if hasattr(self.pt_slice, '__iter__'):
+                pt_slice = self.pt_slice
+            else:
+                pt_slice = [self.pt_slice]
+
+            bond_list_all_ts_slice=[]
+            for ts in ts_slice:
+                bond_list_single_ts=[]
+                for pt in pt_slice:
+                    try:
+                        assert len(ds[ts, pt]) > 0
+                        bond_list_single_ts.append(ds[ts, pt])
+                    except:
+                        bond_list_single_ts.append([])
+                bond_list_all_ts_slice.append(bond_list_single_ts)
+            return np.asarray(bond_list_all_ts_slice)
     
     def get_connectivity_values(self, object_name, predicate=None, fast=False):
         """

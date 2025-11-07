@@ -41,6 +41,9 @@ class ManagedSimulation:
         Forwards attribute access to the instance, raising an error if the instance is uninitialized.
     """
 
+    # Internal attributes that belong to ManagedSimulation itself
+    internal_attrs = {"aClass", "instance", "init_args", "init_kwargs", "_espressomd_system", "__name__", "__qualname__"}
+
     def __init__(self, aClass):
         """
         Initializes the ManagedSimulation decorator.
@@ -146,6 +149,31 @@ class ManagedSimulation:
         if self.instance is None:
             raise AttributeError(f"Instance of {self.aClass.__name__} has not been initialized.")
         return getattr(self.instance, name)
+    
+    def __setattr__(self, name, value):
+        """
+        Forwards attribute setting to the singleton instance.
+        Does not forward attributes intended for ManagedSimulation, as defined in the self.internal_attrs set.
+
+        Parameters
+        ----------
+        name : str
+            The name of the attribute to set.
+        value :
+            Value to set the attribute to.
+
+        Raises
+        ------
+        AttributeError
+            If the singleton instance has not been initialized.
+        """       
+        if name in self.internal_attrs:
+            object.__setattr__(self, name, value)
+        elif self.instance is None:
+            raise AttributeError(f"Instance of {self.aClass.__name__} has not been initialized.")
+        else:
+            # Forward to Simulation instance
+            setattr(self.instance, name, value)
     
     def __dir__(self):
         """
@@ -1001,7 +1029,7 @@ def partition_cuboid_volume(box_lengths, num_spheres, sphere_diameter, routine_p
     sphere_centers=sphere_centers[take_index]  
     # Initialize an array to store the generated points inside each spherical region
     results = [None] * num_spheres
-    orientations = [None] * num_spheres
+    res_orientations = [None] * num_spheres
     # Perform the point generation routine if `num_monomers` not 0
     if routine_per_volume.num_monomers>1:
         if np.all(box_lengths==box_lengths[0]):
