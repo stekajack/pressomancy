@@ -829,6 +829,27 @@ class Simulation():
                 part.dip = Xi*dip_magnitude / (dip_magnitude + Xi*tri) * H_tot
             logging.info(part.dip)
 
+    def magnetize_dumb(self, part_list, dip_magnitude, H_ext):
+        '''
+        Apply the langevin magnetisation law to determine the magnitude of the dipole moment of each particle in part_list, projected along H_ext. part_list should be a iterable that contains espresso particleHandle objects.
+
+        :param part_list: iterable(ParticleHandle) | ParticleSlice could work but prefer to wrap with the list() constructor.
+        :param dip_magnitude: float
+        :param H_ext: float
+
+        :return: None
+
+        note: This function does not take into account dipolar fields.
+
+        '''
+        for part in part_list:
+            tri = np.linalg.norm(H_ext)
+            dip_tri = dip_magnitude*tri #/ self.kT
+            inv_dip_tri = 1.0/(dip_tri)
+            inv_tanh_dip_tri = 1.0/np.tanh(dip_tri)
+            part.dip = dip_magnitude/tri*(inv_tanh_dip_tri-inv_dip_tri)*H_ext
+            logging.info(part.dip)
+
     def set_H_ext(self, H=(0, 0, 1.)):
         """
         Sets an espressomd.constraints.HomogeneousMagneticField in the simulation. Will delete any other HomogeneousMagneticField constraint if present. Safe to use for rotating or AC magnetic fileds.
