@@ -119,6 +119,10 @@ class H5DataSelector:
             if not (isinstance(prop_info, dict) and "value" in prop_info):
                 continue
 
+            if prop == "bonds":
+                assert prop_info["value"].get("shape")[0] <= 6
+                continue
+
             value_info = prop_info["value"]
             shape = value_info.get("shape")
             if shape is None or len(shape) < 2:

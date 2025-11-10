@@ -1078,6 +1078,16 @@ class Simulation():
                 if self.io_dict.get('bonds') is None:
                     pass
                 elif self.io_dict.get('bonds') == "all":
+                    # Define bond structure
+                    bond_dtype = np.dtype([
+                        ("bond_type", h5py.string_dtype(encoding="utf-8")),
+                        ("k", np.float32),
+                        ("r_0", np.float32),
+                        ("r_cut", np.float32),
+                        ("partner_id", np.int32),
+                    ])
+                    vlen_bond_dtype = h5py.vlen_dtype(bond_dtype)
+
                     prop_group = data_grp.require_group("bonds")
                     prop_group.create_dataset("step", shape=(0,), maxshape=(None,), dtype=np.int32)
                     prop_group.create_dataset("time", shape=(0,), maxshape=(None,), dtype=np.float32)
@@ -1171,7 +1181,7 @@ class Simulation():
                 dataset_val = data_grp[f"{prop}/value"]
                 step_dataset = data_grp[f"{prop}/step"]
                 time_dataset = data_grp[f"{prop}/time"]
-                if unique_time and time_step <= step_dataset[-1]:
+                if unique_time and len(step_dataset) > 0 and time_step <= step_dataset[-1]:
                     idx = np.searchsorted(step_dataset[:], time_step)
                 else:
                     step_dataset.resize((dataset_val.shape[0] + 1,))
@@ -1182,13 +1192,13 @@ class Simulation():
                 time_dataset[idx] = time_step
                 dataset_val[idx, :, :] = np.array([np.atleast_1d(getattr(part, prop)) for part in self.io_dict['flat_part_view'][grp_typ]], dtype=np.float32) # TO IMPLEMENT make this type see the rpious and copy. Change the initial type to match type of saved prop
             
-            if self.io_dict['bonds'] is None:
+            if self.io_dict.get('bonds') is None or time_step > 0:
                 pass
             elif self.io_dict['bonds'] == "all":
                 dataset_val = data_grp["bonds/value"]
                 step_dataset = data_grp["bonds/step"]
                 time_dataset = data_grp["bonds/time"]
-                if unique_time and time_step <= step_dataset[-1]:
+                if unique_time and len(step_dataset) and time_step <= step_dataset[-1]:
                     idx = np.searchsorted(step_dataset[:], time_step)
                 else:
                     step_dataset.resize((dataset_val.shape[0] + 1,))
