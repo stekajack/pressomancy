@@ -1,8 +1,10 @@
 from pressomancy.object_classes.part_class import GenericPart
 from pressomancy.object_classes.object_class import ObjectConfigParams 
 from pressomancy.helper_functions import PartDictSafe, SinglePairDict
-import espressomd.propagation
-Propagation = espressomd.propagation.Propagation
+import espressomd
+if espressomd.version.major() == 5:
+    import espressomd.propagation
+    Propagation = espressomd.propagation.Propagation
 
 class SWPart(GenericPart):
 
@@ -48,6 +50,7 @@ class SWPart(GenericPart):
         particl_virt=self.add_particle(type_name='sw_virt', pos=pos, rotation=(False, False, False), sw_virt=True, Hkinv=self.params['HK_inv'],
             sat_mag=self.params['dipm'], dip=ori*self.params['dipm'])
         particl_virt.vs_auto_relate_to(particl_real)
-        particl_virt.propagation = Propagation.TRANS_VS_RELATIVE | Propagation.ROT_VS_INDEPENDENT 
+        if espressomd.version.major() == 5:
+            particl_virt.propagation = Propagation.TRANS_VS_RELATIVE | Propagation.ROT_VS_INDEPENDENT 
 
         return self

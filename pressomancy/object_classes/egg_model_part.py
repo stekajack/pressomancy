@@ -38,7 +38,8 @@ class EGGPart(GenericPart):
         '''
         particl_real=self.add_particle(type_name='real', pos=pos, rotation=(True, True, True), director=ori)
 
-        particl_virt=self.add_particle(type_name='yolk', pos=pos, rotation=(True, True, True), dipm=self.params['dipm'], egg_model_params = (True, self.params['egg_gamma'], self.params['aniso_energy']))
+        particl_virt=self.add_particle(type_name='yolk', pos=pos, rotation=(True, True, True), dipm=self.params['dipm'])
         particl_virt.vs_auto_relate_to(particl_real)
+        particl_virt.egg_model_params = {"use_egg_model": True, "egg_gamma": self.params['egg_gamma'], "aniso_energy": self.params['aniso_energy']}
 
         return self
