@@ -292,7 +292,7 @@ class Elastomer(metaclass=Simulation_Object):
             n_inter_0 = 100
 
         if fold_coord:
-            raise NotImplementedError("Not tested.")
+            # raise NotImplementedError("Not tested.")
             part_list= [part for typ_ in self.part_types for part in self.type_part_dict[typ_]]
             for part in part_list:
                 pos_folded = part.pos_folded
