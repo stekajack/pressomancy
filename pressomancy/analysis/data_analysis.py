@@ -45,6 +45,9 @@ class H5DataSelector:
         self.ts_slice = ts_slice if ts_slice is not None else slice(None)
         self.pt_slice = pt_slice if pt_slice is not None else slice(None)
 
+        # Get step tuple (from particle 0)
+        self.steps_tuple = np.asarray(self.particles[0].get_steps())
+
     def __getitem__(self, key):
         raise TypeError(
             "Direct indexing on a H5DataSelector is not allowed. "
@@ -140,22 +143,37 @@ class H5DataSelector:
         raise TypeError("len() is ambiguous on H5DataSelector objects. Use '.timestep' or '.particles' accessor to get the length of the relevant axis.")
 
     @property
-    def timestep(self):
+    def timestep(self, step=None):
         """
         Accessor for slicing/iterating over the timestep axis.
+
+        Args:
+            step (int or range of ints): The simulation steps to slice. If None, use dataset indices
 
         Returns:
             TimestepAccessor: An accessor object for timestep operations.
 
-        Usage:
+        Usage with step=None:
             # Slicing timesteps 10 to 20:
             data.timestep[10:20]
 
             # Iterating over each timestep in a slice:
             for t in data.timestep[5:10]:
                 process(t)
+
+        Usage with defined step:
+            # Getting timestep corresponding to step 1E6
+            data.timestep(1000000)
+
+            # Slicing timesteps from simulation steps (0,100,500,1000):
+            data.timestep((0,100,500,1000))
+
+
         """
-        return TimestepAccessor(self)
+        if step is None:
+            return TimestepAccessor(self)
+        else:
+            indexes = self.steps_tuple
 
     @property
     def particles(self):
@@ -186,6 +204,22 @@ class H5DataSelector:
             ndarray: The dataset with the applied timestep and particle slices.
         """
         ds_path = f"particles/{self.particle_group}/{prop}/value"
+        ds = self.h5_file[ds_path]
+        return ds[self.ts_slice, self.pt_slice, :]
+    
+    def get_steps(self, prop="id"):
+        """
+        Retrieve step data from the HDF5 dataset applying the current slices.
+        
+        It uses the steps saved in the id property, but this can be changed, if, for example, ids are not saved.
+
+        Args:
+            prop (str): The property name (e.g., 'pos', 'f'). Defaults to 'id'.
+
+        Returns:
+            ndarray: The steps dataset with the applied timestep and particle slices.
+        """
+        ds_path = f"particles/{self.particle_group}/{prop}/step"
         ds = self.h5_file[ds_path]
         return ds[self.ts_slice, self.pt_slice, :]
     
