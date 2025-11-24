@@ -46,7 +46,7 @@ class H5DataSelector:
         self.pt_slice = pt_slice if pt_slice is not None else slice(None)
 
         # Get step tuple (from particle 0)
-        self.steps_tuple = np.asarray(self.particles[0].get_steps())
+        self.steps_tuple = h5_file[f"particles/{particle_group}/id/step"][self.ts_slice]
         
         # Set sys group in its little wrapper to be nicer and more seperate from the rest of the suspicious looking groups - like connectivity, for real, what is that supossed to mean. We are indeed all connected, in a way, I guess, so why separate connections based on some set and arbitrary rule. And I stopped there. Long day of coding.
         # TO IMPLEMENT
@@ -154,21 +154,30 @@ class H5DataSelector:
         """
         Accessor for slicing/iterating over the timestep axis.
 
-        Args:
-            step (int or range of ints): The simulation steps to slice. If None, use dataset indices
-
         Returns:
             TimestepAccessor: An accessor object for timestep operations.
 
-        Usage with step=None:
+        Usage:
             # Slicing timesteps 10 to 20:
             data.timestep[10:20]
 
             # Iterating over each timestep in a slice:
             for t in data.timestep[5:10]:
                 process(t)
+        """
+        return TimestepAccessor(self)
+        
+    def step(self, step):
+        """
+        Accessor for slicing/iterating over the timestep axis, with the simulation step values, insted of indexes.
 
-        Usage with defined step:
+        Args:
+            step (int or range of ints): The simulation steps to slice. If None, use dataset indices
+
+        Returns:
+            TimestepAccessor: An accessor object for timestep operations.
+
+        Usage:
             # Getting timestep corresponding to step 1E6
             data.timestep(1000000)
 
@@ -177,10 +186,8 @@ class H5DataSelector:
 
 
         """
-        if step is None:
-            return TimestepAccessor(self)
-        else:
-            indexes = self.steps_tuple
+        matches = np.flatnonzero(np.isin(self.steps_tuple, np.atleast_1d(step)))
+        return self.timestep[tuple(matches)]
 
     @property
     def particles(self):
@@ -239,22 +246,6 @@ class H5DataSelector:
                         bond_list_single_ts.append([])
                 bond_list_all_ts_slice.append(bond_list_single_ts)
             return np.asarray(bond_list_all_ts_slice)
-    
-    def get_steps(self, prop="id"):
-        """
-        Retrieve step data from the HDF5 dataset applying the current slices.
-        
-        It uses the steps saved in the id property, but this can be changed, if, for example, ids are not saved.
-
-        Args:
-            prop (str): The property name (e.g., 'pos', 'f'). Defaults to 'id'.
-
-        Returns:
-            ndarray: The steps dataset with the applied timestep and particle slices.
-        """
-        ds_path = f"particles/{self.particle_group}/{prop}/step"
-        ds = self.h5_file[ds_path]
-        return ds[self.ts_slice, self.pt_slice, :]
     
     def get_connectivity_values(self, object_name, predicate=None, fast=False):
         """
