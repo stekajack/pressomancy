@@ -150,7 +150,7 @@ class H5DataSelector:
         raise TypeError("len() is ambiguous on H5DataSelector objects. Use '.timestep' or '.particles' accessor to get the length of the relevant axis.")
 
     @property
-    def timestep(self, step=None):
+    def timestep(self):
         """
         Accessor for slicing/iterating over the timestep axis.
 
@@ -187,7 +187,10 @@ class H5DataSelector:
 
         """
         matches = np.flatnonzero(np.isin(self.steps_tuple, np.atleast_1d(step)))
-        return self.timestep[tuple(matches)]
+        if len(matches)==1: # To behave closer to timestep
+            return self.timestep[int(matches[0])] # get tuple if many, or int if only one match
+        else:
+            return self.timestep[list(matches)]
 
     @property
     def particles(self):
@@ -221,18 +224,22 @@ class H5DataSelector:
         ds = self.h5_file[ds_path]
         if prop != "bonds": # most properties have shape (_,_,3 or 1)
             if ds.shape[2] == 1: # properly ouput things like id or type, in their correct type, not in a list
-                return ds[self.ts_slice, self.pt_slice, 0]
+                return np.asarray(ds[:,:,:])[self.ts_slice, self.pt_slice, 0]
             else:
-                return ds[self.ts_slice, self.pt_slice, :]
+                return np.asarray(ds[:,:,:])[self.ts_slice, self.pt_slice, :]
         
         else: # for bonds (special case, because of vlen arrays)
             if hasattr(self.ts_slice, '__iter__'):
+                ts_slice_flag=False
                 ts_slice = self.ts_slice
             else:
+                ts_slice_flag=True
                 ts_slice = [self.ts_slice]
             if hasattr(self.pt_slice, '__iter__'):
+                pt_slice_flag=False
                 pt_slice = self.pt_slice
             else:
+                pt_slice_flag=True
                 pt_slice = [self.pt_slice]
 
             bond_list_all_ts_slice=[]
@@ -244,8 +251,8 @@ class H5DataSelector:
                         bond_list_single_ts.append(ds[ts, pt])
                     except:
                         bond_list_single_ts.append([])
-                bond_list_all_ts_slice.append(bond_list_single_ts)
-            return np.asarray(bond_list_all_ts_slice)
+                bond_list_all_ts_slice.append(bond_list_single_ts[0] if pt_slice_flag else bond_list_single_ts)
+            return bond_list_all_ts_slice[0] if ts_slice_flag else np.asarray(bond_list_all_ts_slice)
     
     def get_connectivity_values(self, object_name, predicate=None, fast=False):
         """

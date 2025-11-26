@@ -51,7 +51,9 @@ class Elastomer(metaclass=Simulation_Object):
         self.who_am_i = Elastomer.numInstances
         Elastomer.numInstances += 1
         self.type_part_dict=PartDictSafe({key: [] for key in Elastomer.part_types.keys()})
-        assert  Elastomer.numInstances <= 1, "It is only possible to have an elastomer at a time."
+    
+    def __del__(self):
+        Elastomer.numInstances -= 1
 
     @classmethod
     def load_gzip(cls, file, pressomancy_system, associated_class={PointDipolePermanent: (1.0, PointDipolePermanent.config)}):
@@ -723,6 +725,9 @@ def build_function_generic(parent_obj, box_l, num_children, children_centers, ch
         # copy from partition cuboid volume
         points_list = [None] * num_children
         orientations_list = [None] * num_children
+
+        if children_orientations is None:
+            children_orientations = generate_random_unit_vectors(num_children)
 
         if parent_obj.associated_objects is None:
             if children_orientations is None:

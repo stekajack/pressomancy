@@ -949,13 +949,6 @@ class Simulation():
             traverse(root)
 
         return result
-    
-    def test_smth(self):
-        # print(self.sys.part.by_id(0).id, self.sys.part.by_id(0).pos)
-        # print(self.sys.part.by_id(0).bonds)
-        print(self.seed)
-        print(self._part_types)
-        print(self.kT)
 
     def inscribe_part_group_to_h5(self, group_type=None, h5_data_path=None,mode='NEW',force_resize_to_size=None):
         """
@@ -1149,7 +1142,6 @@ class Simulation():
                     logging.info(f'Force resized all datasets from {GLOBAL_COUNTER} to size {force_resize_to_size}')
                     GLOBAL_COUNTER=force_resize_to_size
             logging.info(f"Loaded h5 file with GLOBAL_COUNTER={GLOBAL_COUNTER} ")
-            return GLOBAL_COUNTER
         
         elif mode=='LOAD':
             self.io_dict['h5_file'] = h5py.File(h5_data_path, "a")
@@ -1172,7 +1164,7 @@ class Simulation():
 
         return GLOBAL_COUNTER
         
-    def write_part_group_to_h5(self, time_step=None, unique_time=True):
+    def write_part_group_to_h5(self, time_step=None, unique_time=True, bonds_once=True):
         assert self.io_dict['h5_file']!=None,'storage file has not been inscribed!'
         particles_group = self.io_dict['h5_file']["particles"]
         for grp_typ in self.io_dict['registered_group_type']:
@@ -1192,7 +1184,8 @@ class Simulation():
                 time_dataset[idx] = time_step
                 dataset_val[idx, :, :] = np.array([np.atleast_1d(getattr(part, prop)) for part in self.io_dict['flat_part_view'][grp_typ]], dtype=np.float32) # TO IMPLEMENT make this type see the rpious and copy. Change the initial type to match type of saved prop
             
-            if self.io_dict.get('bonds') is None or time_step > 0:
+            # skip if not saving bonds or if there are already bonds saved and bond_once is True
+            if self.io_dict.get('bonds') is None or (bonds_once and data_grp["bonds/value"].shape[0] > 0):
                 pass
             elif self.io_dict['bonds'] == "all":
                 dataset_val = data_grp["bonds/value"]
