@@ -320,13 +320,19 @@ class H5DataSelector:
         Returns:
             H5DataSelector: A new selector with the particle slice set to the selected indices.
         """
+        # Get particles' ids from connectivity of object_name
         ds_name = f"connectivity/{self.particle_group}/ParticleHandle_to_{object_name}"
         connectivity_map = self.h5_file[ds_name][:,1]
         if connectivity_value is None:
-            filter_mask = connectivity_map
+            filter_mask = np.ones_like(connectivity_map, dtype=bool)
         else:
             connectivity_value=np.atleast_1d(connectivity_value)
             filter_mask = np.isin(connectivity_map, connectivity_value)
+        object_particle_indices = np.ravel(self.h5_file[ds_name][:,0][filter_mask]).astype(np.int32)
+        # Get the correct indices from the connectivity of the 'father' object
+        ds_father_name = f"connectivity/{self.particle_group}/ParticleHandle_to_{self.particle_group}"
+        father_particles_indices = self.h5_file[ds_father_name][:,0]
+        filter_mask = np.isin(father_particles_indices, object_particle_indices)
         particle_indices = np.flatnonzero(filter_mask)
         subset=H5DataSelector(self.h5_file, self.particle_group, ts_slice=self.ts_slice, pt_slice=particle_indices.tolist())
         if predicate is not None:
