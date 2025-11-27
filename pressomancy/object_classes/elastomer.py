@@ -100,6 +100,8 @@ class Elastomer(metaclass=Simulation_Object):
             n_parts_tmp = int(data[1])
             for part_i in range(n_parts_tmp):
                 data = file.readline().split()
+                if typ == 98: # ignore substrate
+                    continue
                 id_list.append(int(data[0]))
                 points.append(list(map(float, data[1:4])))
                 orientations.append(list(map(float, data[4:7])))
@@ -304,8 +306,8 @@ class Elastomer(metaclass=Simulation_Object):
             # Stuck the bottom layer particles to the z=R_M plane
             #  (restrict movement in z direction)
             assert ( isinstance(self.substrate, espressomd.constraints.ShapeBasedConstraint) and isinstance(self.substrate.shape, espressomd.shapes.Wall) ) \
-             or ( isinstance(self.substrate, (espressomd.particle_data.ParticleList, espressomd.particle_data.ParticleSlice)) ) \
-            , "substrate must be None, an espresso wall constraint, or a particle list. Use Elastomer.create_substrate to create valid substrate."         
+             or ( isinstance(self.substrate, list) and all([isinstance(part, espressomd.particle_data.ParticleHandle) for part in self.substrate]) ) \
+            , "substrate must be None, an espresso wall constraint, or a list of particle handles. Use Elastomer.create_substrate to create valid substrate."         
             z_subs_tmp= self.params['box_E_shift'][2]
             if self.associated_objects is None:
                 z_tmp = z_subs_tmp + 0.5
@@ -690,8 +692,12 @@ class Elastomer(metaclass=Simulation_Object):
         pos_x, pos_y = np.meshgrid( np.linspace(0.5, self.params['box_E'][0]-0.5, n_substrate_x),
                                     np.linspace(0.5, self.params['box_E'][1]-0.5, n_substrate_y) )
         pos = np.column_stack((pos_x.ravel(), pos_y.ravel(), ( np.zeros(n_substrate) - 0.5 + self.params['box_E_shift'][2] ) ))
-        substrate = self.sys.part.add(type=[self.part_types['substrate']]*n_substrate, pos=pos, virtual=[True]*n_substrate, fix=[[True,True,True]]*n_substrate)
-        self.substrate = substrate
+
+        substrate_list= []
+        for i in range(n_substrate):
+            part_hndl = self.add_particle(type_name="substrate", pos=pos[i], type=self.part_types['substrate'], virtual=True, fix=[True,True,True])
+            substrate_list.append(part_hndl)
+        self.substrate = substrate_list
 
         for key, typ in self.part_types.items():
             if "real" in key:
@@ -701,7 +707,8 @@ class Elastomer(metaclass=Simulation_Object):
                 self.sys.non_bonded_inter[self.part_types['substrate'], typ].wca.set_params(epsilon=1E6, sigma=sigma)
         
     def remove_substrate_part(self):
-        self.substrate.remove()
+        for part in self.substrate:
+            part.remove()
         self.substrate = None
 
         for key, typ in self.part_types.items():

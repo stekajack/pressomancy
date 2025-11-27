@@ -45,8 +45,8 @@ class H5DataSelector:
         self.ts_slice = ts_slice if ts_slice is not None else slice(None)
         self.pt_slice = pt_slice if pt_slice is not None else slice(None)
 
-        # Get step tuple (from particle 0)
-        self.steps_tuple = h5_file[f"particles/{particle_group}/id/step"][self.ts_slice]
+        # Get step array (from particle 0)
+        self.steps_array = h5_file[f"particles/{particle_group}/id/step"][self.ts_slice]
         
         # Set sys group in its little wrapper to be nicer and more seperate from the rest of the suspicious looking groups - like connectivity, for real, what is that supossed to mean. We are indeed all connected, in a way, I guess, so why separate connections based on some set and arbitrary rule. And I stopped there. Long day of coding.
         # TO IMPLEMENT
@@ -186,7 +186,7 @@ class H5DataSelector:
 
 
         """
-        matches = np.flatnonzero(np.isin(self.steps_tuple, np.atleast_1d(step)))
+        matches = np.flatnonzero(np.isin(self.steps_array, np.atleast_1d(step)))
         if len(matches)==1: # To behave closer to timestep
             return self.timestep[int(matches[0])] # get tuple if many, or int if only one match
         else:
@@ -253,6 +253,9 @@ class H5DataSelector:
                         bond_list_single_ts.append([])
                 bond_list_all_ts_slice.append(bond_list_single_ts[0] if pt_slice_flag else bond_list_single_ts)
             return bond_list_all_ts_slice[0] if ts_slice_flag else np.asarray(bond_list_all_ts_slice)
+
+    def get_step_values(self):
+        return tuple(map(int, self.steps_array))
     
     def get_connectivity_values(self, object_name, predicate=None, fast=False):
         """
@@ -465,6 +468,26 @@ class H5DataSelector:
             return self.__dict__[attr]
         except KeyError:
             return self.get_property(attr)
+        
+    # def __setattr__(self, name, value): # does this make sense here? It seems much more convinient to use the funcitons, anyway
+    #     """
+    #     Block direct mutation of properties.
+
+    #     Args:
+    #         name (str): The attribute name.
+    #         value (str): The value to set the attribute.
+
+    #     Returns:
+    #         The property data if available.
+
+    #     Raises:
+    #         AttributeError: If the property does not exist.
+    #     """
+    #     # allow internal properties (start with "_")
+    #     if name.startswith('_'):
+    #         object.__setattr__(self, name, value)
+    #     else:
+    #         raise AttributeError(f"Cannot set '{name}' directly. Use appropriate methods.")
 
     def __repr__(self):
         return (f"<H5DataSelector(particle_group={self.particle_group}, "
