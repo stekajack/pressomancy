@@ -639,11 +639,14 @@ def generate_random_unit_vectors(N_PART):
     y = r * np.sin(phi)
     return np.column_stack((x, y, z))
 
-def normalize_vectors(array_of_vectors, axis=-1):
-    array_of_vectors= np.asarray(array_of_vectors)
-    norms_array = np.atleast_1d(np.linalg.norm(array_of_vectors, axis=axis))
-    norms_array[norms_array==0] = 1
-    return array_of_vectors / np.expand_dims(norms_array, axis)
+def normalize_vectors(vectors, axis=-1):
+    array_of_vectors= np.asarray(vectors)
+    if len(array_of_vectors.shape) > 1: # if multiple vectors return an array of shape (number_of_vectors, dims)
+        norms_array = np.atleast_1d(np.linalg.norm(array_of_vectors, axis=axis))
+        norms_array[norms_array==0] = 1
+        return array_of_vectors / np.expand_dims(norms_array, axis)
+    else: # if only one vector return an array of shape (dims,)Z
+        return array_of_vectors / np.linalg.norm(array_of_vectors)
 
 def build_grid_and_adjacent(lattice_points, volume_side, cell_size):
     """
