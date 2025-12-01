@@ -1173,31 +1173,62 @@ class Simulation():
                 dataset_val = data_grp[f"{prop}/value"]
                 step_dataset = data_grp[f"{prop}/step"]
                 time_dataset = data_grp[f"{prop}/time"]
-                if unique_time and len(step_dataset) > 0 and time_step <= step_dataset[-1]:
-                    idx = np.searchsorted(step_dataset[:], time_step)
+
+                dataset_size = dataset_val.shape[0]
+                if unique_time and dataset_size > 0: # no duplicate steps AND dataset not empty
+                    idx_attempt = np.searchsorted(step_dataset[:], time_step)
+                    if idx_attempt >= dataset_size:
+                        # if step is larger than all existing steps -> append
+                        step_dataset.resize((dataset_size + 1,))
+                        time_dataset.resize((dataset_size + 1,))
+                        dataset_val.resize((dataset_size + 1, dataset_val.shape[1], dataset_val.shape[2]))
+                        idx = -1  
+                    else:
+                        # else: step is <= last step -> insert/overwrite at sorted position
+                        # (steps equal to existing ones naturally land here too)
+                        idx = idx_attempt
+                         
                 else:
-                    step_dataset.resize((dataset_val.shape[0] + 1,))
-                    time_dataset.resize((dataset_val.shape[0] + 1,))
-                    dataset_val.resize((dataset_val.shape[0] + 1, dataset_val.shape[1], dataset_val.shape[2]))
+                    # Duplicate steps allowed OR dataset empty -> append
+                    step_dataset.resize((dataset_size + 1,))
+                    time_dataset.resize((dataset_size + 1,))
+                    dataset_val.resize((dataset_size + 1, dataset_val.shape[1], dataset_val.shape[2]))
                     idx = -1
+
                 step_dataset[idx] = time_step
                 time_dataset[idx] = time_step
                 dataset_val[idx, :, :] = np.array([np.atleast_1d(getattr(part, prop)) for part in self.io_dict['flat_part_view'][grp_typ]], dtype=np.float32) # TO IMPLEMENT make this type see the rpious and copy. Change the initial type to match type of saved prop
             
-            # skip if not saving bonds or if there are already bonds saved and bond_once is True
+            # skip if not saving bonds OR ( if bond_once is True AND there are already bonds saved )
             if self.io_dict.get('bonds') is None or (bonds_once and data_grp["bonds/value"].shape[0] > 0):
                 pass
             elif self.io_dict['bonds'] == "all":
+                # Saves all bonds saved in the particles of the registered groups
                 dataset_val = data_grp["bonds/value"]
                 step_dataset = data_grp["bonds/step"]
                 time_dataset = data_grp["bonds/time"]
-                if unique_time and len(step_dataset) and time_step <= step_dataset[-1]:
-                    idx = np.searchsorted(step_dataset[:], time_step)
+
+                dataset_size = dataset_val.shape[0]
+                if unique_time and dataset_size > 0: # no duplicate steps AND dataset not empty
+                    idx_attempt = np.searchsorted(step_dataset[:], time_step)
+                    if idx_attempt >= dataset_size:
+                        # if step is larger than all existing steps -> append
+                        step_dataset.resize((dataset_size + 1,))
+                        time_dataset.resize((dataset_size + 1,))
+                        dataset_val.resize((dataset_size + 1, dataset_val.shape[1]))
+                        idx = -1  
+                    else:
+                        # else: step is <= last step -> insert/overwrite at sorted position
+                        # (steps equal to existing ones naturally land here too)
+                        idx = idx_attempt
+                         
                 else:
-                    step_dataset.resize((dataset_val.shape[0] + 1,))
-                    time_dataset.resize((dataset_val.shape[0] + 1,))
-                    dataset_val.resize((dataset_val.shape[0] + 1, dataset_val.shape[1]))
+                     # Duplicate steps allowed OR dataset empty -> append
+                    step_dataset.resize((dataset_size + 1,))
+                    time_dataset.resize((dataset_size + 1,))
+                    dataset_val.resize((dataset_size + 1, dataset_val.shape[1]))
                     idx = -1
+
                 step_dataset[idx] = time_step
                 time_dataset[idx] = time_step
                 bond_dtype = np.dtype([
