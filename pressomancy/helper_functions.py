@@ -615,12 +615,12 @@ def min_img_dist(s, t, box_dim):
 
     Parameters
     ----------
-    s : iterable of float, shape (..., 3)
+    s : iterable of float, shape (..., ndim) or float
         Source points.
-    t : iterable of float, shape (..., 3)
+    t : iterable of float, shape (..., ndim) or float
         Target points.
-    box_dim : interable of float, shape (3,)
-        Cuboid box dimensions [Lx, Ly, Lz].
+    box_dim : interable of float, shape (ndim,) or float
+        e.g. Cuboid box dimensions [Lx, Ly, Lz].
 
     Returns
     -------
@@ -628,8 +628,13 @@ def min_img_dist(s, t, box_dim):
         Minimum image displacement vectors.
     """
     box_dim = np.asarray(box_dim)
+    s = np.asarray(s); t = np.asarray(t)
+    # Ensure consistent dimensions
+    if s.shape[-1] != t.shape[-1] or s.shape[-1] != box_dim.shape[-1]:
+        raise ValueError("Last dimension of s, t, and box_dim must match")
+    distance = t - s
     box_half = box_dim*0.5
-    return np.remainder(s - t + box_half, box_dim) - box_half
+    return np.remainder(distance + box_half, box_dim) - box_half
 
 def generate_random_unit_vectors(N_PART):
     z = np.random.uniform(-1, 1, N_PART)

@@ -148,6 +148,15 @@ class H5DataSelector:
 
     def __len__(self):
         raise TypeError("len() is ambiguous on H5DataSelector objects. Use '.timestep' or '.particles' accessor to get the length of the relevant axis.")
+    
+    def __add__(self, ds):
+        return self._join_with(ds)
+
+    def join_with(self, *args):
+        joinned_ds = self
+        for ds in args:
+            joinned_ds._join_with(ds)
+        return joinned_ds
 
     @property
     def timestep(self):
@@ -312,63 +321,106 @@ class H5DataSelector:
     def select_particles_by_object(self, object_name, connectivity_value=None,predicate=None):
         """
         Select a subset of particles based on a connectivity dataset. The indices are sorted and stored as a list (for correct slicing behavior).
+        A predicate can be aplied to further specify the selection criteria.
 
         Args:
             object_name (str): Name of the connectivity object (e.g., "Filament").
             connectivity_value ([int, float or None], optional): The value to match in the connectivity map. Defaults to all values: None.
+            predicate (callable): Function taking an H5DataSelector and returning a boolean mask.
 
         Returns:
             H5DataSelector: A new selector with the particle slice set to the selected indices.
         """
         # Get particles' ids from connectivity of object_name
         ds_name = f"connectivity/{self.particle_group}/ParticleHandle_to_{object_name}"
-        connectivity_map = self.h5_file[ds_name][:,1]
+        # Get the correct indices from the connectivity of the 'father' object. This is where the particle slices are applied to
+        ds_father_name = f"connectivity/{self.particle_group}/ParticleHandle_to_{self.particle_group}"
+
         if connectivity_value is None:
-            filter_mask = np.ones_like(connectivity_map, dtype=bool)
+             # Get all ids from object
+            object_particle_indices = self.h5_file[ds_name][:,0]
         else:
+            # Get only ids from object with connectivity value
+            connectivity_map = self.h5_file[ds_name][:,1]
             connectivity_value=np.atleast_1d(connectivity_value)
             filter_mask = np.isin(connectivity_map, connectivity_value)
-        object_particle_indices = np.ravel(self.h5_file[ds_name][:,0][filter_mask]).astype(np.int32)
-        # Get the correct indices from the connectivity of the 'father' object
-        ds_father_name = f"connectivity/{self.particle_group}/ParticleHandle_to_{self.particle_group}"
+            object_particle_indices = np.ravel(self.h5_file[ds_name][:,0][filter_mask])
+        
+        # Get the correct indices for the selected particles from the parent's particle list
         father_particles_indices = self.h5_file[ds_father_name][:,0]
         filter_mask = np.isin(father_particles_indices, object_particle_indices)
         particle_indices = np.flatnonzero(filter_mask)
         subset=H5DataSelector(self.h5_file, self.particle_group, ts_slice=self.ts_slice, pt_slice=particle_indices.tolist())
+
         if predicate is not None:
+            # apply a predicate funtion to the subset
             mask=predicate(subset).flatten()
             particle_indices=particle_indices[mask]
             subset=H5DataSelector(self.h5_file, self.particle_group, ts_slice=self.ts_slice, pt_slice=particle_indices.tolist())
         return subset
     
-    def select_particles_by_predicate(self, object_name, predicate):
+    def select_particles_by_predicate(self, predicate):
         """
-        Select particles linked to a connectivity object by applying a predicate,
-        without pre-filtering by a connectivity value.
+        Select particles by applying a predicate, without pre-filtering by a connectivity value.
 
         Args:
-            object_name (str): Name of the connectivity object (e.g., "Filament").
             predicate (callable): Function taking an H5DataSelector and returning a boolean mask.
 
         Returns:
             H5DataSelector: Selector with particle slice set to the indices passing the predicate.
         """
-        ds_name = f"connectivity/{self.particle_group}/ParticleHandle_to_{object_name}"
-
-        # Take ALL particles represented by rows of the connectivity dataset (row index == particle index).
-        n_rows = self.h5_file[ds_name].shape[0]
-        particle_indices = np.arange(n_rows, dtype=int)
-
-        # Build subset over all those particles, then apply predicate.
-        subset = H5DataSelector(self.h5_file, self.particle_group,
-                                ts_slice=self.ts_slice, pt_slice=particle_indices.tolist())
-        mask = np.asarray(predicate(subset)).flatten()
+        
+        # Apply predicate to the H5DataSelector
+        mask = np.asarray(predicate(self)).flatten()
 
         # Keep only the particle indices where the predicate is True.
-        selected = particle_indices[mask]
+        if isinstance(self.pt_slice, slice):
+            try:
+                new_pt_slice = np.asarray(_slice_to_list(self.pt_slice), dtype=int)[mask].tolist()
+            except:
+                # Get number of particles from the parent group of the particle group
+                ds_name = f"connectivity/{self.particle_group}/ParticleHandle_to_{self.particle_group}"
+                # Take ALL particles represented by rows of the connectivity dataset (row index == particle index).
+                n_rows = self.h5_file[ds_name].shape[0]
+                new_pt_slice = np.arange(n_rows, dtype=int)[mask].tolist()
+        elif isinstance(self.pt_slice, list):
+            new_pt_slice = np.asarray(self.pt_slice, dtype=int)[mask].tolist()
+        elif isinstance(self.pt_slice, int):
+            new_pt_slice = self.pt_slice if mask.all() else []
 
         return H5DataSelector(self.h5_file, self.particle_group,
-                            ts_slice=self.ts_slice, pt_slice=selected.tolist())
+                            ts_slice=self.ts_slice, pt_slice=new_pt_slice)
+    
+    def select_particles_by_type(self, type: int):
+        """
+        Select particles by type.
+        
+        If slice has multiple time steps, assume that particles cannot change type and connects them to the time of the first time step.
+
+        Args:
+            type (int): The espresso particle type.
+
+        Returns:
+            H5DataSelector: Selector with particle slice set to the indices of the particles of type type.
+        """
+        return self.select_particles_by_predicate(lambda ds: np.asarray(ds.timestep[0].get_property("type")) == type)
+    
+    def by_id(self, id):
+        """
+        Select particles by type.
+        
+        If slice has multiple time steps, assume that particles cannot change type and connects them to the time of the first time step.
+
+        Args:
+            type (int): The espresso particle type.
+
+        Returns:
+            H5DataSelector: Selector with particle slice set to the indices of the particles of type type.
+        """
+        particles = self.select_particles_by_predicate(lambda ds: np.asarray(ds.timestep[0].get_property("id")) == id)
+        assert len(particles.pt_slice) == 1
+        return H5DataSelector(particles.h5_file, particles.particle_group,
+                            ts_slice=particles.ts_slice, pt_slice=particles.pt_slice[0])
 
 
     def get_connectivity_map(self, parent_key, child_key):
@@ -451,6 +503,18 @@ class H5DataSelector:
         conn = self.get_connectivity_map(parent_key, child_key)
         parent_ids = conn[conn[:, 1] == child_id, 0]
         return sorted(int(pid) for pid in parent_ids)
+    
+    def _join_with(self, ds):
+        """
+        Joins two H5DataSelector objects by joining their time slices and particle slices.
+        """
+        if not isinstance(ds, H5DataSelector):
+            raise TypeError(f"You can only join H5DataSelector objects with themselves. Attempted to join with: {type(ds)}")
+        new_ts_slice = _join_index(self.ts_slice, ds.ts_slice)
+        new_pt_slice = _join_index(self.pt_slice, ds.pt_slice)
+        return H5DataSelector(self.h5_file, self.particle_group,
+                            ts_slice=new_ts_slice, pt_slice=new_pt_slice)
+
 
     def __getattr__(self, attr):
         """
@@ -690,3 +754,102 @@ def _compose_index(existing, new, total_length):
     else:
         raise TypeError("Unsupported type for the new index.")
     return result
+
+def _join_index(index_1, index_2):
+    """
+    Compose two layers of indexing on a given axis by converting the existing index into an explicit list,
+    then applying the new index. This ensures that chained indexing works similarly to Python's native list slicing.
+
+    Args:
+        existing (int, slice, or list/tuple): The current index (or composed indices).
+        new (int, slice, or list/tuple): The new index to be applied.
+        total_length (int): The full length of the axis in the underlying dataset.
+
+    Returns:
+        int, list, or slice: The composed index representing the effective selection on the axis.
+
+    Raises:
+        IndexError: If the new index is out of bounds for the effective indices.
+        TypeError: If unsupported types are provided for indexing.
+    """
+    if isinstance(index_1, slice) and isinstance(index_2, slice):
+        # if both are slices
+        return _join_slices(index_1, index_2)
+    elif isinstance(index_1, slice):
+        slice_test = index_1
+    elif isinstance(index_2, slice):
+        slice_test = index_2
+    else:
+        slice_test = None
+    
+    if isinstance(slice_test, slice) and slice_test.start is None and slice_test.stop is None and slice_test.step is None:
+        return slice_test
+    
+    if isinstance(index_1, int) and isinstance(index_2, int) and index_1 == index_2:
+        # if both indexes tha were joined are of type int and of equal value
+        return index_1
+        
+    list_1 = _convert_index_to_list(index_1)
+    list_2 = _convert_index_to_list(index_2)
+
+    return list(set(list_1 + list_2))
+
+def _convert_index_to_list(index):    
+    # Convert the existing index to an explicit list.
+    if isinstance(index, slice):
+        list_index = _slice_to_list(index)
+    elif isinstance(index, (list, tuple)):
+        list_index = list(index)
+    elif isinstance(index, int):
+        list_index = [index]
+    else:
+        raise TypeError("Unsupported type for the existing index.")
+    return list_index
+
+def _slice_to_list(slice_, len_=None):
+        if not isinstance(slice_, slice):
+            raise TypeError(f"Funciton expected a slice as an input: {type(slice_)}")
+        
+        if len_ is not None:
+            # if the lenght of the final list is know
+            return list(range(*slice_.indices(len_)))
+
+        # if the lenght is not know
+
+        if slice_.end in None:
+            raise ValueError(f"Cannot convert slices with None end values to list, wihtout knowin the lenght: {slice_}")
+
+        # get slice start
+        if slice_.start is None:
+            start = 0
+        else:
+            start = slice_.start
+
+        # get slice step
+        if slice_.step is None:
+            step = 1
+        else:
+            step = slice_.step
+
+        return list(range(start, slice_.stop, step))
+
+def _join_slices(slice_1, slice_2):
+    if slice_1.step is None or slice_2.step is None:
+        step = None
+    elif max(slice_1.step, slice_2.step) % min(slice_1.step, slice_2.step) == 0:
+        step = min(slice_1.step, slice_2.step)
+    else:
+        max_len = 2_147_483_647 # chatgpt told me something about a max lenght to be possible. Not feeling like doing it now. If you are reading this, I never really felt like doing it ...
+        raise NotImplementedError
+
+    if slice_1.start is None or slice_2.start is None:
+        start = None
+    else:
+        start = min(slice_1.start, slice_2.start)
+
+    if slice_1.stop is None or slice_2.stop is None:
+        stop = None
+    else:
+        stop = max(slice_1.stop, slice_2.stop)
+
+    return slice(start, stop, step)
