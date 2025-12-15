@@ -1,6 +1,7 @@
 import h5py
 import numpy as np
 import warnings
+
 class H5DataSelector:
     """
     A simplified interface to access simulation data stored in an HDF5 file. The H5DataSelector maintains internal slice information for timesteps (axis 0) and particles (axis 1) and supports chaining via its accessor properties:
@@ -188,7 +189,7 @@ class H5DataSelector:
         ds = self.h5_file[ds_path]
         return ds[self.ts_slice, self.pt_slice, :]
     
-    def get_connectivity_values(self, object_name):
+    def get_connectivity_values(self, object_name, predicate=None, fast=False):
         """
         Return the raw connectivity pairs for a given object, using the
         ParticleHandle_to_<object_name> dataset.
@@ -204,9 +205,43 @@ class H5DataSelector:
             Array of [particle_id, object_index] pairs.
         """
         ds_path = f"connectivity/{self.particle_group}/ParticleHandle_to_{object_name}"
-        return set(self.h5_file[ds_path][:][:, -1])
+        obj_ids=self.h5_file[ds_path][:,-1]
+        ids=np.unique(obj_ids)
+        ret_ids=[]
+        def divide_and_conquer():
+            nonlocal obj_ids, ids, predicate
+            left=0
+            right=len(ids)
+            while left<right:
+                mid = (left+right) // 2
+                filter_mask = obj_ids==ids[mid]
+                particle_indices = np.flatnonzero(filter_mask)
+                particle_indices = particle_indices.tolist()
+                subset = H5DataSelector(self.h5_file, self.particle_group, ts_slice=self.ts_slice, pt_slice=particle_indices)
+                if predicate(subset):
+                    left=mid+1
+                else:
+                    right=mid
+            return left
+        if predicate is not None:
+            if fast:
+                up_from_me=divide_and_conquer()
+                ret_ids=ids[:up_from_me]
+            else:
+                for i in ids:
+                    filter_mask = obj_ids==i
+                    particle_indices = np.flatnonzero(filter_mask)
+                    particle_indices = particle_indices.tolist()
+                    subset = H5DataSelector(self.h5_file, self.particle_group, ts_slice=self.ts_slice, pt_slice=particle_indices)
+                    if predicate(subset):
+                        ret_ids.append(i)
+                ret_ids=np.array(ret_ids)
+                
+        else:
+            ret_ids=ids
+        return ret_ids
 
-    def select_particles_by_object(self, object_name, connectivity_value=0):
+    def select_particles_by_object(self, object_name, connectivity_value=0,predicate=None):
         """
         Select a subset of particles based on a connectivity dataset. The indices are sorted and stored as a list (for correct slicing behavior).
 
@@ -218,14 +253,47 @@ class H5DataSelector:
             H5DataSelector: A new selector with the particle slice set to the selected indices.
         """
         ds_name = f"connectivity/{self.particle_group}/ParticleHandle_to_{object_name}"
-        connectivity_map = self.h5_file[ds_name][:]
-        local_map = np.arange(len(connectivity_map))
-        filter_mask = connectivity_map[:, 1] == connectivity_value
-        particle_indices = local_map[filter_mask]
-        particle_indices.sort()
-        particle_indices = particle_indices.tolist()  # Ensure a Python list is used.
-        return H5DataSelector(self.h5_file, self.particle_group, ts_slice=self.ts_slice, pt_slice=particle_indices)
+        connectivity_map = self.h5_file[ds_name][:,1]
+        connectivity_value=np.atleast_1d(connectivity_value)
+        filter_mask = np.isin(connectivity_map, connectivity_value)
+        particle_indices = np.flatnonzero(filter_mask)
+        subset=H5DataSelector(self.h5_file, self.particle_group, ts_slice=self.ts_slice, pt_slice=particle_indices.tolist())
+        if predicate is not None:
+            mask=predicate(subset).flatten()
+            particle_indices=particle_indices[mask]
+            subset=H5DataSelector(self.h5_file, self.particle_group, ts_slice=self.ts_slice, pt_slice=particle_indices.tolist())
+        return subset
     
+    def select_particles_by_predicate(self, object_name, predicate):
+        """
+        Select particles linked to a connectivity object by applying a predicate,
+        without pre-filtering by a connectivity value.
+
+        Args:
+            object_name (str): Name of the connectivity object (e.g., "Filament").
+            predicate (callable): Function taking an H5DataSelector and returning a boolean mask.
+
+        Returns:
+            H5DataSelector: Selector with particle slice set to the indices passing the predicate.
+        """
+        ds_name = f"connectivity/{self.particle_group}/ParticleHandle_to_{object_name}"
+
+        # Take ALL particles represented by rows of the connectivity dataset (row index == particle index).
+        n_rows = self.h5_file[ds_name].shape[0]
+        particle_indices = np.arange(n_rows, dtype=int)
+
+        # Build subset over all those particles, then apply predicate.
+        subset = H5DataSelector(self.h5_file, self.particle_group,
+                                ts_slice=self.ts_slice, pt_slice=particle_indices.tolist())
+        mask = np.asarray(predicate(subset)).flatten()
+
+        # Keep only the particle indices where the predicate is True.
+        selected = particle_indices[mask]
+
+        return H5DataSelector(self.h5_file, self.particle_group,
+                            ts_slice=self.ts_slice, pt_slice=selected.tolist())
+
+
     def get_connectivity_map(self, parent_key, child_key):
         """
         Retrieve the connectivity map between parent and child objects from the HDF5 file.

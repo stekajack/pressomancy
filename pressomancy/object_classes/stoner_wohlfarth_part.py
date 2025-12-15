@@ -1,13 +1,17 @@
 from pressomancy.object_classes.part_class import GenericPart
 from pressomancy.object_classes.object_class import ObjectConfigParams 
 from pressomancy.helper_functions import PartDictSafe, SinglePairDict
+import espressomd
+if espressomd.version.major() == 5:
+    import espressomd.propagation
+    Propagation = espressomd.propagation.Propagation
 
 class SWPart(GenericPart):
 
     '''
     Class that contains quadriplex relevant paramaters and methods. At construction one must pass an espresso handle becaouse the class manages parameters that are both internal and external to espresso. It is assumed that in any simulation instanse there will be only one type of a Quadriplex. Therefore many relevant parameters are class specific, not instance specific.
     '''
-    required_features=['MAGNETODYNAMICS_TSW_MODEL',]	
+    required_features=['THERMAL_STONER_WOHLFARTH',]	
 
     numInstances = 0
     simulation_type= SinglePairDict('sw_part', 13)
@@ -41,10 +45,12 @@ class SWPart(GenericPart):
         :return: None
 
         '''
-        particl_real=self.add_particle(type_name='sw_real', pos=pos, rotation=(True, True, True),kT_KVm_inv=self.params['kT_KVm_inv'],dt_incr=self.params['dt_incr'],tau0_inv=self.params['tau0_inv'], tau_trans_inv=self.params['tau_trans_inv'], director=ori,sw_real=True)
+        particl_real=self.add_particle(type_name='sw_real', pos=pos, rotation=(True, True, True), kT_KVm_inv=self.params['kT_KVm_inv'], dt_incr=self.params['dt_incr'], tau0_inv=self.params['tau0_inv'], tau_trans_inv=self.params['tau_trans_inv'], director=ori,sw_real=True)
 
         particl_virt=self.add_particle(type_name='sw_virt', pos=pos, rotation=(False, False, False), sw_virt=True, Hkinv=self.params['HK_inv'],
             sat_mag=self.params['dipm'], dip=ori*self.params['dipm'])
         particl_virt.vs_auto_relate_to(particl_real)
+        if espressomd.version.major() == 5:
+            particl_virt.propagation = Propagation.TRANS_VS_RELATIVE | Propagation.ROT_VS_INDEPENDENT 
 
         return self

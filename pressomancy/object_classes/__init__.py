@@ -7,5 +7,6 @@ from pressomancy.object_classes.egg_model_part import EGGPart
 from pressomancy.object_classes.raspberry_sphere import RaspberrySphere
 from pressomancy.object_classes.tel_sequence import TelSeq
 from pressomancy.object_classes.part_class import GenericPart
+from pressomancy.object_classes.rigid_obj import GenericRigidObj
 
 
