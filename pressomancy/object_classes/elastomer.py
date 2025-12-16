@@ -16,7 +16,7 @@ class Elastomer(metaclass=Simulation_Object):
     required_features=list()	
     numInstances = 0
     simulation_type=SinglePairDict('elastomer', 98)
-    part_types = PartDictSafe({'real': 1, 'virt': 2, 'substrate': 98})
+    part_types = PartDictSafe({'substrate': 98})
     config = ObjectConfigParams(
         box_E= None,
         box_E_shift= np.array((0.,0.,0.)),
@@ -251,6 +251,7 @@ class Elastomer(metaclass=Simulation_Object):
         if test:
             n_inter_0 = 10
             n_iter_1 = 0
+            timestep_iter_1 = 0.0001
         else:
             n_inter_0 = 100
             n_iter_1 = int(2000000 * iter_multiplier)
@@ -507,14 +508,10 @@ class Elastomer(metaclass=Simulation_Object):
         if self.substrate is not None:
             old_periodicity = np.copy(self.sys.periodicity)
             self.sys.periodicity = [True, True, False]
+
         ids=[]
-        if self.associated_objects != None:
-            for obj in self.associated_objects:
-                for key, typ in obj.part_types.items():
-                    if "real" in key:
-                        particles.extend([p.id for p in obj.type_part_dict[typ]])
-        else:
-            ids.extend([p.id for p in self.type_part_dict['real']])
+        for obj in self.associated_objects:
+            ids.extend([p.id for type_name, p_list in obj.type_part_dict.items() if isinstance(type_name, str) and "real" in type_name for p in p_list])
         particles = self.sys.part.by_ids(ids)
 
         if max_bonds is None:
@@ -667,7 +664,7 @@ class Elastomer(metaclass=Simulation_Object):
         # for iid in range(1,len(flat_part_list)-1):
         #     flat_part_list[iid].add_bond((bond_handle, flat_part_list[iid+1],  flat_part_list[iid-1]))
 
-    def create_substrate(self, geometry: str = 'wall'):
+    def create_substrate(self, geometry: str = 'part'):
         if self.substrate is None:
             if geometry == 'wall':
                 self.create_substrate_wall()
@@ -676,7 +673,7 @@ class Elastomer(metaclass=Simulation_Object):
         else:
             warnings.warn("Substrate already set. Will ignore this call.")
 
-    def remove_substrate(self, geometry: str = 'wall'):
+    def remove_substrate(self, geometry: str = 'part'):
         if self.substrate is not None:
             if geometry == 'wall':
                 self.remove_substrate_wall()

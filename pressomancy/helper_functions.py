@@ -630,7 +630,7 @@ def min_img_dist(s, t, box_dim):
     box_dim = np.asarray(box_dim)
     s = np.asarray(s); t = np.asarray(t)
     # Ensure consistent dimensions
-    if s.shape[-1] != t.shape[-1] or s.shape[-1] != box_dim.shape[-1]:
+    if box_dim.ndim > 0 and (s.shape[-1] != t.shape[-1] or s.shape[-1] != box_dim.shape[-1]):
         raise ValueError("Last dimension of s, t, and box_dim must match")
     distance = t - s
     box_half = box_dim*0.5
@@ -696,7 +696,7 @@ def build_grid_and_adjacent(lattice_points, volume_side, cell_size):
     
     return grid, adjacent
 
-def get_neighbours(lattice_points: np.ndarray, volume_side: float, cuttoff: float = 1., map_indices=None) -> defaultdict:
+def get_neighbours(lattice_points: np.ndarray, volume_side: float, cuttoff: float = 1.) -> defaultdict:
     """
     Returns grouped_indices, where grouped_indices is a dictionary that maps each particle index
     to a list of neighbor indices within the cuttoff distance. Uses a grid-based method for efficiency,
@@ -710,16 +710,15 @@ def get_neighbours(lattice_points: np.ndarray, volume_side: float, cuttoff: floa
         The side length of the cubic volume.
     cuttoff : float, optional
         The neighbor distance threshold.
+
+    Note:
+        - particle index in taken from 0 to number of particles.
     
     Returns
     -------
     grouped_indices : defaultdict[int, list[int]]
         Dictionary mapping each particle index to a list of neighbor indices.
     """
-    # map indices (optional)
-    if map_indices is None:
-        map_indices = [i for i in range(len(lattice_points))]
-
     # Use cuttoff as the grid cell size.
     cell_size = cuttoff
     grid, adjacent_cells = build_grid_and_adjacent(lattice_points, volume_side, cell_size)
@@ -1070,7 +1069,7 @@ def partition_cuboid_volume(box_lengths, num_spheres, sphere_diameter, routine_p
     else:
         results=sphere_centers
         res_orientations=generate_random_unit_vectors(len(sphere_centers))
-    return sphere_centers, results, res_orientations
+    return sphere_centers, np.asarray(results), np.asarray(res_orientations)
 
 def partition_cubic_volume_oriented_rectangles(big_box_dim, num_spheres, small_box_dim, num_monomers):
     """
