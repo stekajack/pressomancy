@@ -7,6 +7,8 @@ from pressomancy.analysis import H5DataSelector
 import h5py
 import tempfile
 import os
+from pressomancy.helper_functions import MissingFeature
+import logging
 
 class IOTest(BaseTestCase):
 
@@ -190,12 +192,15 @@ class IOTest(BaseTestCase):
 
     def test_obsolete_IO(self):
         with tempfile.TemporaryDirectory() as tmpdirname:
-            path_to_dump, GLOBAL_COUNTER = sim_inst.init_pickle_dump(
-                path_to_dump=os.path.join(tmpdirname, "testfile.p.gz"))
-            dungeon_witch_list = list(sim_inst.sys.part.all())
-            sim_inst.dump_to_init(path_to_dump, dungeon_witch_list, GLOBAL_COUNTER)
-            path_to_dump, GLOBAL_COUNTER = sim_inst.load_pickle_dump(
-                os.path.join(tmpdirname, "testfile.p.gz"))
+            try:
+                path_to_dump, GLOBAL_COUNTER = sim_inst.init_pickle_dump(
+                    path_to_dump=os.path.join(tmpdirname, "testfile.p.gz"))
+                dungeon_witch_list = list(sim_inst.sys.part.all())
+                sim_inst.dump_to_init(path_to_dump, dungeon_witch_list, GLOBAL_COUNTER)
+                path_to_dump, GLOBAL_COUNTER = sim_inst.load_pickle_dump(
+                    os.path.join(tmpdirname, "testfile.p.gz"))
+            except MissingFeature as excp:
+                logging.warning(f"Skipping depreciated IO pipeline tests because it requires a feature that is not available.  Caught exception {excp}")
 
 
    
