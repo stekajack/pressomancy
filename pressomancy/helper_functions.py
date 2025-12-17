@@ -4,6 +4,8 @@ from collections import defaultdict
 import inspect
 import logging
 import warnings
+import espressomd.version
+import sys as sysos
 
 class MissingFeature(Exception):
     pass
@@ -1344,6 +1346,28 @@ def broadcast_to_len(target_len, arg):
         return arg
     else: # lenghts missmatch
         return [arg] * target_len
+      
+def api_agnostic_feature_check(feature_name):
+    ret_val=None
+    espresso_major_version=espressomd.version.major()
+    try:
+        if espresso_major_version==5:
+            ret_val=espressomd.code_features.has_features(feature_name)
+        elif espresso_major_version==4:
+            ret_val=espressomd.has_features(feature_name)
+        else:
+            raise ValueError('This version of ESPResSo may not be supported!')
+    except RuntimeError:
+        logging.warning(f'feature check for {feature_name}, espresso version {espresso_major_version} failed with exception {sysos.exc_info()}')
+        return False
+    return ret_val
+    
+def particle_attribute_check(part_hndl, attribute_name):
+    try:
+        getattr(part_hndl,attribute_name)
+    except AttributeError:
+        logging.warning(f'particle attribute check for {attribute_name} failed with exception {sysos.exc_info()}')
+        raise MissingFeature(f"Particle attribute {attribute_name} not found. Please ensure your ESPResSo installation supports this attribute.")
 
 class BondWrapper:
     def __init__(self, bond_handle):

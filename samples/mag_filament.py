@@ -1,5 +1,5 @@
 import espressomd
-from pressomancy.helper_functions import BondWrapper
+from pressomancy.helper_functions import BondWrapper, api_agnostic_feature_check
 from pressomancy.simulation import Simulation, Filament
 import numpy as np
 import logging
@@ -36,7 +36,7 @@ H_ext=sim_inst.get_H_ext()
 pats_to_magnetize=sim_inst.sys.part.select(lambda p:p.type==sim_inst.part_types['to_be_magnetized'])
 sim_inst.sys.integrator.run(0)
 sim_inst.avoid_explosion(F_TOL=1e-2)
-if sim_inst.api_agnostic_feature_check('DIPOLE_FIELD_TRACKING'):
+if api_agnostic_feature_check('DIPOLE_FIELD_TRACKING'):
     sim_inst.magnetize(pats_to_magnetize,1.732,H_ext=H_ext)
 sim_inst.sys.integrator.run(1)
 sim_inst.init_magnetic_inter(DipolarDirectSumCpu( prefactor=1))

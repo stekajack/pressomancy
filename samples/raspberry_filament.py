@@ -1,5 +1,5 @@
 from pressomancy.simulation import Simulation, RaspberrySphere, Filament
-from pressomancy.helper_functions import BondWrapper
+from pressomancy.helper_functions import BondWrapper, api_agnostic_feature_check
 import espressomd
 box_dim=(100,100,100)
 sim_inst = Simulation(box_dim=box_dim)
@@ -26,7 +26,7 @@ sim_inst.set_objects(filaments)
 for filament in filaments:
     filament.bond_nearest_part(type_name='virt')
     
-if sim_inst.api_agnostic_feature_check('WALBERLA'):
+if api_agnostic_feature_check('WALBERLA'):
     for rasp in raspberries:
         rasp.set_hydrod_props(rot_inertia=43,mass=47.77)
 
