@@ -121,7 +121,7 @@ ext_B_z = sim_params['H']
 H_ext = [0,0,ext_B_z]
 system.set_H_ext(H=H_ext)
 
-for step in range(1):
+for step in range(2):
     system.sys.integrator.run(1, recalc_forces=True)
     for parts, dipm in parts_to_magnetize:
         system.magnetize(part_list=parts, dip_magnitude=dipm, H_ext=system.get_H_ext())

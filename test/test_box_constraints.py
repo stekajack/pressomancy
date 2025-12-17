@@ -1,4 +1,4 @@
-from test.create_system import sim_inst, BaseTestCase
+from create_system import sim_inst, BaseTestCase
 import numpy as np
 import espressomd
 

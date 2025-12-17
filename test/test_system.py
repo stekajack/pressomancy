@@ -1,7 +1,7 @@
 import pressomancy.object_classes
 import inspect
 import logging
-from test.create_system import sim_inst, BaseTestCase
+from create_system import sim_inst, BaseTestCase
 from pressomancy.helper_functions import MissingFeature
 import espressomd
 

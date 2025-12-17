@@ -1,4 +1,3 @@
-from pressomancy.object_classes.object_class import EspressoPart
 from pressomancy.object_classes.point_dipole import PointDipolePermanent, PointDipoleSuperpara
 from pressomancy.object_classes.quadriplex_class import Quadriplex, Quartet
 from pressomancy.object_classes.crowder_class import Crowder
