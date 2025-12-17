@@ -1,5 +1,5 @@
 from pressomancy.simulation import partition_cuboid_volume, get_neighbours, get_neighbours_cross_lattice
-from create_system import sim_inst, BaseTestCase
+from create_system import BaseTestCase
 import numpy as np
 
 class PartitioningTest(BaseTestCase):

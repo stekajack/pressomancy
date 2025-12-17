@@ -36,13 +36,15 @@ class Elastomer(metaclass=Simulation_Object):
             config['box_E'] = self.sys.box_l
         config['box_E'] = np.asarray(config['box_E'])
         if config['n_parts'] is None:
-            config['n_parts']= 0.3 * (np.prod(config['box_E']) /  4.18879)
+            config['n_parts']= int( 0.2 * (np.prod(config['box_E']) /  4.18879) )
             warnings.warn('monomer size assumed to be 1. and inferred number of particles from volume of Elastomer (to get 0.3 volume fraction)')
         self.params=config
         self.associated_objects=self.params['associated_objects']
         if self.associated_objects is not None:
             self.part_types.update({nam: typ for obj in self.associated_objects for nam, typ in obj.part_types.items()})
-        print(self.part_types)
+            assert len(self.associated_objects) == self.params["n_parts"]
+        else:
+            self.part_types.update({"real": 1})
         self.substrate=None
         self.build_function=RoutineWithArgs(
             func=self.build_Elastomer,
@@ -131,31 +133,6 @@ class Elastomer(metaclass=Simulation_Object):
 
         return elastomer
 
-    def to_dict_of_god(self, father=True):
-        raise NotImplementedError("Does not work for pickle'ing whole elastomer. May work for other purposes.")
-        # Start with obj's own attributes (handle metaclass attributes carefully)
-        if hasattr(self, 'get_params'):
-            base_dict = self.get_params().copy()
-            print("1", base_dict.keys())
-        else:
-            # fallback: serialize __dict__ if available
-            base_dict = getattr(self, '__dict__', {}).copy()
-            print("2", base_dict.keys())
-
-        # Remove or transform attributes that cause problems (e.g., handles to espresso system)
-        base_dict.pop('sys', None)
-        base_dict.get('associated_objects', None)  # handle separately
-
-        # Recursively serialize associated objects if present
-        super_associated_objs = collect_objs_recursively(self)[1:]
-        for obj in super_associated_objs:
-            obj.to_dict_of_god(father=False)
-
-        if father:
-            for part_list in self.type_part_dict.values():
-                for part in part_list:
-                    part.to_dict_of_god()
-
     def set_object(self, pos, ori):
         '''
         Sets the particles in espresso according to self.build_funciton. Particles created here are treated according to their class set_object functions. Indices of added particles stored in self.realz_indices.append attribute.
@@ -243,7 +220,7 @@ class Elastomer(metaclass=Simulation_Object):
         
         return self
     
-    def mix_elastomer_stuff(self, iter_multiplier=1, substrate=None, test=False):
+    def mix_elastomer_stuff(self, iter_multiplier=1, test=False):
         if isinstance(self, list):
             raise ValueError("Must be used on Elastomer object type")
 
@@ -252,6 +229,7 @@ class Elastomer(metaclass=Simulation_Object):
             n_inter_0 = 10
             n_iter_1 = 0
             timestep_iter_1 = 0.0001
+            self.sys.time_step = 0.01
         else:
             n_inter_0 = 100
             n_iter_1 = int(2000000 * iter_multiplier)
@@ -510,8 +488,11 @@ class Elastomer(metaclass=Simulation_Object):
             self.sys.periodicity = [True, True, False]
 
         ids=[]
-        for obj in self.associated_objects:
-            ids.extend([p.id for type_name, p_list in obj.type_part_dict.items() if isinstance(type_name, str) and "real" in type_name for p in p_list])
+        if self.associated_objects is not None:
+            for obj in self.associated_objects:
+                ids.extend([p.id for type_name, p_list in obj.type_part_dict.items() if isinstance(type_name, str) and "real" in type_name for p in p_list])
+        else:
+            ids = [p.id for p in self.type_part_dict["real"]]
         particles = self.sys.part.by_ids(ids)
 
         if max_bonds is None:

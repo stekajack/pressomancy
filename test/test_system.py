@@ -27,4 +27,3 @@ class SimulationTest(BaseTestCase):
                 logging.warning(f"Skipping {cls.__name__} because it requires a feature that is not available.  Caught exception {excp}")
                 continue
             self.assertEqual(len(sim_inst.sys.part), 0)
-            

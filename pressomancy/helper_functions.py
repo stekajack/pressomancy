@@ -426,7 +426,7 @@ class PartDictSafe(dict):
             existing_key = next(k for k, v in self.items() if v == value)
             raise RuntimeError(
                 f"Value '{value}' is already associated with key '{existing_key}' in `part_types`. "
-                f"New entries must have unique values."
+                f"New entries must have unique values: {key}"
             )
 
     def __setitem__(self, key, value):

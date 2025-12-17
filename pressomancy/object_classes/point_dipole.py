@@ -9,7 +9,7 @@ class PointDipolePermanent(metaclass=Simulation_Object):
     required_features=['DIPOLES']	
     numInstances = 0
     simulation_type= SinglePairDict('point_dipole_permanent', 3)
-    part_types = PartDictSafe({'pdp_real': 3})
+    part_types = PartDictSafe({'pdp_real': 61})
     config = ObjectConfigParams(
          dipm=1.
     )
@@ -56,7 +56,7 @@ class PointDipoleSuperpara(metaclass=Simulation_Object):
     required_features=['DIPOLES', 'DIPOLE_FIELD_TRACKING']	
     numInstances = 0
     simulation_type= SinglePairDict('point_dipole_superpara', 4)
-    part_types = PartDictSafe({'pds_real': 4, 'pds_virt': 666})
+    part_types = PartDictSafe({'pds_real': 62, 'pds_virt': 666})
     config = ObjectConfigParams(
          dipm=1.
     )
