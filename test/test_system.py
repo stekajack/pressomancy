@@ -27,3 +27,30 @@ class SimulationTest(BaseTestCase):
                 logging.warning(f"Skipping {cls.__name__} because it requires a feature that is not available.  Caught exception {excp}")
                 continue
             self.assertEqual(len(sim_inst.sys.part), 0)
+
+    def test_set_valid_attr(self):
+        old_seed = sim_inst.seed
+        try:
+            sim_inst.seed = old_seed + 1
+        except:
+            pass
+
+        assert sim_inst.test_set_attr("seed") == sim_inst.seed == old_seed + 1
+
+    def test_set_private_attr(self):
+        try:
+            sim_inst._no_objects = 3
+            success = False
+        except:
+            success = True
+
+        assert success
+
+    def test_set_private_attr(self):
+        try:
+            sim_inst.no_objects = 3
+            success = False
+        except:
+            success = True
+
+        assert success

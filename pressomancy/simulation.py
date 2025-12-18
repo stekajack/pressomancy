@@ -361,150 +361,40 @@ class Simulation():
                 raise NotImplementedError('The repartitioning scheme can currently handle only the case where one previos partition exists. More than than is still not supported')
         
         positions += shift
+        self.place_objects(objects, positions, orientations)
+
+    def place_objects(self, objects, positions, orientations=None):
+        """Set objects' positions and orientations in a box.
+        This method places objects at given coordinates within the simulation box and sets their orientations.
+        If orientations are not provided, random unit vectors are generated.
+        This method does not guarantee non-overlapping of objects, in any way.
+
+        Parameters
+        ----------
+        objects : list or array-like
+            List of simulation objects to place. Can be a single object or multiple.
+        positions : array-like of shape (N, 3)
+            A list or array of 3D coordinates where each object will be placed.
+        orientations : array-like of shape (N, 3), optional
+            Orientation vectors for each object. If not provided, random unit vectors are generated.
+
+        Raises
+        ------
+        AssertionError
+            If the number of objects, positions, and orientations do not match.
+        """
+        objects= np.atleast_1d(objects)
+        if orientations is None:
+            orientations = generate_random_unit_vectors(len(positions))
+        else:
+            orientations = normalize_vectors(orientations)
+        assert len(objects) == len(positions) == len(orientations), f"{objects.shape} == {positions.shape} == {orientations.shape}"
         for obj, pos, ori in zip(objects, positions, orientations):
             obj.set_object(pos, ori)
         names = [element.__class__.__name__ for element in objects]
         counts = Counter(names)
         formatted = ", ".join(f"{count} {name}" for name, count in counts.items())
         logging.info(f"{formatted} set!!!")
-
-    def place_objects(self, objects, positions, orientations=None):
-        """Set objects' positions and orientations in a box.
-        This method places objects at given coordinates within the simulation box and sets their orientations.
-        If orientations are not provided, random unit vectors are generated.
-        This method does not guarantee non-overlapping of objects, in any way.
-
-        Parameters
-        ----------
-        objects : list or array-like
-            List of simulation objects to place. Can be a single object or multiple.
-        positions : array-like of shape (N, 3)
-            A list or array of 3D coordinates where each object will be placed.
-        orientations : array-like of shape (N, 3), optional
-            Orientation vectors for each object. If not provided, random unit vectors are generated.
-
-        Raises
-        ------
-        AssertionError
-            If the number of objects, positions, and orientations do not match.
-        """
-        objects= np.array([objects]).ravel()
-        if orientations is None:
-            orientations = generate_random_unit_vectors(len(positions))
-        else:
-            orientations = normalize_vectors(orientations)
-        assert len(objects) == len(positions) == len(orientations)
-        for obj, pos, ori in zip(objects, positions, orientations):
-            obj.set_object(pos, ori)
-        logging.info('%s placed!!!', objects[0].__class__.__name__)
-
-    def set_objects_god(self, objects, positions, orientations=None, **kwargs):
-        """Set objects' everything in the simulation box.
-        This method places objects at given coordinates within the simulation box and sets their orientations. Furthermore, it sets any other object/particle properti passed through as extra keyword arguments.
-        This method does not guarantee non-overlapping of objects, in any way.
-
-        Parameters
-        ----------
-        objects : list or array-like
-            List of simulation objects to place. Can be a single object or multiple.
-        positions : array-like of shape (N, 3)
-            A list or array of 3D coordinates where each object will be placed.
-        orientations : array-like of shape (N, 3)
-            Orientation vectors for each object
-        **kwargs : keyword arguments (any number)
-            Valid object.set_object() or espressomd.part.add() keyword arguments.
-
-        Raises
-        ------
-        AssertionError
-            If the number of objects, positions, orientations, and every kwargs item lenght do not match.
-        """
-        objects= np.array([objects]).ravel()
-        positions= np.atleast_2d(positions)
-        len_objects=len(objects)
-
-        if orientations is None:
-            orientations = np.zeros_like(positions) + [0,0,1]
-        else:
-            orientations = normalize_vectors(orientations)
-        orientations= np.atleast_2d(orientations)
-        assert len_objects == len(positions) == len(orientations)
-        for key in kwargs.keys():
-            kwargs[key] = broadcast_to_len(len_objects, kwargs[key])
-        kwargs_keys = kwargs.keys()
-        for obj, pos, ori, *kwa_values in zip(objects, positions, orientations, *kwargs.values()):
-            kwa = dict(zip(kwargs_keys, kwa_values))
-            obj.set_object(pos, ori, **kwa)
-        logging.info('%s placed!!!', objects[0].__class__.__name__)
-
-    def place_objects(self, objects, positions, orientations=None):
-        """Set objects' positions and orientations in a box.
-        This method places objects at given coordinates within the simulation box and sets their orientations.
-        If orientations are not provided, random unit vectors are generated.
-        This method does not guarantee non-overlapping of objects, in any way.
-
-        Parameters
-        ----------
-        objects : list or array-like
-            List of simulation objects to place. Can be a single object or multiple.
-        positions : array-like of shape (N, 3)
-            A list or array of 3D coordinates where each object will be placed.
-        orientations : array-like of shape (N, 3), optional
-            Orientation vectors for each object. If not provided, random unit vectors are generated.
-
-        Raises
-        ------
-        AssertionError
-            If the number of objects, positions, and orientations do not match.
-        """
-        objects= np.array([objects]).ravel()
-        if orientations is None:
-            orientations = generate_random_unit_vectors(len(positions))
-        else:
-            orientations = normalize_vectors(orientations)
-        assert len(objects) == len(positions) == len(orientations)
-        for obj, pos, ori in zip(objects, positions, orientations):
-            obj.set_object(pos, ori)
-        logging.info('%s placed!!!', objects[0].__class__.__name__)
-
-    def set_objects_god(self, objects, positions, orientations=None, **kwargs):
-        """Set objects' everything in the simulation box.
-        This method places objects at given coordinates within the simulation box and sets their orientations. Furthermore, it sets any other object/particle properti passed through as extra keyword arguments.
-        This method does not guarantee non-overlapping of objects, in any way.
-
-        Parameters
-        ----------
-        objects : list or array-like
-            List of simulation objects to place. Can be a single object or multiple.
-        positions : array-like of shape (N, 3)
-            A list or array of 3D coordinates where each object will be placed.
-        orientations : array-like of shape (N, 3)
-            Orientation vectors for each object
-        **kwargs : keyword arguments (any number)
-            Valid object.set_object() or espressomd.part.add() keyword arguments.
-
-        Raises
-        ------
-        AssertionError
-            If the number of objects, positions, orientations, and every kwargs item lenght do not match.
-        """
-        objects= np.array([objects]).ravel()
-        positions= np.atleast_2d(positions)
-        len_objects=len(objects)
-
-        if orientations is None:
-            orientations = np.zeros_like(positions) + [0,0,1]
-        else:
-            orientations = normalize_vectors(orientations)
-        orientations= np.atleast_2d(orientations)
-        assert len_objects == len(positions) == len(orientations)
-        for key in kwargs.keys():
-            kwargs[key] = broadcast_to_len(len_objects, kwargs[key])
-        kwargs_keys = kwargs.keys()
-        for obj, pos, ori, *kwa_values in zip(objects, positions, orientations, *kwargs.values()):
-            kwa = dict(zip(kwargs_keys, kwa_values))
-            obj.set_object(pos, ori, **kwa)
-        logging.info('%s placed!!!', objects[0].__class__.__name__)
 
     def mark_for_collision_detection(self, object_type=Quadriplex, part_type=666):
         assert any(isinstance(ele, object_type) for ele in self._objects), "method assumes simulation holds correct type object"
@@ -788,7 +678,7 @@ class Simulation():
                 part.dip = dip_magnitude/tri*(inv_tanh_dip_tri-inv_dip_tri)*H_tot
             logging.info(part.dip)
 
-    def magnetize_lin(self, part_list, dip_magnitude, H_ext):
+    def magnetize_lin(self, part_list, dip_magnitude, H_ext, Xi=1.):
         '''
         Apply a linear magnetisation law to determine the magnitude of the dipole moment of each particle in part_list, projected along H_tot=H_ext+tot_dip_fld. part_list should be a iterable that contains espresso particleHandle objects.
 
@@ -799,14 +689,15 @@ class Simulation():
         :return: None
 
         '''
-        assert H_tot < 1., "for magnetic fields above 1, the particle's dipm would surpass their saturation value"
         for part in part_list:
             H_tot = part.dip_fld+H_ext
             tri = np.linalg.norm(H_tot)
-            if tri < 1e-5:
+            if Xi * tri >= 1.:
+                part.dip = H_tot / tri
+            elif tri < 1e-5:
                 part.dip = H_tot/tri * 1e-6
             else:
-                part.dip = dip_magnitude*H_tot
+                part.dip = dip_magnitude*H_tot*Xi
             logging.info(part.dip)
 
     def magnetize_froelich_kennelly(self, part_list, dip_magnitude, H_ext, Xi=0.5):
@@ -843,6 +734,7 @@ class Simulation():
         note: This function does not take into account dipolar fields.
 
         '''
+        H_ext = np.asarray(H_ext)
         for part in part_list:
             tri = np.linalg.norm(H_ext)
             dip_tri = dip_magnitude*tri #/ self.kT
@@ -1626,3 +1518,6 @@ class Simulation():
                     ori_per_obj.append(val)
                     continue
         return positions_per_obj,ori_per_obj
+    
+    def test_set_attr(self, name):
+        return self.__getattribute__(name)

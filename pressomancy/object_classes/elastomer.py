@@ -650,11 +650,9 @@ def build_function_generic(parent_obj, box_l, num_children, children_centers, ch
         orientations_list = [None] * num_children
 
         if children_orientations is None:
-            children_orientations = generate_random_unit_vectors(num_children)
+            children_orientations = random_like_nested_3d_vectors(children_centers)
 
         if parent_obj.associated_objects is None:
-            if children_orientations is None:
-                children_orientations = random_like_nested_3d_vectors(children_centers)
             return children_orientations, children_centers
         else:
             children_handels = [obj for obj in parent_obj.associated_objects]

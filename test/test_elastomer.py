@@ -1,4 +1,4 @@
-from pressomancy.simulation import partition_cuboid_volume, get_neighbours, Elastomer, PointDipoleSuperpara
+from pressomancy.simulation import Elastomer, PointDipoleSuperpara
 from create_system import sim_inst, BaseTestCase
 import numpy as np
 

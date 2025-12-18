@@ -6,6 +6,7 @@ import logging
 import warnings
 import espressomd.version
 import sys as sysos
+import h5py
 
 class MissingFeature(Exception):
     pass
@@ -1374,6 +1375,22 @@ class BondWrapper:
     def __init__(self, bond_handle):
         # Store the bond_handle instance
         self._bond_handle = bond_handle
+        self.name = bond_handle.__class__.__name__
+        
+        if isinstance(bond_handle, espressomd.interactions.FeneBond):
+            self.dtype = np.dtype([
+                        ("partner_id", np.int32),
+                        ("k", np.float32),
+                        ("r_0", np.float32),
+                        ("d_r_max", np.float32)
+                        ])
+        elif isinstance(bond_handle, espressomd.interactions.HarmonicBond):
+            self.dtype = np.dtype([
+                        ("partner_id", np.int32),
+                        ("k", np.float32),
+                        ("r_0", np.float32),
+                        ("r_cut", np.float32)
+                        ])
 
     def __getattr__(self, name):
         # Delegate attribute access to the wrapped object
