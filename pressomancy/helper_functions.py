@@ -800,7 +800,8 @@ def get_neighbours_ordered(lattice_points: np.ndarray, volume_side: float, cutto
                     dist = np.linalg.norm(diff)
                     if dist <= cuttoff:
                         grouped_indices_dist.append((j, dist))
-            grouped_indices_dist = list(set(id_ for id_, _ in sorted(grouped_indices_dist, key=lambda x: x[1])))
+            grouped_indices_dist = [id_ for id_, _ in sorted(grouped_indices_dist, key=lambda x: x[1])]
+            assert len(list(set(grouped_indices))) == len(grouped_indices)
             grouped_indices[map_indices[i]] = [map_indices[j] for j in grouped_indices_dist]
     return grouped_indices
 
@@ -1538,7 +1539,7 @@ def add_box_constraints_func(sys, wall_type=0, sides=['all'], inter=None, types_
             for type_ in types_:
                 sigma = sys.non_bonded_inter[type_,type_].wca.sigma/2 / 2**(1/6)
                 if sigma < 0.001:
-                    raise ValueError(f"Interaction of type {type_} with wall is 0, has these particles have no interaction defined. If you would like to have no interactions between particles, but only with wall, then hange this function or do it with normal espresso constraints.")
+                    warnings.warn(f"Interaction of type {type_} with wall is 0, has these particles have no interaction defined. If you would like to have no interactions between particles, but only with wall, then hange this function or do it with normal espresso constraints.")
                 sys.non_bonded_inter[wall_type,type_].wca.set_params(epsilon=1E6, sigma=sigma)
 
     return wall_constraints
@@ -1588,37 +1589,33 @@ def check_free_cuboid(sys, cuboid_l, cuboid_l_shift=None):
     else:
         return np.all(np.any((pos < cuboid_l_shift) | (pos > cuboid_l_shift + cuboid_l), axis=1))
 
-def avoid_explosion(sys, F_TOL, MAX_STEPS=5, F_incr=100, I_incr=100):
-        """
-        Iteratively caps forces to prevent simulation instabilities.
-        :param F_TOL: float | Force change tolerance between iterations to determine convergence.
-        :param MAX_STEPS: int | Maximum number of steps for force iteration. Default is 5.
-        :param F_incr: int | Amount to increase force cap by each iteration. Default is 100.
-        :param I_incr: int | Amount to increase integration steps by each iteration. Default is 100.
-        :return: None
+def check_type_keys_recursive(obj, type_keys):
+    if isinstance(type_keys, (tuple, list)):
+        for typ in type_keys:
+            assert typ in obj.part_types, f"Missing type_key '{typ}' in {obj}. Type key must exist in the part_types of all associated monomers!"
+    else:
+        assert type_keys in obj.part_types, f"Missing type_key '{type_keys}' in {obj}. Type key must exist in the part_types of all associated monomers!"
 
-        The method gradually increases both the force cap and integration timestep while monitoring the relative force change between iterations. If the relative change falls below F_TOL or MAX_STEPS is reached, the iteration stops.
-        """
-        timestep_og=sys.time_step
-        timestep_icr=timestep_og/MAX_STEPS
-        logging.info('iterating with a force cap.')
-        sys.integrator.run(0)
-        STEP=1
-        while True:
-            sys.time_step=timestep_icr*STEP
-            old_force = np.max(np.linalg.norm(
-                sys.part.all().f, axis=1))
-            sys.force_cap = F_incr
-            sys.integrator.run(I_incr)
-            force = np.max(np.linalg.norm(sys.part.all().f, axis=1))
-            rel_force = np.abs((force - old_force) / old_force)
-            logging.info(f'rel. force change: {rel_force:.2e}')
-            if (rel_force < F_TOL) or (STEP >= MAX_STEPS):
-                break
-            STEP += 1
-            I_incr += I_incr
-            F_incr += F_incr
+    if obj.associated_objects is not None:
+        for child in obj.associated_objects:
+            check_type_keys_recursive(child, type_keys)
 
-        sys.force_cap = 0
-        sys.time_step=timestep_og
-        logging.info('explosions avoided sucessfully!')
+def collect_objs_recursively(parents, keep_parents=True):
+    """
+    Traverse each obj in `parents` and return a flat preorder list
+    of every object reachable via `.associated_objects`.
+    Raises RuntimeError on any duplicate.
+    """
+    seen = set()
+    result = []
+    stack = list(parents)
+
+    while stack:
+        obj = stack.pop()
+        if obj in seen:
+            raise RuntimeError(f"Duplicate object detected: {obj!r}")
+        seen.add(obj)
+        result.append(obj)
+        stack.extend(getattr(obj, "associated_objects", []) or [])
+
+    return result

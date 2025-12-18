@@ -133,7 +133,7 @@ class Simulation():
         # espresso system is accessed by .sys, e.g. self.sys.part.all()
         # I/O
         self.io_dict={'h5_file': None,'properties':[('id',1), ('type',1), ('pos',3),('pos_folded',3), ('director',3),('image_box',3), ('f',3),('dip',3)], 'bonds':None,'flat_part_view':defaultdict(list),'registered_group_type': None}
-        self.src_params_set=False
+        self._src_params_set=False
 
         # System numbers stuff
         self.seed = int.from_bytes(os.urandom(2), sysos.byteorder)
@@ -178,11 +178,11 @@ class Simulation():
             )    
     
     def set_init_src(self, path, pos_ori_src_type=['real',], type_to_type_map=[], prop_to_prop_map=[], declare_types=[]):
-        self.src_path_h5=path
-        self.pos_ori_src_type=pos_ori_src_type
-        self.type_to_type_map=type_to_type_map
-        self.prop_to_prop_map=prop_to_prop_map
-        self.src_params_set=True
+        self._src_path_h5=path
+        self._pos_ori_src_type=pos_ori_src_type
+        self._type_to_type_map=type_to_type_map
+        self._prop_to_prop_map=prop_to_prop_map
+        self._src_params_set=True
         for typ_decl in declare_types:
             for x,y in typ_decl.items():
                 self._part_types[x]=y
@@ -1421,15 +1421,15 @@ class Simulation():
         """
 
         # Open the source HDF5 and select the data group matching the requested type.
-        assert self.src_params_set==True, 'src_params_set must be set before calling this method'
-        with h5py.File(self.src_path_h5, "r") as src_file:
+        assert self._src_params_set==True, 'src_params_set must be set before calling this method'
+        with h5py.File(self._src_path_h5, "r") as src_file:
             src_data_grp = H5DataSelector(src_file, particle_group=registered_objs[0].__class__.__name__)
 
             # Discover the set of numeric type IDs present in the source for this group.
             all_src_types_numeric = np.unique(src_data_grp.type)
 
             # Validate that each requested (src_type -> local_type) exists both locally and in the source file.
-            for src_typ, loc_typ in self.type_to_type_map:
+            for src_typ, loc_typ in self._type_to_type_map:
                 assert (
                     loc_typ in self._part_types or src_typ in self._part_types
                 ), (
@@ -1452,7 +1452,7 @@ class Simulation():
 
                 # Apply each aligned (type mapping, property mapping) pair.
                 for (src_typ, loc_typ), (prop_src, prop_loc) in zip(
-                    self.type_to_type_map, self.prop_to_prop_map
+                    self._type_to_type_map, self._prop_to_prop_map
                 ):
                     logging.info(
                         f"Working on {loc_obj.__class__.__name__}: {loc_obj.who_am_i} type {src_typ}->{loc_typ} prop {prop_src}->{prop_loc}"
@@ -1571,13 +1571,13 @@ class Simulation():
         """
 
         # Open the source HDF5 and select the data group matching the requested type.
-        assert self.src_params_set==True, 'src_params_set must be set before calling this method'
-        with  h5py.File(self.src_path_h5, "r") as src_file:
+        assert self._src_params_set==True, 'src_params_set must be set before calling this method'
+        with  h5py.File(self._src_path_h5, "r") as src_file:
             src_data_grp = H5DataSelector(src_file, particle_group=registered_objs[0].__class__.__name__)
 
             # Discover the set of numeric type IDs present in the source for this group.
             all_src_types_numeric = np.unique(src_data_grp.type)
-            requested_names = set(self.pos_ori_src_type)
+            requested_names = set(self._pos_ori_src_type)
             available_names = set(self._part_types.keys())
 
             # 1) every requested name must exist
@@ -1602,10 +1602,10 @@ class Simulation():
             positions_per_obj,ori_per_obj=[],[]
             for loc_obj in registered_objs:
                 logging.info(
-                    f"Loading data for {loc_obj.__class__.__name__}: {loc_obj.who_am_i} from SRC part type {self.pos_ori_src_type}."
+                    f"Loading data for {loc_obj.__class__.__name__}: {loc_obj.who_am_i} from SRC part type {self._pos_ori_src_type}."
                 )
                 # Select source particles at the requested time step that belong to this group instance (connectivity == loc_obj.who_am_i), with the correct pos_ori_src_type.
-                allowed_types=[self._part_types[x] for x in self.pos_ori_src_type]
+                allowed_types=[self._part_types[x] for x in self._pos_ori_src_type]
                 part_slice = src_data_grp.timestep[time_step].select_particles_by_object(
                     object_name=loc_obj.__class__.__name__,
                     connectivity_value=loc_obj.who_am_i,

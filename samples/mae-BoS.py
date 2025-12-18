@@ -65,8 +65,6 @@ system.store_objects(elastomer)
 system.set_objects(elastomer, box_lengths=elastomer[0].params['box_E'], shift=elastomer[0].params['box_E_shift'])
 elastomer= elastomer[0]
 
-print(set(system.sys.part.all().type))
-
 system.set_steric(key=("pdp_real", "pds_real"))
 
 # must add non_bonded interactions before creating substrate
@@ -90,12 +88,9 @@ system.sys.magnetostatics.solver = dds
 system.sys.integrator.run(0)
 
 # Mark particles to magnetize. Careful to use python lists, and not espressomd particle slices
-parts_to_magnetize= []
-if any(isinstance(obj, PointDipoleSuperpara) for obj in system.objects):
-    pds_to_magnetize = list(system.sys.part.select(type=system.part_types['pds_virt']))
-    parts_to_magnetize.append([pds_to_magnetize, config_pds['dipm']])
-else:
-    parts_to_magnetize = None
+pds_to_magnetize = list(system.sys.part.select(type=system.part_types['pds_virt']))
+parts_to_magnetize = [[pds_to_magnetize, config_pds['dipm']],]
+
 
 # Gradually increasing dipole moments for permanent dipoles
 if any(isinstance(obj, PointDipolePermanent) for obj in system.objects):
@@ -112,7 +107,7 @@ if any(isinstance(obj, PointDipolePermanent) for obj in system.objects):
             for parts, dipm_pds in parts_to_magnetize:
                 system.magnetize(part_list=parts, dip_magnitude=dipm_pds, H_ext=np.asarray([0,0,0]))
 
-    assert all(np.abs( np.linalg.norm(system.sys.part.select(type=system.part_types['pdp_real']).dip, axis=-1) - config_pdp['dipm']) < 0.001  )
+    assert (np.abs( system.sys.part.select(type=system.part_types['pdp_real']).dipm - config_pdp['dipm']) < 0.001  ).all()
 
 # STABILIZE MAE WITH MAGNETIC FIELD
 system.sys.time = 0.
