@@ -1,7 +1,7 @@
 import numpy as np
 import pressomancy.object_classes
 import espressomd
-from create_system import sim_inst , BaseTestCase
+from create_system import sim_inst, BaseTestCase
 from pressomancy.object_classes.quadriplex_class import *
 
 

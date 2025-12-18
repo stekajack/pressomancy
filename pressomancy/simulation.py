@@ -115,40 +115,86 @@ class Simulation():
         - Many methods rely on specific attributes or methods being implemented in the stored objects. This is why any object that is to be safely used by Simulation should use the SimulationObject metaclass.
         - This class is designed to be extensible for different types of interactions and constraints.
     """
-    
-    object_permissions=['part_types']
+    _allowed_direct_set = {"_allowed_direct_set", "seed", "kT"}
+
+    _object_permissions=['part_types']
     _sys=espressomd.System
-    def __init__(self, box_dim):
-        self.no_objects = 0
-        self.objects = []
-        self.part_types = PartDictSafe({})
+    def __init__(self, box_dim, use_espresso_checkpoint_system=None):
+        # Private attributes (# with public properties)
+        self._no_objects = 0 # .no_objects
+        self._objects = [] # .objects
+        self._part_types = PartDictSafe({}) # .part_types
+        self._partitioned=None
+        self._part_positions=[]
+        self._volume_size=None
+        self._volume_centers=[]
+
+        # Public attributes
+        # espresso system is accessed by .sys, e.g. self.sys.part.all()
+        # I/O
+        self.io_dict={'h5_file': None,'properties':[('id',1), ('type',1), ('pos',3),('pos_folded',3), ('director',3),('image_box',3), ('f',3),('dip',3)], 'bonds':None,'flat_part_view':defaultdict(list),'registered_group_type': None}
+        self._src_params_set=False
+
+        # System numbers stuff
         self.seed = int.from_bytes(os.urandom(2), sysos.byteorder)
-        self.partitioned=None
-        self.part_positions=[]
-        self.volume_size=None
-        self.volume_centers=[]
-        self.io_dict={'h5_file': None,'properties':[('id',1), ('type',1), ('pos',3),('pos_folded',3), ('director',3),('image_box',3), ('f',3),('dip',3)],'flat_part_view':defaultdict(list),'registered_group_type': None}
-        self.src_params_set=False
-        # self.sys=espressomd.System(box_l=box_dim) is added and managed by the singleton decrator!
+        self.kT = 1.
+
+    @property
+    def no_objects(self):
+        return self._no_objects
+    @property
+    def objects(self):
+        return self._objects
+    @property
+    def part_types(self):
+        return self._part_types
+
+    def __setattr__(self, name, value):
+        # Allow initialization
+        if not hasattr(self, name):
+            object.__setattr__(self, name, value)
+            return
+        
+        # allow internal properties (start with "_")
+        if name.startswith('_'):
+            object.__setattr__(self, name, value)
+            return
+            
+        # Block protected and important attributes
+        protected_attrs = {
+            'no_objects': "Object count is managed automatically",
+            'part_types': "Dictionairy that stores particle type names and type integers is managed automatically. Only after a checkpoint should you use system.part_types.update() to restore checkpointed part_types dict.",
+            'objects': "Object list is managed automatically. Use store_objects() or other Simulation method to store objects.",
+            'sys': "System is read-only. Use rebind_sys() - only should be used after loading an espresso checkpoint."
+        }
+        
+        if name in self._allowed_direct_set:
+            object.__setattr__(self, name, value)
+        elif name in protected_attrs:
+            raise AttributeError(protected_attrs[name])
+        else:
+            raise AttributeError(
+                f"Cannot set '{name}' directly. Use appropriate methods."
+            )    
     
     def set_init_src(self, path, pos_ori_src_type=['real',], type_to_type_map=[], prop_to_prop_map=[], declare_types=[]):
-        self.src_path_h5=path
-        self.pos_ori_src_type=pos_ori_src_type
-        self.type_to_type_map=type_to_type_map
-        self.prop_to_prop_map=prop_to_prop_map
-        self.src_params_set=True
+        self._src_path_h5=path
+        self._pos_ori_src_type=pos_ori_src_type
+        self._type_to_type_map=type_to_type_map
+        self._prop_to_prop_map=prop_to_prop_map
+        self._src_params_set=True
         for typ_decl in declare_types:
             for x,y in typ_decl.items():
-                self.part_types[x]=y
+                self._part_types[x]=y
     
-    def set_sys(self, timestep=0.01, min_global_cut=3.0, have_quaternion=False):
+    def set_sys(self, time_step=0.01, min_global_cut=3.0, have_quaternion=False):
         '''
         Set espresso cellsystem params, and import virtual particle scheme. Run automatically on initialisation of the System class.
         '''
         np.random.seed(seed=self.seed)
         logging.info(f'core.seed: {self.seed}')
         self.sys.periodicity = (True, True, True)
-        self.sys.time_step = timestep
+        self.sys.time_step = time_step
         self.sys.cell_system.skin = 0.5
         self.sys.min_global_cut = min_global_cut
         if espressomd.version.major()==4:
@@ -165,18 +211,46 @@ class Simulation():
         :param action: callable | A function that takes the current attribute value as input and modifies it.
         :return: None
         """
-        if hasattr(self, attribute_name) and attribute_name in self.object_permissions:
+        if hasattr(self, attribute_name) and attribute_name in self._object_permissions:
             action(getattr(self,attribute_name))
 
         else:
             logging.info("Requester does not have permission to modify attributes.")
 
+    def reset_non_bonded_inter(self):
+        """
+        Resets wca interactions (uncomment to add more). Removes only interactions between types from pressomancy objects.
+        
+        Workaround until espressomd.BondedInteractions.reset() is fixed.
+        """
+        for (type1, type2) in combinations_with_replacement(tuple(self._part_types.values()), 2):
+            self.sys.non_bonded_inter[type1,type2].wca.deactivate()
+
+            # self.sys.non_bonded_inter[type1,type2].tabulated.deactivate()
+            # self.sys.non_bonded_inter[type1,type2].lennard_jones.deactivate()
+            # self.sys.non_bonded_inter[type1,type2].generic_lennard_jones.deactivate()
+            # self.sys.non_bonded_inter[type1,type2].lennard_jones_cos.deactivate()
+            # self.sys.non_bonded_inter[type1,type2].lennard_jones_cos2.deactivate()
+            # self.sys.non_bonded_inter[type1,type2].smooth_step.deactivate()
+            # self.sys.non_bonded_inter[type1,type2].bmhtf.deactivate()
+            # self.sys.non_bonded_inter[type1,type2].morse.deactivate()
+            # self.sys.non_bonded_inter[type1,type2].buckingham.deactivate()
+            # self.sys.non_bonded_inter[type1,type2].soft_sphere.deactivate()
+            # self.sys.non_bonded_inter[type1,type2].hat.deactivate()
+            # self.sys.non_bonded_inter[type1,type2].hertzian.deactivate()
+            # self.sys.non_bonded_inter[type1,type2].gaussian.deactivate()
+            # self.sys.non_bonded_inter[type1,type2].dpd.deactivate()
+            # self.sys.non_bonded_inter[type1,type2].thole.deactivate()
+            # self.sys.non_bonded_inter[type1,type2].gay_berne.deactivate()
+
     def sanity_check(self,object):
         '''
         Method that checks if the object has the required features to be stored in the simulation. If the object has the required features it is stored in the self.objects list.
         '''
-        if not all(api_agnostic_feature_check(feature) for feature in object.required_features):
-            raise MissingFeature(f'{object.__class__.__name__} requires features: ',object.required_features)
+        
+        missing_features = set(object.required_features) - set(espressomd.features())
+        if missing_features:
+            raise MissingFeature(f"Missing required features: {', '.join(missing_features)}")
 
     def store_objects(self, iterable_list, report=True):
         '''
@@ -188,34 +262,40 @@ class Simulation():
         temp_dict={}
         for element in iterable_list:
             if element.params['associated_objects'] != None:
-                check_any=any(associated in self.objects for associated in element.params['associated_objects'])
+                check_any=any(associated in self._objects for associated in element.params['associated_objects'])
                 if check_any:
-                    check_all=all(associated in self.objects for associated in element.params['associated_objects'])
+                    check_all=all(associated in self._objects for associated in element.params['associated_objects'])
                     if not check_all:
                         raise ValueError(f"Some associated objects {element.params['associated_objects']} but not all  associated objects are stored in the simulation. This is a sign that smth major is fucked...Suffer in silence.")
                 else:
                     self.store_objects(element.params['associated_objects'],report=False)
-            assert element not in self.objects, "Lists have common elements!"
+            assert element not in self._objects, "Lists have common elements!"
             self.sanity_check(element)
             element.modify_system_attribute = self.modify_system_attribute
-            self.objects.append(element)
+            self._objects.append(element)
             for key, val in element.part_types.items():
                 temp_dict[key]=val
-            self.no_objects += 1
-        self.part_types.update(temp_dict)
+            self._no_objects += 1
+        self._part_types.update(temp_dict)
         if report:
-            names = [element.__class__.__name__ for element in self.objects]
+            names = [element.__class__.__name__ for element in self._objects]
             counts = Counter(names)
             formatted = ", ".join(f"{count} {name}" for name, count in counts.items())
             logging.info(f"{formatted} stored")
 
-    def set_objects(self, objects, mode='NEW'):
-        """Set objects' positions and orientations in the simulation box.
-        This method places objects in the simulation box using a partitioning scheme. For the first placement, it generates exactly the required number of positions. For subsequent placements, it searches for non-overlapping positions with existing objects.
+    def set_objects(self, objects, box_lengths=None, shift=[0,0,0], mode='NEW'):
+        """Set objects' positions and orientations in a box. Defaults to the Simulation box.
+        This method places objects in the simulation box using a partitioning scheme. For the first placement, it generates exactly the required number of positions. For subsequent placements, it searches for non-overlapping positions with existing objects. This guarantees non-overlapping of the objects.
         Parameters
         ----------
         objects : list
-            A list of simulation objects to be placed. All objects must be of the same type.
+            A list of simulation objects to place. All objects must be instances of the same type.
+        box_lengths : array-like of shape (3,), optional
+            Dimensions of the box into which the objects will be placed. If not provided,
+            the default system box dimensions (`self.sys.box_l`) are used.
+        shift : array-like of shape (3,), optional
+            A vector by which to shift all placed object positions. Default is [0, 0, 0].
+
         Raises
         ------
         AssertionError
@@ -224,32 +304,38 @@ class Simulation():
             If trying to place objects when more than one previous partition exists.
         Notes
         -----
-        The current implementation supports placing objects either in an empty system or in a system with exactly one previous partition. The method uses partition_cubic_volume to generate positions and orientations, and for subsequent placements, ensures no overlaps with existing objects through get_cross_lattice_nonintersecting_volumes. The method automatically adjusts the search space (by increasing the factor) if it cannot find enough non-overlapping positions in subsequent placements.
+        The current implementation supports placing objects either in an empty system or in a system with exactly one previous partition. The method uses partition_cuboid_volume to generate positions and orientations, and for subsequent placements, ensures no overlaps with existing objects through get_cross_lattice_nonintersecting_volumes. The method automatically adjusts the search space (by increasing the factor) if it cannot find enough non-overlapping positions in subsequent placements.
         """
+        if box_lengths is None:
+            box_lengths = self.sys.box_l
+        box_lengths = np.asarray(box_lengths)
+        shift = np.asarray(shift)
         
         # Ensure all objects are of the same type.
         assert all(isinstance(item, type(objects[0])) for item in objects), "Not all items have the same type!"
         if mode=="INIT_SRC":
             positions, orientations=self.get_pos_ori_from_src(objects)
         else:
-            # centeres, polymer_positions = partition_cubic_volume_oriented_rectangles(big_box_dim=self.sys.box_l, num_spheres=len(filaments), small_box_dim=np.array([filaments[0].sigma, filaments[0].sigma, filaments[0].size]), num_monomers=filaments[0].n_parts)
-            if len(self.part_positions)== 0:
+            # centeres, polymer_positions = partition_cuboid_volume_oriented_rectangles(big_box_dim=self.sys.box_l, num_spheres=len(filaments), small_box_dim=np.array([filaments[0].sigma, filaments[0].sigma, filaments[0].size]), num_monomers=filaments[0].n_parts)
+            if len(self._part_positions)== 0:
                 # First placement: generate exactly len(objects) positions.
-                centeres, positions, orientations = partition_cubic_volume(
-                    box_length=self.sys.box_l[0],
+                centeres, positions, orientations = partition_cuboid_volume(
+                    box_lengths=box_lengths,
                     num_spheres=len(objects),
                     sphere_diameter=objects[0].params['size'],
                     routine_per_volume=objects[0].build_function
                 )
-                self.volume_centers.append(centeres)
-                self.part_positions.append(positions)
-                self.volume_size = objects[0].params['size']
-            elif len(self.part_positions) == 1:
+                self._volume_centers.append(centeres)
+                self._part_positions.append(positions)
+                self._volume_size = objects[0].params['size']
+            elif len(self._part_positions) == 1:
                 # Subsequent placements: search for positions without overlaps.
+                if not all(box_lengths[0]==llen for llen in box_lengths) and box_lengths[0]==self.sys.box_l[0]:
+                    raise NotImplemented("Currently box_lenghts must be equal to system box size, for consecutive usages of set_objects.")
                 factor = 1
                 while True:
-                    centeres, positions, orientations = partition_cubic_volume(
-                        box_length=self.sys.box_l[0],
+                    centeres, positions, orientations = partition_cuboid_volume(
+                        box_lengths=box_lengths,
                         num_spheres=len(objects) * factor,
                         sphere_diameter=objects[0].params['size'],
                         routine_per_volume=objects[0].build_function
@@ -258,10 +344,10 @@ class Simulation():
                         current_lattice_centers=centeres,
                         current_lattice_grouped_part_pos=positions,
                         current_lattice_diam=objects[0].params['size'],
-                        other_lattice_centers=self.volume_centers[0],
-                        other_lattice_grouped_part_pos=self.part_positions[0],
-                        other_lattice_diam=self.volume_size,
-                        box_len=self.sys.box_l[0]
+                        other_lattice_centers=self._volume_centers[0],
+                        other_lattice_grouped_part_pos=self._part_positions[0],
+                        other_lattice_diam=self._volume_size,
+                        box_lengths=box_lengths
                         )
                     mask=[key for key,val in res.items() if all(val)]
                     positions=positions[mask]
@@ -274,6 +360,35 @@ class Simulation():
             else:
                 raise NotImplementedError('The repartitioning scheme can currently handle only the case where one previos partition exists. More than than is still not supported')
         
+        positions += shift
+        self.place_objects(objects, positions, orientations)
+
+    def place_objects(self, objects, positions, orientations=None):
+        """Set objects' positions and orientations in a box.
+        This method places objects at given coordinates within the simulation box and sets their orientations.
+        If orientations are not provided, random unit vectors are generated.
+        This method does not guarantee non-overlapping of objects, in any way.
+
+        Parameters
+        ----------
+        objects : list or array-like
+            List of simulation objects to place. Can be a single object or multiple.
+        positions : array-like of shape (N, 3)
+            A list or array of 3D coordinates where each object will be placed.
+        orientations : array-like of shape (N, 3), optional
+            Orientation vectors for each object. If not provided, random unit vectors are generated.
+
+        Raises
+        ------
+        AssertionError
+            If the number of objects, positions, and orientations do not match.
+        """
+        objects= np.atleast_1d(objects)
+        if orientations is None:
+            orientations = generate_random_unit_vectors(len(positions))
+        else:
+            orientations = normalize_vectors(orientations)
+        assert len(objects) == len(positions) == len(orientations), f"{objects.shape} == {positions.shape} == {orientations.shape}"
         for obj, pos, ori in zip(objects, positions, orientations):
             obj.set_object(pos, ori)
         names = [element.__class__.__name__ for element in objects]
@@ -282,10 +397,10 @@ class Simulation():
         logging.info(f"{formatted} set!!!")
 
     def mark_for_collision_detection(self, object_type=Quadriplex, part_type=666):
-        assert any(isinstance(ele, object_type) for ele in self.objects), "method assumes simulation holds correct type object"
+        assert any(isinstance(ele, object_type) for ele in self._objects), "method assumes simulation holds correct type object"
 
-        self.part_types['marked'] = 666
-        objects_iter = [ele for ele in self.objects if isinstance(ele, object_type)]
+        self._part_types['marked'] = 666
+        objects_iter = [ele for ele in self._objects if isinstance(ele, object_type)]
         assert all((hasattr(ob, 'mark_covalent_bonds') and callable(getattr(ob, 'mark_covalent_bonds')))
                    for ob in objects_iter), "method requires that stored objects have mark_covalent_bonds() method"
         for obj_el in objects_iter:
@@ -314,10 +429,10 @@ class Simulation():
 
         Interaction length is allways determined from sigma.
         '''
-        logging.info(f'part types available {self.part_types.keys()} ')
+        logging.info(f'part types available {self._part_types.keys()} ')
         logging.info(f'WCA interactions initiated for keys: {key}')
         for key_el, key_el2 in combinations_with_replacement(key, 2):
-            self.sys.non_bonded_inter[self.part_types[key_el], self.part_types[key_el2]
+            self.sys.non_bonded_inter[self._part_types[key_el], self._part_types[key_el2]
                                       ].wca.set_params(epsilon=wca_eps, sigma=sigma)
 
     def set_steric_custom(self, pairs=[(None, None),], wca_eps=[1.,], sigma=[1.,]):
@@ -337,7 +452,7 @@ class Simulation():
             sigma), 'epsilon and sigma must be specified explicitly for each type pair'
         logging.info('WCA interactions initiated')
         for (key_el, key_el2), eps, sgm in zip(pairs, wca_eps, sigma):
-            self.sys.non_bonded_inter[self.part_types[key_el], self.part_types[key_el2]
+            self.sys.non_bonded_inter[self._part_types[key_el], self._part_types[key_el2]
                                       ].wca.set_params(epsilon=eps, sigma=sgm)
 
     def set_vdW(self, key=('nonmagn',), lj_eps=1., lj_size=1.):
@@ -355,7 +470,7 @@ class Simulation():
 
         lj_cut = 2.5*lj_size
         for key_el, key_el2 in combinations_with_replacement(key, 2):
-            self.sys.non_bonded_inter[self.part_types[key_el], self.part_types[key_el2]].lennard_jones.set_params(
+            self.sys.non_bonded_inter[self._part_types[key_el], self._part_types[key_el2]].lennard_jones.set_params(
                 epsilon=lj_eps, sigma=lj_size, cutoff=lj_cut, shift=0)
         logging.info(f'vdW interactions initiated initiated for keys: {key}')
 
@@ -377,9 +492,70 @@ class Simulation():
             lj_size), 'epsilon and sigma must be specified explicitly for each type pair'
         for (key_el, key_el2), eps, sgm in zip(pairs, lj_eps, lj_size):
             lj_cut = 1.5*sgm
-            self.sys.non_bonded_inter[self.part_types[key_el], self.part_types[key_el2]].lennard_jones.set_params(
+            self.sys.non_bonded_inter[self._part_types[key_el], self._part_types[key_el2]].lennard_jones.set_params(
                 epsilon=eps, sigma=sgm, cutoff=lj_cut, shift=0)
         logging.info('vdW interactions initiated!')
+
+    def add_box_constraints(self, wall_type=0, sides=['all'], inter=None, types_=None, object_types=None,
+                        bottom=None, top=None, left=None, right=None, back=None, front=None):
+        """
+        Adds wall constraints to the simulation box along specified sides.
+
+        This method calls helper_functions.add_box_constarints to place flat wall constraints (using `espressomd.shapes.Wall`) perpendicular to the box axes, typically used to confine particles within the simulation domain. By default, walls are added on all six faces of the box. You can customize which walls to include or exclude, their positions, and interaction types with other particles.
+        By default:
+            bottom - z=0; top - z=self.sys.box_l[2];
+            left - y=0  ; right - y=self.sys.box_l[1];
+            back - x=0  ; front - z=self.sys.box_l[0];
+
+        Parameters
+        ----------
+        wall_type : int, optional
+            Particle type used for the wall (default: 0).
+        sides : list of str, optional
+            Specifies which sides to add walls on. Default is ['all'], which includes all six box faces.
+            Supported values:
+                - 'all': add walls on all six faces.
+                - 'sides': add walls on all but the top and bottom.
+                - Individual sides: 'top', 'bottom', 'left', 'right', 'front', 'back'.
+                - 'no-<side>': exclude specific sides, e.g., 'no-top', 'no-right', 'no-sides'.
+        inter : str or list of str, optional
+            Type(s) of interaction to enable between wall and specified particle types. Currently supports:
+                - 'wca': Weeks–Chandler–Andersen potential with large epsilon.
+        types_ : list of int, optional
+            Particle types that will interact with the walls. If None, all non-wall types in the system are used.
+        bottom, top, left, right, back, front : float, optional
+            Position of each wall, defined as the distance to the xOy plane (for top/bottom), xOz plane (for left/right),
+            or yOz plane (for front/back). If not specified, the position defaults to the corresponding boundary of the simulation box.
+
+
+        Returns
+        -------
+        list of espressomd.constraints.ShapeBasedConstraint
+            List of wall constraint objects added to the system. (can be used to later specify which walls to remove).
+            Organized as: bottom->top->left->right->back->front
+
+        Notes
+        -----
+        - If `sides` includes any entry starting with 'no-', that side will be excluded even if 'all' or 'sides' is specified.
+        - The wall interaction can be configured by specifying `inter` and, optionally, `types_`.
+        - Walls are defined using outward-pointing normals and placed at specified distances from the origin.
+        - The method adds constraints to `self.sys.constraints` directly.
+        """
+        wall_constraints = add_box_constraints_func(self.sys, wall_type=wall_type, sides=sides, inter=inter, types_=types_, object_types=object_types, bottom=bottom, top=top, left=left, right=right, back=back, front=front)
+
+        return wall_constraints
+    
+    def remove_box_constraints(self, wall_constraints=None, part_types=None, object_types=None):
+        """ Removes wall_constraints from system. Default: removes all espressomd.shapes.Wall constraints.
+            If part_types is not None, remove only interactions with those particle types.
+
+            Calls helper_functions.remove_box_contraints
+        system
+        list of espressomd.constraints.ShapeBasedConstraint wall_constraints
+        list of particles types to stop interactoin with box part_types
+        """
+        remove_box_constraints_func(self.sys, wall_constraints=wall_constraints, part_types=part_types, object_types=object_types)
+        
 
     def init_lb(self, kT, agrid, dens, visc, gamma, timestep=0.01):
         """
@@ -493,10 +669,79 @@ class Simulation():
         for part in part_list:
             H_tot = part.dip_fld+H_ext
             tri = np.linalg.norm(H_tot)
-            dip_tri = dip_magnitude*tri
+            if tri < 1e-5:
+                part.dip = H_tot/tri * 1e-6
+            else:
+                dip_tri = dip_magnitude*tri #/ self.kT
+                inv_dip_tri = 1.0/(dip_tri)
+                inv_tanh_dip_tri = 1.0/np.tanh(dip_tri)
+                part.dip = dip_magnitude/tri*(inv_tanh_dip_tri-inv_dip_tri)*H_tot
+            logging.info(part.dip)
+
+    def magnetize_lin(self, part_list, dip_magnitude, H_ext, Xi=1.):
+        '''
+        Apply a linear magnetisation law to determine the magnitude of the dipole moment of each particle in part_list, projected along H_tot=H_ext+tot_dip_fld. part_list should be a iterable that contains espresso particleHandle objects.
+
+        :param part_list: iterable(ParticleHandle) | ParticleSlice could work but prefer to wrap with the list() constructor.
+        :param dip_magnitude: float
+        :param H_ext: float
+
+        :return: None
+
+        '''
+        for part in part_list:
+            H_tot = part.dip_fld+H_ext
+            tri = np.linalg.norm(H_tot)
+            if Xi * tri >= 1.:
+                part.dip = H_tot / tri
+            elif tri < 1e-5:
+                part.dip = H_tot/tri * 1e-6
+            else:
+                part.dip = dip_magnitude*H_tot*Xi
+            logging.info(part.dip)
+
+    def magnetize_froelich_kennelly(self, part_list, dip_magnitude, H_ext, Xi=0.5):
+        '''
+        Apply the empirical Frölich-Kennelly magnetisation law to determine the magnitude of the dipole moment of each particle in part_list, projected along H_tot=H_ext+tot_dip_fld. part_list should be a iterable that contains espresso particleHandle objects.
+
+        :param part_list: iterable(ParticleHandle) | ParticleSlice could work but prefer to wrap with the list() constructor.
+        :param dip_magnitude: float
+        :param H_ext: float
+        :param Xi: float (=0.5) | Susceptibility
+
+        :return: None
+
+        '''
+        for part in part_list:
+            H_tot = part.dip_fld+H_ext
+            tri = np.linalg.norm(H_tot)
+            if tri < 1e-5:
+                part.dip = H_tot/tri * 1e-6
+            else:
+                part.dip = Xi*dip_magnitude / (dip_magnitude + Xi*tri) * H_tot
+            logging.info(part.dip)
+
+    def magnetize_dumb(self, part_list, dip_magnitude, H_ext):
+        '''
+        Apply the langevin magnetisation law to determine the magnitude of the dipole moment of each particle in part_list, projected along H_ext. part_list should be a iterable that contains espresso particleHandle objects.
+
+        :param part_list: iterable(ParticleHandle) | ParticleSlice could work but prefer to wrap with the list() constructor.
+        :param dip_magnitude: float
+        :param H_ext: float
+
+        :return: None
+
+        note: This function does not take into account dipolar fields.
+
+        '''
+        H_ext = np.asarray(H_ext)
+        for part in part_list:
+            tri = np.linalg.norm(H_ext)
+            dip_tri = dip_magnitude*tri #/ self.kT
             inv_dip_tri = 1.0/(dip_tri)
             inv_tanh_dip_tri = 1.0/np.tanh(dip_tri)
-            part.dip = dip_magnitude/tri*(inv_tanh_dip_tri-inv_dip_tri)*H_tot
+            part.dip = dip_magnitude/tri*(inv_tanh_dip_tri-inv_dip_tri)*H_ext
+            logging.info(part.dip)
 
     def set_H_ext(self, H=(0, 0, 1.)):
         """
@@ -515,12 +760,17 @@ class Simulation():
 
     def get_H_ext(self):
         """
-        Retrieves the current external magnetic field. Assumes there is only one active applied field!
+        Retrieves the current external magnetic field.
+        
+        Sums over all applied homogeneus magnetic fields.
 
         :return: tuple | The external magnetic field vector.
         """
-        HFld=next(x for x in self.sys.constraints if isinstance(x,espressomd.constraints.HomogeneousMagneticField))
-        return HFld.H
+        HFld=np.asarray(
+            [ele.H for ele in list(self.sys.constraints)
+             if isinstance(ele, espressomd.constraints.HomogeneousMagneticField)]
+                        ).sum(axis=0)
+        return HFld
 
     def init_pickle_dump(self, path_to_dump):
         """
@@ -640,12 +890,21 @@ class Simulation():
 
         if mode in ['NEW', 'INIT_SRC']:
             self.io_dict['h5_file'] = h5py.File(h5_data_path, "w")
+
+            # Create sys group, for espresso system information
+            sys_grp = self.io_dict['h5_file'].require_group(f"sys")
+            sys_grp.attrs["box_l"] = np.array(self.sys.box_l, dtype=np.float32)
+            sys_grp.attrs["periodicity"] = np.array(self.sys.periodicity, dtype=bool)
+            sys_grp.attrs["time_step"] = np.float32(self.sys.time_step)
+
+
+            # Create particles and conecctivity groups for each group type
             par_grp = self.io_dict['h5_file'].require_group(f"particles")
             for grp_typ in group_type:
                 data_grp = par_grp.require_group(grp_typ.__name__)
                 connect_grp = self.io_dict['h5_file'].require_group(f"connectivity").require_group(grp_typ.__name__)
                 logging.info(f"Inscribe: Creating group {grp_typ.__name__} in HDF5 file.")
-                objects_to_register=[obj for obj in self.objects if isinstance(obj,grp_typ)]
+                objects_to_register=[obj for obj in self._objects if isinstance(obj,grp_typ)]
             
                 coordination_indices=[]
                 for cr in objects_to_register:
@@ -702,6 +961,35 @@ class Simulation():
                         compression="gzip",
                         compression_opts=4
                     )
+                # Create the datasets for bonds (special case, but same structure)
+                if self.io_dict.get('bonds') is None:
+                    pass
+                elif self.io_dict.get('bonds') == "all":
+                    # Define bond structure
+                    bond_dtype = np.dtype([
+                        ("bond_type", h5py.string_dtype(encoding="utf-8")),
+                        ("k", np.float32),
+                        ("r_0", np.float32),
+                        ("r_cut", np.float32),
+                        ("partner_id", np.int32),
+                    ])
+                    vlen_bond_dtype = h5py.vlen_dtype(bond_dtype)
+
+                    prop_group = data_grp.require_group("bonds")
+                    prop_group.create_dataset("step", shape=(0,), maxshape=(None,), dtype=np.int32)
+                    prop_group.create_dataset("time", shape=(0,), maxshape=(None,), dtype=np.float32)
+                    prop_group.create_dataset(
+                        "value",
+                        shape=(0, total_part_num),            # same pattern: timestep × particle
+                        maxshape=(None, total_part_num),
+                        dtype=vlen_bond_dtype,
+                        chunks=(1, total_part_num),
+                        compression="gzip",
+                        compression_opts=4
+                    )
+                else:
+                    raise NotImplemented("Currently only saves no bonds or 'all' bonds.")
+                
             GLOBAL_COUNTER=0
 
         elif mode=='LOAD_NEW':
@@ -728,6 +1016,8 @@ class Simulation():
             GLOBAL_COUNTER=candidate_lens[0]
 
             if force_resize_to_size is not None:
+                if self.io_dict['bonds'] is not None:
+                    raise NotImplementedError
                 assert type(force_resize_to_size) is int, 'force_resize_to_size must be an integer'
                 assert force_resize_to_size<=GLOBAL_COUNTER, 'force_resize_to_size must be smaller than or equal to the current number of timesteps saved in file'
                 if force_resize_to_size==GLOBAL_COUNTER:
@@ -746,14 +1036,13 @@ class Simulation():
                     logging.info(f'Force resized all datasets from {GLOBAL_COUNTER} to size {force_resize_to_size}')
                     GLOBAL_COUNTER=force_resize_to_size
             logging.info(f"Loaded h5 file with GLOBAL_COUNTER={GLOBAL_COUNTER} ")
-            return GLOBAL_COUNTER
         
         elif mode=='LOAD':
             self.io_dict['h5_file'] = h5py.File(h5_data_path, "a")
             particles_group = self.io_dict['h5_file']["particles"]
             candidate_lens=[]
             for grp_typ in group_type:
-                objects_to_register=[obj for obj in self.objects if isinstance(obj,grp_typ)]
+                objects_to_register=[obj for obj in self._objects if isinstance(obj,grp_typ)]
                 for cr in objects_to_register:
                     part,_=cr.get_owned_part()
                     self.io_dict['flat_part_view'][grp_typ.__name__].extend(part)
@@ -769,21 +1058,94 @@ class Simulation():
 
         return GLOBAL_COUNTER
         
-    def write_part_group_to_h5(self, time_step=None):
+    def write_part_group_to_h5(self, time_step=None, unique_time=True, bonds_once=True):
         assert self.io_dict['h5_file']!=None,'storage file has not been inscribed!'
+        particles_group = self.io_dict['h5_file']["particles"]
         for grp_typ in self.io_dict['registered_group_type']:
-            particles_group = self.io_dict['h5_file']["particles"]
             data_grp = particles_group[grp_typ]
             for prop,_ in self.io_dict['properties']:
                 dataset_val = data_grp[f"{prop}/value"]
                 step_dataset = data_grp[f"{prop}/step"]
                 time_dataset = data_grp[f"{prop}/time"]
-                step_dataset.resize((dataset_val.shape[0] + 1,))
-                time_dataset.resize((dataset_val.shape[0] + 1,))
-                dataset_val.resize((dataset_val.shape[0] + 1, dataset_val.shape[1], dataset_val.shape[2]))
-                step_dataset[-1] = time_step
-                time_dataset[-1] = time_step
-                dataset_val[-1, :, :] = np.array([np.atleast_1d(getattr(part, prop)) for part in self.io_dict['flat_part_view'][grp_typ]], dtype=np.float32)
+
+                dataset_size = dataset_val.shape[0]
+                if unique_time and dataset_size > 0: # no duplicate steps AND dataset not empty
+                    idx_attempt = np.searchsorted(step_dataset[:], time_step)
+                    if idx_attempt >= dataset_size:
+                        # if step is larger than all existing steps -> append
+                        step_dataset.resize((dataset_size + 1,))
+                        time_dataset.resize((dataset_size + 1,))
+                        dataset_val.resize((dataset_size + 1, dataset_val.shape[1], dataset_val.shape[2]))
+                        idx = -1  
+                    else:
+                        # else: step is <= last step -> insert/overwrite at sorted position
+                        # (steps equal to existing ones naturally land here too)
+                        idx = idx_attempt
+                         
+                else:
+                    # Duplicate steps allowed OR dataset empty -> append
+                    step_dataset.resize((dataset_size + 1,))
+                    time_dataset.resize((dataset_size + 1,))
+                    dataset_val.resize((dataset_size + 1, dataset_val.shape[1], dataset_val.shape[2]))
+                    idx = -1
+
+                step_dataset[idx] = time_step
+                time_dataset[idx] = time_step
+                dataset_val[idx, :, :] = np.array([np.atleast_1d(getattr(part, prop)) for part in self.io_dict['flat_part_view'][grp_typ]], dtype=np.float32) # TO IMPLEMENT make this type see the rpious and copy. Change the initial type to match type of saved prop
+            
+            # skip if not saving bonds OR ( if bond_once is True AND there are already bonds saved )
+            if self.io_dict.get('bonds') is None or (bonds_once and data_grp["bonds/value"].shape[0] > 0):
+                pass
+            elif self.io_dict['bonds'] == "all":
+                # Saves all bonds saved in the particles of the registered groups
+                dataset_val = data_grp["bonds/value"]
+                step_dataset = data_grp["bonds/step"]
+                time_dataset = data_grp["bonds/time"]
+
+                dataset_size = dataset_val.shape[0]
+                if unique_time and dataset_size > 0: # no duplicate steps AND dataset not empty
+                    idx_attempt = np.searchsorted(step_dataset[:], time_step)
+                    if idx_attempt >= dataset_size:
+                        # if step is larger than all existing steps -> append
+                        step_dataset.resize((dataset_size + 1,))
+                        time_dataset.resize((dataset_size + 1,))
+                        dataset_val.resize((dataset_size + 1, dataset_val.shape[1]))
+                        idx = -1  
+                    else:
+                        # else: step is <= last step -> insert/overwrite at sorted position
+                        # (steps equal to existing ones naturally land here too)
+                        idx = idx_attempt
+                         
+                else:
+                     # Duplicate steps allowed OR dataset empty -> append
+                    step_dataset.resize((dataset_size + 1,))
+                    time_dataset.resize((dataset_size + 1,))
+                    dataset_val.resize((dataset_size + 1, dataset_val.shape[1]))
+                    idx = -1
+
+                step_dataset[idx] = time_step
+                time_dataset[idx] = time_step
+                bond_dtype = np.dtype([
+                    ("bond_type", h5py.string_dtype(encoding="utf-8")),
+                    ("k", np.float32),
+                    ("r_0", np.float32),
+                    ("r_cut", np.float32),
+                    ("partner_id", np.int32),
+                ])
+                for i, part in enumerate(self.io_dict['flat_part_view'][grp_typ]):
+                    bond_list = []
+                    for bond_obj, partner_id in getattr(part, 'bonds', []):
+                        bond_list.append((
+                            type(bond_obj).__name__,
+                            bond_obj.k,
+                            bond_obj.r_0,
+                            bond_obj.r_cut,
+                            partner_id
+                        ))
+                    if len(bond_list) > 0:
+                        dataset_val[idx, i] = np.asarray(bond_list, dtype=bond_dtype)
+            else:
+                raise NotImplemented("Currently only saves no bonds or 'all' bonds.")
 
         logging.info(f"Successfully wrote timestep for {self.io_dict['registered_group_type']}.")
 
@@ -951,30 +1313,30 @@ class Simulation():
         """
 
         # Open the source HDF5 and select the data group matching the requested type.
-        assert self.src_params_set==True, 'src_params_set must be set before calling this method'
-        with h5py.File(self.src_path_h5, "r") as src_file:
+        assert self._src_params_set==True, 'src_params_set must be set before calling this method'
+        with h5py.File(self._src_path_h5, "r") as src_file:
             src_data_grp = H5DataSelector(src_file, particle_group=registered_objs[0].__class__.__name__)
 
             # Discover the set of numeric type IDs present in the source for this group.
             all_src_types_numeric = np.unique(src_data_grp.type)
 
             # Validate that each requested (src_type -> local_type) exists both locally and in the source file.
-            for src_typ, loc_typ in self.type_to_type_map:
+            for src_typ, loc_typ in self._type_to_type_map:
                 assert (
-                    loc_typ in self.part_types or src_typ in self.part_types
+                    loc_typ in self._part_types or src_typ in self._part_types
                 ), (
                     f"local type {loc_typ} or source type {src_typ} not found in "
-                    f"simulation part types {self.part_types}"
+                    f"simulation part types {self._part_types}"
                 )
                 assert (
-                    self.part_types[src_typ] in all_src_types_numeric
+                    self._part_types[src_typ] in all_src_types_numeric
                 ), (
-                    f"source type {src_typ} with numeric id {self.part_types[src_typ]} "
+                    f"source type {src_typ} with numeric id {self._part_types[src_typ]} "
                     f"not found in source data part types {all_src_types_numeric}"
                 )
-            logging.info(f"simulation contains types: {self.part_types}")
+            logging.info(f"simulation contains types: {self._part_types}")
             logging.info(
-                f"src datafile contains types: {self.part_types.key_for(all_src_types_numeric)}"
+                f"src datafile contains types: {self._part_types.key_for(all_src_types_numeric)}"
             )
 
             # Iterate over each connectivity group (i.e., each distinct instance of the group).
@@ -982,7 +1344,7 @@ class Simulation():
 
                 # Apply each aligned (type mapping, property mapping) pair.
                 for (src_typ, loc_typ), (prop_src, prop_loc) in zip(
-                    self.type_to_type_map, self.prop_to_prop_map
+                    self._type_to_type_map, self._prop_to_prop_map
                 ):
                     logging.info(
                         f"Working on {loc_obj.__class__.__name__}: {loc_obj.who_am_i} type {src_typ}->{loc_typ} prop {prop_src}->{prop_loc}"
@@ -992,13 +1354,13 @@ class Simulation():
                     part_slice = src_data_grp.timestep[time_step].select_particles_by_object(
                         object_name=loc_obj.__class__.__name__,
                         connectivity_value=loc_obj.who_am_i,
-                        predicate=lambda subset: subset.type == self.part_types[src_typ],
+                        predicate=lambda subset: subset.type == self._part_types[src_typ],
                     )
 
                     # Filter local particle handles to those of the destination type.
                     part_hndls = [
                         x for x in loc_obj.get_owned_part()[0]
-                        if x.type == self.part_types[loc_typ]
+                        if x.type == self._part_types[loc_typ]
                     ]
                     # Copy properties from source to local, element-wise.
                     for local, src in zip(part_hndls, part_slice.particles):
@@ -1019,7 +1381,7 @@ class Simulation():
 
         logging.debug('identity of local system',id(self.sys))
         logging.debug('identity of loaded espresso system',id(new_sys))
-        self.sys=new_sys
+        object.__setattr__(self, "sys", new_sys)
         logging.debug('identity of espresso system from rebind_sys',id(self.sys))
         logging.info('successfully rebound to new espresso handle after checkpoint load!')
 
@@ -1101,14 +1463,14 @@ class Simulation():
         """
 
         # Open the source HDF5 and select the data group matching the requested type.
-        assert self.src_params_set==True, 'src_params_set must be set before calling this method'
-        with  h5py.File(self.src_path_h5, "r") as src_file:
+        assert self._src_params_set==True, 'src_params_set must be set before calling this method'
+        with  h5py.File(self._src_path_h5, "r") as src_file:
             src_data_grp = H5DataSelector(src_file, particle_group=registered_objs[0].__class__.__name__)
 
             # Discover the set of numeric type IDs present in the source for this group.
             all_src_types_numeric = np.unique(src_data_grp.type)
-            requested_names = set(self.pos_ori_src_type)
-            available_names = set(self.part_types.keys())
+            requested_names = set(self._pos_ori_src_type)
+            available_names = set(self._part_types.keys())
 
             # 1) every requested name must exist
             missing_names = requested_names - available_names
@@ -1117,25 +1479,25 @@ class Simulation():
                 f"simulation part types {sorted(available_names)}"
             )
             # 2) the numeric ids for those names must exist in the source data
-            requested_ids = {self.part_types[name] for name in requested_names}
+            requested_ids = {self._part_types[name] for name in requested_names}
             available_ids = set(all_src_types_numeric)
 
             missing_ids = requested_ids - available_ids
             assert not missing_ids, (
                 "source data is missing type id(s): "
                 f"{sorted(missing_ids)} "
-                f"({[self.part_types.key_for(i) for i in sorted(missing_ids)]} by name) "
+                f"({[self._part_types.key_for(i) for i in sorted(missing_ids)]} by name) "
                 f"not found in source data part types {sorted(available_ids)}"
             )
-            logging.info(f"simulation contains types: {dict(self.part_types)}")
+            logging.info(f"simulation contains types: {dict(self._part_types)}")
 
             positions_per_obj,ori_per_obj=[],[]
             for loc_obj in registered_objs:
                 logging.info(
-                    f"Loading data for {loc_obj.__class__.__name__}: {loc_obj.who_am_i} from SRC part type {self.pos_ori_src_type}."
+                    f"Loading data for {loc_obj.__class__.__name__}: {loc_obj.who_am_i} from SRC part type {self._pos_ori_src_type}."
                 )
                 # Select source particles at the requested time step that belong to this group instance (connectivity == loc_obj.who_am_i), with the correct pos_ori_src_type.
-                allowed_types=[self.part_types[x] for x in self.pos_ori_src_type]
+                allowed_types=[self._part_types[x] for x in self._pos_ori_src_type]
                 part_slice = src_data_grp.timestep[time_step].select_particles_by_object(
                     object_name=loc_obj.__class__.__name__,
                     connectivity_value=loc_obj.who_am_i,
@@ -1156,3 +1518,6 @@ class Simulation():
                     ori_per_obj.append(val)
                     continue
         return positions_per_obj,ori_per_obj
+    
+    def test_set_attr(self, name):
+        return self.__getattribute__(name)

@@ -2,6 +2,7 @@ from pressomancy.object_classes.part_class import GenericPart
 from pressomancy.object_classes.object_class import ObjectConfigParams 
 from pressomancy.helper_functions import PartDictSafe, SinglePairDict
 import espressomd
+import espressomd.version
 if espressomd.version.major() == 5:
     import espressomd.propagation
     Propagation = espressomd.propagation.Propagation
