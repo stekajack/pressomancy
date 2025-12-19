@@ -35,5 +35,6 @@ class SampleScriptTest(BaseTestCase):
                         fp.flush()
             sim_inst.reinitialize_instance()
             sim_inst.sys.thermostat.turn_off()
+            sim_inst.sys.box_l = (100,100,100)
             self.assertEqual(len(sim_inst.objects), 0)
             self.assertEqual(len(sim_inst.sys.part), 0)

@@ -7,15 +7,15 @@ from espressomd.magnetostatics import DipolarDirectSumCpu
 from espressomd.io.writer import vtf
 
 sigma = 1.
-n_part_tot = 10
+n_fil = 10
 density=0.1
-box_dim = np.power((4*n_part_tot*np.pi*np.power(sigma/2, 3))/(3*density), 1/3)*np.ones(3)
+box_dim = [10,10,10]*np.ones(3)
 logging.info('box_dim: ', box_dim)
 sim_inst = Simulation(box_dim=box_dim)
 sim_inst.set_sys()
 bond_hndl=BondWrapper(espressomd.interactions.FeneBond(k=10, d_r_max=3*sigma, r_0=0))
 configuration=Filament.config.specify(sigma=sigma, size=2.26,n_parts=2, espresso_handle=sim_inst.sys,bond_handle=bond_hndl)
-filaments = [Filament(config=configuration) for x in range(5)]
+filaments = [Filament(config=configuration) for x in range(n_fil)]
 
 sim_inst.store_objects(filaments)
 sim_inst.set_objects(filaments)
