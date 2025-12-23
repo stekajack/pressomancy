@@ -236,7 +236,7 @@ class Simulation():
             if len(self.part_positions)== 0:
                 # First placement: generate exactly len(objects) positions.
                 centeres, positions, orientations = partition_cubic_volume(
-                    box_length=self.sys.box_l[0],
+                    box_lengths=self.sys.box_l,
                     num_spheres=len(objects),
                     sphere_diameter=objects[0].params['size'],
                     routine_per_volume=objects[0].build_function
@@ -249,7 +249,7 @@ class Simulation():
                 factor = 1
                 while True:
                     centeres, positions, orientations = partition_cubic_volume(
-                        box_length=self.sys.box_l[0],
+                        box_lengths=self.sys.box_l,
                         num_spheres=len(objects) * factor,
                         sphere_diameter=objects[0].params['size'],
                         routine_per_volume=objects[0].build_function
@@ -261,7 +261,7 @@ class Simulation():
                         other_lattice_centers=self.volume_centers[0],
                         other_lattice_grouped_part_pos=self.part_positions[0],
                         other_lattice_diam=self.volume_size,
-                        box_len=self.sys.box_l[0]
+                        box_lengths=self.sys.box_l
                         )
                     mask=[key for key,val in res.items() if all(val)]
                     positions=positions[mask]
@@ -317,7 +317,8 @@ class Simulation():
         logging.info(f'part types available {self.part_types.keys()} ')
         logging.info(f'WCA interactions initiated for keys: {key}')
         for key_el, key_el2 in combinations_with_replacement(key, 2):
-            self.sys.non_bonded_inter[self.part_types[key_el], self.part_types[key_el2]
+            self.sys.non_bonded_inter[
+                self.part_types[key_el], self.part_types[key_el2]
                                       ].wca.set_params(epsilon=wca_eps, sigma=sigma)
 
     def set_steric_custom(self, pairs=[(None, None),], wca_eps=[1.,], sigma=[1.,]):

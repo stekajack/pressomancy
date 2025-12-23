@@ -1,7 +1,10 @@
 import espressomd
 import espressomd.magnetostatics
 import espressomd.checkpointing
-
+import logging
+logging.basicConfig(level=logging.INFO)
+from espressomd.io.writer import vtf
+                  
 espressomd.assert_features(['WCA', 'ROTATION', 'DIPOLES', 'DP3M',
                             'VIRTUAL_SITES', 'VIRTUAL_SITES_RELATIVE',
                             'EXTERNAL_FORCES'])
@@ -24,6 +27,7 @@ N_M_FULL_BOX = sim_params['N_FULL_BOX']
 
 SIGMA_PART = 1.
 SIZE_PART = SIGMA_PART*pow(2, 1/6)  # in sim_inst units
+
 print(f"SIZE_PART={SIZE_PART}")
 R_PART= SIZE_PART/2
 
@@ -39,6 +43,7 @@ BOX_SIZE = np.cbrt( N_M_FULL_BOX * 4/3*np.pi / 0.3 ) * R_PART
 BOX_Z_MAX = 4 * BOX_SIZE
 
 N_PART = round(DENS_PART * BOX_SIZE**2 * MAE_LAYER_HEIGHT / ( 4/3 * np.pi * R_PART**3))
+print(f"N_PART={N_PART}")
 
 assert MAE_LAYER_HEIGHT<=BOX_Z_MAX
 assert DENS_PART<=0.3
@@ -61,7 +66,7 @@ config_pds = PointDipoleSuperpara.config.specify(dipm=1., espresso_handle=sim_in
 n_pdp = int(N_PART/2); n_pds = N_PART - n_pdp
 associated_objects = [PointDipolePermanent(config=config_pdp) for _ in range(n_pdp)] + [PointDipoleSuperpara(config=config_pds) for _ in range(n_pds)]
 assert len(associated_objects) == N_PART
-config_E = Elastomer.config.specify(box_E=box_E, box_E_shift=[0,0,0.5], n_parts=N_PART, associated_objects=associated_objects, bond_K_lims=BOND_LIMITS_A, size=SIZE_PART, sigma=SIGMA_PART, espresso_handle=sim_inst.sys, seed=sim_inst.seed)
+config_E = Elastomer.config.specify(box_E=box_E, n_parts=N_PART, associated_objects=associated_objects, bond_K_lims=BOND_LIMITS_A, size=SIZE_PART, sigma=SIGMA_PART, espresso_handle=sim_inst.sys, seed=sim_inst.seed)
 elastomer=[Elastomer(config=config_E) for _ in range(1)]
 sim_inst.store_objects(elastomer)
 sim_inst.set_objects(elastomer)
@@ -69,72 +74,50 @@ elastomer= elastomer[0]
 
 sim_inst.set_steric(key=("pdp_real", "pds_real"))
 sim_inst.sys.integrator.run(0)
-# energy = sim_inst.sys.analysis.energy()
-# print(energy["total"])
-# print(energy["kinetic"])
-# print(energy["bonded"])
-# print(energy["non_bonded"])
-# print(energy["external_fields"])
-# print(sim_inst.part_types)
-# print(energy["non_bonded", 61, 61])
-# print(energy["non_bonded", 61, 62])
-# print(energy["non_bonded", 62, 62])
-# print(len(list(sim_inst.sys.part.select(type=sim_inst.part_types['real']))))
 
+# must add non_bonded interactions before creating substrate
+elastomer.create_substrate(geometry='part')
+energy = sim_inst.sys.analysis.energy()
+print("total",energy["total"])
+print("bonded",energy["bonded"])
+print("non_bonded",energy["non_bonded"])
 
+elastomer.mix_elastomer_stuff(test=True)
+elastomer.cure_elastomer(test=True)
 
-# # must add non_bonded interactions before creating substrate
-# elastomer.create_substrate(geometry='part')
+#### Run the sample with external H ####
 
-# elastomer.mix_elastomer_stuff(test=True)
+# Add thermostat
+sim_inst.sys.thermostat.set_langevin(kT=1., gamma=1., seed=sim_inst.seed)
 
-# elastomer.cure_elastomer(test=True)
+# Add magnetic dipole interactions - direct sum, non-preiodic in z
+sim_inst.sys.periodicity = [True, True, False]
+dds = espressomd.magnetostatics.DipolarDirectSumCpu(prefactor=1)
+sim_inst.sys.magnetostatics.solver = dds
+sim_inst.sys.integrator.run(0)
 
+# Mark particles to magnetize. Careful to use python lists, and not espressomd particle slices
+pds_to_magnetize = list(sim_inst.sys.part.select(type=sim_inst.part_types['pds_virt']))
+parts_to_magnetize = [[pds_to_magnetize, config_pds['dipm']],]
 
+# Gradually increasing dipole moments for permanent dipoles
+sim_inst.sys.time_step = 0.001
+for _ in range(10):
+   sim_inst.sys.integrator.run(1, recalc_forces=True)
+   for parts, dipm_pds in parts_to_magnetize:
+         sim_inst.magnetize(part_list=parts, dip_magnitude=dipm_pds, H_ext=np.asarray([0,0,1e-6]))
 
-# elastomer.relax_langevin(test=True)
-
-# #### Run the sample with external H ####
-
-# # Add thermostat
-# sim_inst.sys.thermostat.set_langevin(kT=1., gamma=1., seed=sim_inst.seed)
-
-# # Add magnetic dipole interactions - direct sum, non-preiodic in z
-# sim_inst.sys.periodicity = [True, True, False]
-# dds = espressomd.magnetostatics.DipolarDirectSumCpu(prefactor=1)
-# sim_inst.sys.magnetostatics.solver = dds
-# sim_inst.sys.integrator.run(0)
-
-# # Mark particles to magnetize. Careful to use python lists, and not espressomd particle slices
-# pds_to_magnetize = list(sim_inst.sys.part.select(type=sim_inst.part_types['pds_virt']))
-# parts_to_magnetize = [[pds_to_magnetize, config_pds['dipm']],]
-# sim_inst.sys.integrator.run(10)
-
-# # Gradually increasing dipole moments for permanent dipoles
-# if any(isinstance(obj, PointDipolePermanent) for obj in sim_inst.objects):
-#     sim_inst.sys.time_step = 0.001
-#     dipm_pdp= 0.
-#     dipm_incr = config_pdp['dipm'] / 10
-#     sim_inst.sys.part.select(type=sim_inst.part_types['pdp_real']).dipm = 1E-6 # Cannot start at 0
-#     sim_inst.sys.integrator.run(0, recalc_forces=True)
-#     for _ in range(10):
-#         dipm_pdp += dipm_incr
-#         sim_inst.sys.part.select(type=sim_inst.part_types['pdp_real']).dipm = dipm_pdp
-#         for step in range(1):
-#             sim_inst.sys.integrator.run(1, recalc_forces=True)
-#             for parts, dipm_pds in parts_to_magnetize:
-#                 sim_inst.magnetize(part_list=parts, dip_magnitude=dipm_pds, H_ext=np.asarray([0,0,1e-6]))
-
-#     assert (np.abs( sim_inst.sys.part.select(type=sim_inst.part_types['pdp_real']).dipm - config_pdp['dipm']) < 0.001  ).all()
 
 # STABILIZE MAE WITH MAGNETIC FIELD
-# sim_inst.sys.time = 0.
+sim_inst.sys.time = 0.
 
-# ext_B_z = sim_params['H']
-# H_ext = [0,0,ext_B_z]
-# sim_inst.set_H_ext(H=H_ext)
+ext_B_z = sim_params['H']
+H_ext = [0,0,ext_B_z]
+sim_inst.set_H_ext(H=H_ext)
 
-# for step in range(2):
-#     sim_inst.sys.integrator.run(1, recalc_forces=True)
-#     for parts, dipm in parts_to_magnetize:
-#         sim_inst.magnetize(part_list=parts, dip_magnitude=dipm, H_ext=sim_inst.get_H_ext())
+for step in range(2):
+   sim_inst.sys.integrator.run(1, recalc_forces=True)
+   for parts, dipm in parts_to_magnetize:
+      sim_inst.magnetize(part_list=parts, dip_magnitude=dipm, H_ext=sim_inst.get_H_ext())
+
+#################

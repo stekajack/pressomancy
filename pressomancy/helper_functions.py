@@ -673,7 +673,7 @@ def get_neighbours_cross_lattice(lattice1, lattice2, volume_side, cuttoff=1.):
     
     return grouped_indices
 
-def calculate_pair_distances(points_a, points_b, box_length):
+def calculate_pair_distances(points_a, points_b, box_lengths):
     """
     Calculate the pair distances between two sets of points, considering 
     periodic boundary conditions if provided.
@@ -684,9 +684,8 @@ def calculate_pair_distances(points_a, points_b, box_length):
         An array of points where N is the number of points in the first set.
     points_b : np.array of shape (M, 3)
         An array of points where M is the number of points in the second set.
-    box_length : float, optional
-        The length of the cubic box. If provided, periodic boundary conditions
-        are applied.
+    box_lengths : array-like of shape (3,)
+        The side lengths of the periodic box.
 
     Returns
     -------
@@ -714,8 +713,10 @@ def calculate_pair_distances(points_a, points_b, box_length):
     point_pairs_a = points_a[index_combinations[:, 0]]  # Points from the first set
     point_pairs_b = points_b[index_combinations[:, 1]]  # Points from the second set
     
+    box_lengths = np.asarray(box_lengths)
+    assert box_lengths.shape == (3,), "box_lengths must be an array-like of shape (3,)"
     # Calculate the minimum image distance with periodic boundary conditions
-    distances = np.linalg.norm(min_img_dist(point_pairs_a, point_pairs_b, box_dim=np.ones(3) * box_length), axis=-1)
+    distances = np.linalg.norm(min_img_dist(point_pairs_a, point_pairs_b, box_dim=box_lengths), axis=-1)
     # distances = np.linalg.norm(point_pairs_a-point_pairs_b, axis=-1)
     
     return distances
@@ -771,9 +772,12 @@ def fcc_lattice(radius, volume_sides, scaling_factor=1., max_points_per_side=100
     mask = sum_indices % 2 == 0
     lattice_points = np.column_stack(
         (x[mask], y[mask], z[mask])) * lattice_constant + np.ones(shape=3)*radius
-    # if np.isclose(min([x for x in calculate_pair_distances(lattice_points,lattice_points,box_length=volume_side) if x>0.01]),2 * radius_scaled):
-    #     warnings.warn('box_l is not big enough to avoid pbc clipping of the partitioning!')
+    leftover = volume_sides - (num_points - 2) * lattice_constant
+    if np.any(leftover < 2 * radius_scaled):
+        recenica = f'box_l is not big enough to avoid pbc clipping of the partitioning! Leftover per axis: {leftover}, needed: {2 * radius_scaled}'
+        warnings.warn(recenica)
     return lattice_points
+
 def make_centered_rand_orient_point_array(center=np.array([0,0,0]), sphere_radius=1., num_monomers=1, spacing=None):
     """
     Creates an array of points centered at a given position with random orientation.This function generates a linear array of points in 3D space, centered at a specified position with random orientation. It also returns the normalized orientation vector of the array.
@@ -821,7 +825,7 @@ def make_centered_rand_orient_point_array(center=np.array([0,0,0]), sphere_radiu
     orientation_vectors = np.broadcast_to(orientation_vector, points.shape).copy()
     return orientation_vectors,points
 
-def partition_cubic_volume(box_length, num_spheres, sphere_diameter, routine_per_volume=RoutineWithArgs(), flag='rand'):
+def partition_cubic_volume(box_lengths, num_spheres, sphere_diameter, routine_per_volume=RoutineWithArgs(), flag='rand'):
     """
     Partitions a cubic volume into spherical regions and generates points within them.
     This function creates a face-centered cubic (FCC) lattice of spheres within a cubic volume and optionally
@@ -829,8 +833,8 @@ def partition_cubic_volume(box_length, num_spheres, sphere_diameter, routine_per
     
     Parameters
     ----------
-    box_length : float
-        The length of the cubic volume's side.
+    box_lengths : array-like of shape (3,)
+        The side lengths of the cubic volume.
     num_spheres : int
         The desired number of spherical regions to create.
     sphere_diameter : float
@@ -848,12 +852,14 @@ def partition_cubic_volume(box_length, num_spheres, sphere_diameter, routine_per
         - points (array-like): The generated points within the sphere (or center if no routine)
         - orientation (array-like): The orientation vector for the sphere
     """
+    box_lengths = np.asarray(box_lengths)
+    assert box_lengths.shape == (3,), "box_lengths must be an array-like of shape (3,)"
     sphere_radius = sphere_diameter * 0.5    
     scaling = 1.0
     
     # Adjust scaling until we have enough sphere centers
     while True:
-        sphere_centers = fcc_lattice(radius=sphere_radius, volume_sides=np.ones(3) * box_length, scaling_factor=scaling)
+        sphere_centers = fcc_lattice(radius=sphere_radius, volume_sides=box_lengths, scaling_factor=scaling)
         volumes_to_fill=len(sphere_centers)
         logging.info('num_spheres_needed, num_spheres_got: %s', (num_spheres, volumes_to_fill))
         if  volumes_to_fill>= num_spheres:
@@ -874,7 +880,7 @@ def partition_cubic_volume(box_length, num_spheres, sphere_diameter, routine_per
     if routine_per_volume.num_monomers>1:
         grouped_positions = defaultdict(list)
         #grouped_volumes is a dictionary that contains all neighouring lattice sites sphere_diameter  
-        grouped_volumes=get_neighbours(sphere_centers,volume_side=box_length,cuttoff=sphere_diameter)
+        grouped_volumes=get_neighbours(sphere_centers,volume_side=box_lengths,cuttoff=sphere_diameter)
         for i, center in enumerate(sphere_centers):
             valid_placement = False
             while not valid_placement:
@@ -886,7 +892,7 @@ def partition_cubic_volume(box_length, num_spheres, sphere_diameter, routine_per
                 # Check for overlaps with points in neighboring spheres
                 for volume_id in grouped_volumes[i]:
                     if grouped_positions[volume_id]:
-                        distances = calculate_pair_distances(points, grouped_positions[volume_id], box_length=box_length)
+                        distances = calculate_pair_distances(points, grouped_positions[volume_id], box_lengths=box_lengths)
                         if np.any(distances <= routine_per_volume.monomer_size):
                             should_proceed = False
                             break
@@ -1063,7 +1069,7 @@ def get_orientation_vec(pos):
     pr_comp /= np.linalg.norm(pr_comp)
     return np.array(pr_comp, float)
 
-def get_cross_lattice_nonintersecting_volumes(current_lattice_centers, current_lattice_grouped_part_pos, current_lattice_diam,other_lattice_centers, other_lattice_grouped_part_pos,other_lattice_diam,box_len, mode='cross_volumes'):
+def get_cross_lattice_nonintersecting_volumes(current_lattice_centers, current_lattice_grouped_part_pos, current_lattice_diam,other_lattice_centers, other_lattice_grouped_part_pos,other_lattice_diam,box_lengths, mode='cross_volumes'):
     """
     Calculate non-intersecting volumes between particles in two different lattices. This function determines which volumes from one lattice do not intersect with volumes from another lattice,
     considering periodic boundary conditions.
@@ -1082,8 +1088,8 @@ def get_cross_lattice_nonintersecting_volumes(current_lattice_centers, current_l
         Particle positions grouped by volume for the second lattice.
     other_lattice_diam : float
         Diameter of particles in the second lattice.
-    box_len : float
-        Length of the periodic box.
+    box_lengths : array-like of shape (3,)
+        Side lengths of the periodic box.
     mode : str, optional
         Mode of calculation, either 'cross_parts' or 'cross_volumes'. Default is 'cross_volumes'.
 
@@ -1102,8 +1108,10 @@ def get_cross_lattice_nonintersecting_volumes(current_lattice_centers, current_l
     where n1, n2 are the number of particles in respective volumes.
     """
     
+    box_lengths = np.asarray(box_lengths)
+    assert box_lengths.shape == (3,), "box_lengths must be an array-like of shape (3,)"
     neigh=get_neighbours_cross_lattice(current_lattice_centers,other_lattice_centers,
-    box_len, cuttoff=(current_lattice_diam+other_lattice_diam)*0.5)
+    box_lengths, cuttoff=(current_lattice_diam+other_lattice_diam)*0.5)
     aranged_cross_lattice_options={}
     if mode=='cross_parts':
         fact=pow(2,1/6)
@@ -1121,7 +1129,7 @@ def get_cross_lattice_nonintersecting_volumes(current_lattice_centers, current_l
         mask=[]
         if associated_vol_ids:
             for as_vol_id in associated_vol_ids:
-                res=calculate_pair_distances(current_lattice_dat[vol_id], other_lattice_dat[as_vol_id], box_length=box_len)
+                res=calculate_pair_distances(current_lattice_dat[vol_id], other_lattice_dat[as_vol_id], box_lengths=box_lengths)
                 mask.append(all([x>=new_crit for x in res if not np.isclose(x,0.)])) 
         aranged_cross_lattice_options[vol_id]=mask
     return aranged_cross_lattice_options
@@ -1382,69 +1390,6 @@ def normalize_vectors(vectors, axis=-1):
     else: # if only one vector return an array of shape (dims,)Z
         return array_of_vectors / np.linalg.norm(array_of_vectors)
     
-def get_neighbours_ordered(lattice_points: np.ndarray, volume_side: float, cuttoff: float = 1., map_indices=None, periodicity=[True,True,True]) -> defaultdict:
-    """
-    Returns grouped_indices, where grouped_indices is a dictionary that maps each particle index
-    to a list of neighbor indices within the cuttoff distance. Uses a grid-based method for efficiency,
-    and reuses the min_img_dist function for distance calculations.
-    
-    Parameters
-    ----------
-    lattice_points : np.ndarray of shape (N, 3)
-        Array of particle positions.
-    volume_side : float or array-like of shape (3,)
-        The side length of the cubic volume or the side lengths of a rectangular volume.
-    cuttoff : float, optional
-        The neighbor distance threshold.
-    
-    Returns
-    -------
-    grouped_indices : defaultdict[int, list[int]]
-        Dictionary mapping each particle index to a list of neighbor indices.
-
-    note:
-        - if no index mapping is provided, particle indices will be assumed to start on 0 and end on n_particles-1
-    """
-    # map indices (optional)
-    if map_indices is None:
-        map_indices = [i for i in range(len(lattice_points))]
-    # Use cuttoff as the grid cell size.
-    cell_size = cuttoff
-    grid, adjacent_cells = build_grid_and_adjacent(lattice_points, volume_side, cell_size)
-    
-    grouped_indices = defaultdict(list)
-    volume_side = np.asarray(volume_side)
-    if volume_side.ndim == 0:
-        box_dim = np.ones(3) * volume_side
-    else:
-        box_dim = volume_side
-
-    for i, p in enumerate(periodicity):
-        if not p:
-            box_dim[i] = 1000000
-    
-    # For each occupied cell in the grid...
-    for cell, indices in grid.items():
-        # Get the list of adjacent cells (neighbors) for this cell.
-        neighbor_cells = adjacent_cells[cell]
-        # For every particle in the current cell...
-        for i in indices:
-            grouped_indices_dist = []
-            # Check particles in each neighboring cell.
-            for adj_cell in neighbor_cells:
-                for j in grid.get(adj_cell, []):
-                    if j == i:
-                        continue
-                    # Use min_img_dist to compute the distance with periodic boundaries.
-                    diff = min_img_dist(lattice_points[i], lattice_points[j], box_dim=box_dim)
-                    dist = np.linalg.norm(diff)
-                    if dist <= cuttoff:
-                        grouped_indices_dist.append((j, dist))
-            grouped_indices_dist = [id_ for id_, _ in sorted(grouped_indices_dist, key=lambda x: x[1])]
-            assert len(list(set(grouped_indices))) == len(grouped_indices)
-            grouped_indices[map_indices[i]] = [map_indices[j] for j in grouped_indices_dist]
-    return grouped_indices
-
 def str_to_bool(string):
     if string not in ['True', 'true', '1', 'False', 'false', '0']:
         raise TypeError(f" '{string}' is not convertible to bool")
