@@ -123,7 +123,6 @@ class H5DataSelector:
                 continue
 
             if prop == "bonds":
-                assert prop_info["value"].get("shape")[0] <= 6
                 continue
 
             value_info = prop_info["value"]
@@ -261,7 +260,7 @@ class H5DataSelector:
                     except:
                         bond_list_single_ts.append([])
                 bond_list_all_ts_slice.append(bond_list_single_ts[0] if pt_slice_flag else bond_list_single_ts)
-            return bond_list_all_ts_slice[0] if ts_slice_flag else np.asarray(bond_list_all_ts_slice)
+            return bond_list_all_ts_slice[0] if ts_slice_flag else np.asarray(bond_list_all_ts_slice, dtype=object)
 
     def get_step_values(self):
         return tuple(map(int, self.steps_array))
@@ -391,19 +390,19 @@ class H5DataSelector:
         return H5DataSelector(self.h5_file, self.particle_group,
                             ts_slice=self.ts_slice, pt_slice=new_pt_slice)
     
-    def select_particles_by_type(self, type: int):
+    def select_particles_by_type(self, type):
         """
         Select particles by type.
         
         If slice has multiple time steps, assume that particles cannot change type and connects them to the time of the first time step.
 
         Args:
-            type (int): The espresso particle type.
+            type (int or tuple of int): The espresso particle type.
 
         Returns:
             H5DataSelector: Selector with particle slice set to the indices of the particles of type type.
         """
-        return self.select_particles_by_predicate(lambda ds: np.asarray(ds.timestep[0].get_property("type")) == type)
+        return self.select_particles_by_predicate(lambda ds: np.isin(ds.timestep[0].get_property("type"), type))
     
     def by_id(self, id):
         """
