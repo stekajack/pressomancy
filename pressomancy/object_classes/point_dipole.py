@@ -1,6 +1,8 @@
 from pressomancy.object_classes.object_class import Simulation_Object, ObjectConfigParams 
 from pressomancy.helper_functions import PartDictSafe, SinglePairDict
 
+import espressomd.propagation
+
 class PointDipolePermanent(metaclass=Simulation_Object):
     '''
     Class that contains permanent magnetic point dipole particles relevant paramaters and methods. At construction one must pass an espresso handle because the class manages parameters that are both internal and external to espresso. It is assumed that in any simulation instanse there will be only one type of a PointDipolePermanent. Therefore many relevant parameters are class specific, not instance specific.
@@ -86,6 +88,7 @@ class PointDipoleSuperpara(metaclass=Simulation_Object):
         
         particl_virt=self.add_particle(type_name='pds_virt', pos=pos, rotation=[False, False, False], dip=(ori * 1e-6))
         particl_virt.vs_auto_relate_to(particl_real)
+        particl_virt.propagation = espressomd.propagation.Propagation.TRANS_VS_RELATIVE | espressomd.propagation.Propagation.ROT_VS_INDEPENDENT
 
         # Very Important Particle. To use to bond, calculate distances, and other Very Important Things. Usually at the center of mass, and usually a real particle
         self.vip = particl_real
