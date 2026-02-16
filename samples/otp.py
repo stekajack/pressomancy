@@ -19,7 +19,7 @@ logging.info('box_l: ', box_l)
 logging.info('vol_fract [%]: ', (n_part*np.pi*pow(lj_sig,3)*pow(6,-1)/pow(box_l,3))*100)
 
 sim_inst = Simulation(box_dim=box_l*np.ones(3))
-sim_inst.set_sys(timestep=0.001)
+sim_inst.set_sys(time_step=0.001)
 
 opts = [OTP(config=OTP.config.specify(espresso_handle=sim_inst.sys)) for _ in range(10)]
 sim_inst.store_objects(opts)

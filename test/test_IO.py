@@ -184,6 +184,7 @@ class IOTest(BaseTestCase):
                 self.get_and_check(data_crowder, "Crowder", iid, parts)
                 self.basic_structure(data_crowder,iid,10)
                 self.poke_analysis_api(data_crowder, "Crowder", iid, quadriplex_ids, parts)
+                GLOBAL_COUNTER+=1
             data = H5DataSelector(sim_inst.io_dict['h5_file'], particle_group="Filament")
             self.exceptions(data)
             self.slicing_check(data)

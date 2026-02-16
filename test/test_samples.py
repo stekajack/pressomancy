@@ -23,6 +23,7 @@ class SampleScriptTest(BaseTestCase):
             with self.subTest(script=module_name):
                 with mock.patch("pressomancy.simulation.Simulation", side_effect=get_current_sim_instance):
                     try:
+                        logging.warning(f"Importing {module_name}...")
                         module = importlib.import_module(f"samples.{module_name}")
                     except MissingFeature as excp:
                         logging.warning(f"Skipping {module_name} because it requires a feature that is not available. Caught exception {excp}")
@@ -35,5 +36,6 @@ class SampleScriptTest(BaseTestCase):
                         fp.flush()
             sim_inst.reinitialize_instance()
             sim_inst.sys.thermostat.turn_off()
+            sim_inst.sys.box_l = (100,100,100)
             self.assertEqual(len(sim_inst.objects), 0)
             self.assertEqual(len(sim_inst.sys.part), 0)
