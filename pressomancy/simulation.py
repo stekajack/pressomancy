@@ -283,7 +283,7 @@ class Simulation():
             formatted = ", ".join(f"{count} {name}" for name, count in counts.items())
             logging.info(f"{formatted} stored")
 
-    def set_objects(self, objects, box_lengths=None, shift=[0,0,0], mode='NEW'):
+    def set_objects(self, objects, mode='NEW'):
         """Set objects' positions and orientations in a box. Defaults to the Simulation box.
         This method places objects in the simulation box using a partitioning scheme. For the first placement, it generates exactly the required number of positions. For subsequent placements, it searches for non-overlapping positions with existing objects. This guarantees non-overlapping of the objects.
         Parameters
@@ -306,10 +306,6 @@ class Simulation():
         -----
         The current implementation supports placing objects either in an empty system or in a system with exactly one previous partition. The method uses partition_cuboid_volume to generate positions and orientations, and for subsequent placements, ensures no overlaps with existing objects through get_cross_lattice_nonintersecting_volumes. The method automatically adjusts the search space (by increasing the factor) if it cannot find enough non-overlapping positions in subsequent placements.
         """
-        if box_lengths is None:
-            box_lengths = self.sys.box_l
-        box_lengths = np.asarray(box_lengths)
-        shift = np.asarray(shift)
         
         # Ensure all objects are of the same type.
         assert all(isinstance(item, type(objects[0])) for item in objects), "Not all items have the same type!"
@@ -320,7 +316,7 @@ class Simulation():
             if len(self._part_positions)== 0:
                 # First placement: generate exactly len(objects) positions.
                 centeres, positions, orientations = partition_cuboid_volume(
-                    box_lengths=box_lengths,
+                    box_lengths=self.sys.box_l,
                     num_spheres=len(objects),
                     sphere_diameter=objects[0].params['size'],
                     routine_per_volume=objects[0].build_function
@@ -330,12 +326,10 @@ class Simulation():
                 self._volume_size = objects[0].params['size']
             elif len(self._part_positions) == 1:
                 # Subsequent placements: search for positions without overlaps.
-                if not all(box_lengths[0]==llen for llen in box_lengths) and box_lengths[0]==self.sys.box_l[0]:
-                    raise NotImplemented("Currently box_lenghts must be equal to system box size, for consecutive usages of set_objects.")
                 factor = 1
                 while True:
                     centeres, positions, orientations = partition_cuboid_volume(
-                        box_lengths=box_lengths,
+                        box_lengths=self.sys.box_l,
                         num_spheres=len(objects) * factor,
                         sphere_diameter=objects[0].params['size'],
                         routine_per_volume=objects[0].build_function
@@ -344,10 +338,10 @@ class Simulation():
                         current_lattice_centers=centeres,
                         current_lattice_grouped_part_pos=positions,
                         current_lattice_diam=objects[0].params['size'],
-                        other_lattice_centers=self._volume_centers[0],
-                        other_lattice_grouped_part_pos=self._part_positions[0],
-                        other_lattice_diam=self._volume_size,
-                        box_lengths=box_lengths
+                        other_lattice_centers=self.volume_centers[0],
+                        other_lattice_grouped_part_pos=self.part_positions[0],
+                        other_lattice_diam=self.volume_size,
+                        box_lengths=self.sys.box_l
                         )
                     mask=[key for key,val in res.items() if all(val)]
                     positions=positions[mask]
@@ -360,7 +354,6 @@ class Simulation():
             else:
                 raise NotImplementedError('The repartitioning scheme can currently handle only the case where one previos partition exists. More than than is still not supported')
         
-        positions += shift
         self.place_objects(objects, positions, orientations)
 
     def place_objects(self, objects, positions, orientations=None):
@@ -432,7 +425,8 @@ class Simulation():
         logging.info(f'part types available {self._part_types.keys()} ')
         logging.info(f'WCA interactions initiated for keys: {key}')
         for key_el, key_el2 in combinations_with_replacement(key, 2):
-            self.sys.non_bonded_inter[self._part_types[key_el], self._part_types[key_el2]
+            self.sys.non_bonded_inter[
+                self.part_types[key_el], self.part_types[key_el2]
                                       ].wca.set_params(epsilon=wca_eps, sigma=sigma)
 
     def set_steric_custom(self, pairs=[(None, None),], wca_eps=[1.,], sigma=[1.,]):

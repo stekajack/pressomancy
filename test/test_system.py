@@ -3,7 +3,6 @@ import inspect
 import logging
 from create_system import sim_inst, BaseTestCase
 from pressomancy.helper_functions import MissingFeature
-import espressomd
 
 class SimulationTest(BaseTestCase):
     num_vol_all=14

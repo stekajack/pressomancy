@@ -7,6 +7,7 @@ import warnings
 import espressomd.version
 import sys as sysos
 import h5py
+import warnings
 
 class MissingFeature(Exception):
     pass
@@ -125,6 +126,7 @@ class ManagedSimulation:
             # self.instance.sys.non_bonded_inter.reset() #this method is not working properly
             # self.instance.reset_non_bonded_inter() # temporary fix (uncomment)
             self.instance.sys.bonded_inter.clear()
+            self.instance.sys.constraints.clear()
             self.instance.sys.thermostat.turn_off()
             self.instance.sys.constraints.clear()
             # self.instance.sys.actors.clear()
@@ -666,11 +668,10 @@ def build_grid_and_adjacent(lattice_points, volume_side, cell_size):
     ----------
     lattice_points : np.ndarray of shape (N, 3)
         Array of particle positions.
-    volume_side : float
-        The side length of the cubic volume.
+    volume_side : float or array-like of shape (3,)
+        The side length of the cubic volume or the side lengths of a rectangular volume.
     cell_size : float
         The grid cell size (typically set equal to the cuttoff distance).
-
     Returns
     -------
     grid : defaultdict(list)
@@ -680,9 +681,14 @@ def build_grid_and_adjacent(lattice_points, volume_side, cell_size):
     adjacent : dict
         Dictionary mapping each occupied cell id to a list of adjacent cell ids (as tuples), with periodic boundaries.
     """
-    num_cells = int(np.ceil(volume_side / cell_size))
+    volume_side = np.asarray(volume_side)
+    if volume_side.ndim == 0:
+        volume_side = np.ones(3) * volume_side
+    num_cells = np.floor(volume_side / cell_size).astype(int)
+    num_cells = np.maximum(num_cells, 1)
+    effective_cell_size = volume_side / num_cells
     # Compute cell indices for all points in one go using vectorized operations.
-    cells = np.floor(lattice_points / cell_size).astype(int) % num_cells
+    cells = np.floor(lattice_points / effective_cell_size).astype(int) % num_cells
     grid = defaultdict(list)
     # Group indices by cell ID.
     for idx, cell in enumerate(cells):
@@ -709,13 +715,13 @@ def get_neighbours(lattice_points: np.ndarray, volume_side: float, cuttoff: floa
     ----------
     lattice_points : np.ndarray of shape (N, 3)
         Array of particle positions.
-    volume_side : float
-        The side length of the cubic volume.
+    volume_side : float or array-like of shape (3,)
+        The side length of the cubic volume or the side lengths of a rectangular volume.
     cuttoff : float, optional
         The neighbor distance threshold.
 
     Note:
-        - particle index in taken from 0 to number of particles.
+        - particle index is taken from 0 to number of particles.
     
     Returns
     -------
@@ -727,7 +733,11 @@ def get_neighbours(lattice_points: np.ndarray, volume_side: float, cuttoff: floa
     grid, adjacent_cells = build_grid_and_adjacent(lattice_points, volume_side, cell_size)
     
     grouped_indices = defaultdict(list)
-    box_dim = np.ones(3) * volume_side
+    volume_side = np.asarray(volume_side)
+    if volume_side.ndim == 0:
+        box_dim = np.ones(3) * volume_side
+    else:
+        box_dim = volume_side
     
     # For each occupied cell in the grid...
     for cell, indices in grid.items():
@@ -830,6 +840,11 @@ def get_neighbours_cross_lattice(lattice1, lattice2, box_lengths, cuttoff=1.):
     points_b = np.atleast_2d(lattice2)
     num_b = len(points_b)
     indices_b = np.arange(num_b)
+    volume_side = np.asarray(volume_side)
+    if volume_side.ndim == 0:
+        box_dim = np.ones(3) * volume_side
+    else:
+        box_dim = volume_side
     for id,point in enumerate(points_a):
         distances=np.linalg.norm(min_img_dist(point, points_b, box_dim=box_lengths), axis=-1)
         mask=np.where(distances<=cuttoff)
@@ -843,12 +858,12 @@ def calculate_pair_distances(points_a, points_b, box_lengths):
 
     Parameters
     ----------
-    points_a : np.ndarray, shape (N, 3)
-        First set of 3D points.
-    points_b : np.ndarray, shape (M, 3)
-        Second set of 3D points.
-    box_length : float or array-like of shape (3,), optional
-        Applies periodic boundary conditions for a cubic or cuboid box.
+    points_a : np.array of shape (N, 3)
+        An array of points where N is the number of points in the first set.
+    points_b : np.array of shape (M, 3)
+        An array of points where M is the number of points in the second set.
+    box_lengths : array-like of shape (3,)
+        The side lengths of the periodic box.
 
     Returns
     -------
@@ -878,10 +893,11 @@ def calculate_pair_distances(points_a, points_b, box_lengths):
     point_pairs_a = points_a[index_combinations[:, 0]]  # Points from the first set
     point_pairs_b = points_b[index_combinations[:, 1]]  # Points from the second set
     
+    box_lengths = np.asarray(box_lengths)
+    assert box_lengths.shape == (3,), "box_lengths must be an array-like of shape (3,)"
     # Calculate the minimum image distance with periodic boundary conditions
     distances = np.linalg.norm(min_img_dist(point_pairs_a, point_pairs_b, box_dim=box_lengths), axis=-1)
-
-    # displacements = np.linalg.norm(min_img_dist(points_a[:, None, :], points_b[None, :, :], box_dim), axis=-1)
+    # distances = np.linalg.norm(point_pairs_a-point_pairs_b, axis=-1)
     
     return distances
 
@@ -936,8 +952,10 @@ def fcc_lattice(radius, volume_sides, scaling_factor=1., max_points_per_side=100
     mask = sum_indices % 2 == 0
     lattice_points = np.column_stack(
         (x[mask], y[mask], z[mask])) * lattice_constant + np.ones(shape=3)*radius
-    # if np.isclose(min([x for x in calculate_pair_distances(lattice_points,lattice_points,box_length=volume_side) if x>0.01]),2 * radius_scaled):
-    #     warnings.warn('box_l is not big enough to avoid pbc clipping of the partitioning!')
+    leftover = volume_sides - (num_points - 2) * lattice_constant
+    if np.any(leftover < 2 * radius_scaled):
+        recenica = f'box_l is not big enough to avoid pbc clipping of the partitioning! Leftover per axis: {leftover}, needed: {2 * radius_scaled}'
+        warnings.warn(recenica)
     return lattice_points
 
 def make_centered_rand_orient_point_array(center=np.array([0,0,0]), sphere_radius=1., num_monomers=1, spacing=None, box_lengths=None):
@@ -994,8 +1012,8 @@ def partition_cuboid_volume(box_lengths, num_spheres, sphere_diameter, routine_p
     
     Parameters
     ----------
-    box_lengths : iterable of float of len 3
-        The length of the cuboid volume's sides.
+    box_lengths : array-like of shape (3,)
+        The side lengths of the cuboid volume.
     num_spheres : int
         The desired number of spherical regions to create.
     sphere_diameter : float
@@ -1013,7 +1031,8 @@ def partition_cuboid_volume(box_lengths, num_spheres, sphere_diameter, routine_p
         - points (array-like): The generated points within the sphere (or center if no routine)
         - orientation (array-like): The orientation vector for the sphere
     """
-    box_lengths= np.asarray(box_lengths)
+    box_lengths = np.asarray(box_lengths)
+    assert box_lengths.shape == (3,), "box_lengths must be an array-like of shape (3,)"
     sphere_radius = sphere_diameter * 0.5    
     scaling = 1.0
     
@@ -1047,8 +1066,8 @@ def partition_cuboid_volume(box_lengths, num_spheres, sphere_diameter, routine_p
             warnings.warn("this methods assumes cubic system box for num_monomers > 1")
         box_length = box_lengths[0]
         grouped_positions = defaultdict(list)
-        #grouped_volumes is a dictionary that contains all neighouring lattice sites sphere_diameter 
-        grouped_volumes=get_neighbours(sphere_centers,volume_side=box_length,cuttoff=sphere_diameter)
+        #grouped_volumes is a dictionary that contains all neighouring lattice sites sphere_diameter  
+        grouped_volumes=get_neighbours(sphere_centers,volume_side=box_lengths,cuttoff=sphere_diameter)
         for i, center in enumerate(sphere_centers):
             valid_placement = False
             while not valid_placement:
@@ -1060,7 +1079,7 @@ def partition_cuboid_volume(box_lengths, num_spheres, sphere_diameter, routine_p
                 # Check for overlaps with points in neighboring spheres
                 for volume_id in grouped_volumes[i]:
                     if grouped_positions[volume_id]:
-                        distances = calculate_pair_distances(points, grouped_positions[volume_id], box_lengths=box_length)
+                        distances = calculate_pair_distances(points, grouped_positions[volume_id], box_lengths=box_lengths)
                         if np.any(distances <= routine_per_volume.monomer_size):
                             should_proceed = False
                             break
@@ -1256,8 +1275,8 @@ def get_cross_lattice_nonintersecting_volumes(current_lattice_centers, current_l
         Particle positions grouped by volume for the second lattice.
     other_lattice_diam : float
         Diameter of particles in the second lattice.
-    box_lengths : float
-        Length of the periodic box.
+    box_lengths : array-like of shape (3,)
+        Side lengths of the periodic box.
     mode : str, optional
         Mode of calculation, either 'cross_parts' or 'cross_volumes'. Default is 'cross_volumes'.
 
@@ -1276,6 +1295,8 @@ def get_cross_lattice_nonintersecting_volumes(current_lattice_centers, current_l
     where n1, n2 are the number of particles in respective volumes.
     """
     
+    box_lengths = np.asarray(box_lengths)
+    assert box_lengths.shape == (3,), "box_lengths must be an array-like of shape (3,)"
     neigh=get_neighbours_cross_lattice(current_lattice_centers,other_lattice_centers,
     box_lengths, cuttoff=(current_lattice_diam+other_lattice_diam)*0.5)
     aranged_cross_lattice_options={}
@@ -1370,54 +1391,6 @@ def particle_attribute_check(part_hndl, attribute_name):
     except AttributeError:
         logging.warning(f'particle attribute check for {attribute_name} failed with exception {sysos.exc_info()}')
         raise MissingFeature(f"Particle attribute {attribute_name} not found. Please ensure your ESPResSo installation supports this attribute.")
-
-class BondWrapper:
-    def __init__(self, bond_handle):
-        # Store the bond_handle instance
-        self._bond_handle = bond_handle
-        self.name = bond_handle.__class__.__name__
-        
-        if isinstance(bond_handle, espressomd.interactions.FeneBond):
-            self.dtype = np.dtype([
-                        ("partner_id", np.int32),
-                        ("k", np.float32),
-                        ("r_0", np.float32),
-                        ("d_r_max", np.float32)
-                        ])
-        elif isinstance(bond_handle, espressomd.interactions.HarmonicBond):
-            self.dtype = np.dtype([
-                        ("partner_id", np.int32),
-                        ("k", np.float32),
-                        ("r_0", np.float32),
-                        ("r_cut", np.float32)
-                        ])
-
-    def __getattr__(self, name):
-        # Delegate attribute access to the wrapped object
-        return getattr(self._bond_handle, name)
-
-    def __setattr__(self, name, value):
-        # Ensure that _bond_handle is set on the wrapper, not on the wrapped object
-        if name == "_bond_handle":
-            super().__setattr__(name, value)
-        else:
-            setattr(self._bond_handle, name, value)
-
-    def __delattr__(self, name):
-        # Delegate deletion of attributes to the wrapped object
-        delattr(self._bond_handle, name)
-
-    def __repr__(self):
-        # Customize how the wrapper is printed
-        return f"BondWrapper({repr(self._bond_handle)})"
-    
-    def get_raw_handle(self):
-        """
-        Returns the raw object being wrapped.
-        """
-        return self._bond_handle
-    
-import espressomd
 
 def add_box_constraints_func(sys, wall_type=0, sides=['all'], inter=None, types_=None, object_types=None, bottom=None, top=None, left=None, right=None, back=None, front=None):
     """
@@ -1597,6 +1570,7 @@ def remove_box_constraints_func(sys, wall_type=0, wall_constraints=None, part_ty
         for type_ in part_types:
             sys.non_bonded_inter[box_type, type_].reset()
 
+
 def check_free_cuboid(sys, cuboid_l, cuboid_l_shift=None):
     if cuboid_l_shift is None:
         cuboid_l_shift = np.zeros((3))
@@ -1605,34 +1579,63 @@ def check_free_cuboid(sys, cuboid_l, cuboid_l_shift=None):
         return True
     else:
         return np.all(np.any((pos < cuboid_l_shift) | (pos > cuboid_l_shift + cuboid_l), axis=1))
+    
+def normalize_vectors(vectors, axis=-1):
+    array_of_vectors= np.asarray(vectors)
+    if len(array_of_vectors.shape) > 1: # if multiple vectors return an array of shape (number_of_vectors, dims)
+        norms_array = np.atleast_1d(np.linalg.norm(array_of_vectors, axis=axis))
+        norms_array[norms_array==0] = 1
+        return array_of_vectors / np.expand_dims(norms_array, axis)
+    else: # if only one vector return an array of shape (dims,)Z
+        return array_of_vectors / np.linalg.norm(array_of_vectors)
+    
+def str_to_bool(string):
+    if string not in ['True', 'true', '1', 'False', 'false', '0']:
+        raise TypeError(f" '{string}' is not convertible to bool")
+    return string in ['True', 'true', '1']
 
-def check_type_keys_recursive(obj, type_keys):
-    if isinstance(type_keys, (tuple, list)):
-        for typ in type_keys:
-            assert typ in obj.part_types, f"Missing type_key '{typ}' in {obj}. Type key must exist in the part_types of all associated monomers!"
-    else:
-        assert type_keys in obj.part_types, f"Missing type_key '{type_keys}' in {obj}. Type key must exist in the part_types of all associated monomers!"
+class BondWrapper:
+    def __init__(self, bond_handle):
+        # Store the bond_handle instance
+        self._bond_handle = bond_handle
+        self.name = bond_handle.__class__.__name__
+        
+        if isinstance(bond_handle, espressomd.interactions.FeneBond):
+            self.dtype = np.dtype([
+                        ("partner_id", np.int32),
+                        ("k", np.float32),
+                        ("r_0", np.float32),
+                        ("d_r_max", np.float32)
+                        ])
+        elif isinstance(bond_handle, espressomd.interactions.HarmonicBond):
+            self.dtype = np.dtype([
+                        ("partner_id", np.int32),
+                        ("k", np.float32),
+                        ("r_0", np.float32),
+                        ("r_cut", np.float32)
+                        ])
 
-    if obj.associated_objects is not None:
-        for child in obj.associated_objects:
-            check_type_keys_recursive(child, type_keys)
+    def __getattr__(self, name):
+        # Delegate attribute access to the wrapped object
+        return getattr(self._bond_handle, name)
 
-def collect_objs_recursively(parents, keep_parents=True):
-    """
-    Traverse each obj in `parents` and return a flat preorder list
-    of every object reachable via `.associated_objects`.
-    Raises RuntimeError on any duplicate.
-    """
-    seen = set()
-    result = []
-    stack = list(parents)
+    def __setattr__(self, name, value):
+        # Ensure that _bond_handle is set on the wrapper, not on the wrapped object
+        if name == "_bond_handle":
+            super().__setattr__(name, value)
+        else:
+            setattr(self._bond_handle, name, value)
 
-    while stack:
-        obj = stack.pop()
-        if obj in seen:
-            raise RuntimeError(f"Duplicate object detected: {obj!r}")
-        seen.add(obj)
-        result.append(obj)
-        stack.extend(getattr(obj, "associated_objects", []) or [])
+    def __delattr__(self, name):
+        # Delegate deletion of attributes to the wrapped object
+        delattr(self._bond_handle, name)
 
-    return result
+    def __repr__(self):
+        # Customize how the wrapper is printed
+        return f"BondWrapper({repr(self._bond_handle)})"
+    
+    def get_raw_handle(self):
+        """
+        Returns the raw object being wrapped.
+        """
+        return self._bond_handle
