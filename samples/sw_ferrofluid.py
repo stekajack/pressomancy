@@ -31,7 +31,7 @@ sim_inst.set_objects(sw_parts)
 
 sim_inst.set_steric(key=('sw_real', ), wca_eps=LJ_EPSILON)
 sim_inst.set_H_ext(H=(0, 0, H_reduced))
-
+sim_inst.sys.thermostat.turn_off()
 sim_inst.sys.thermostat.set_langevin(kT=temperature, gamma=gamma_T,
                                gamma_rotation=gamma_R, seed=sim_inst.seed)
 

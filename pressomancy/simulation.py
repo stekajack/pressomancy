@@ -400,17 +400,14 @@ class Simulation():
             raise MissingFeature(f"{name} requires WALBERLA. Please enable it in your ESPResSo installation.")
         self.sys.thermostat.turn_off()
         self.sys.part.all().v = (0, 0, 0)
-        param_dict={'kT':kT, 'seed':self.seed, 'agrid':agrid, 'dens':dens, 'visc':visc, 'tau':timestep}
+        param_dict={'kT':kT, 'seed':self.seed, 'agrid':agrid, 'density':dens, 'kinematic_viscosity':visc, 'tau':timestep}
         if api_agnostic_feature_check('CUDA'):
+            param_dict['gpu']=True
             logging.info('GPU LB method is beeing initiated')
-
-            lbf = espressomd.lb.LBFluidWalberlaGPU(**param_dict)
+            lbf = espressomd.lb.LBFluid(**param_dict)
         else:
             logging.info('CPU LB method is beeing initiated')
-            lbf = espressomd.lb.LBFluidWalberla(**param_dict)
-        if len(self.sys.actors.active_actors) == 2:
-            self.sys.actors.remove(self.sys.actors.active_actors[-1])
-        self.sys.actors.add(lbf)
+            lbf = espressomd.lb.LBFluid(**param_dict)
         gamma_MD = gamma
         logging.info(f'gamma_MD: {gamma_MD}')
         self.sys.thermostat.set_lb(
