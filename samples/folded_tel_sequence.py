@@ -7,7 +7,7 @@ import logging
 N_avog = 6.02214076e23
 sigma = 1.
 rho_si = 0.6*N_avog
-no_obj=6
+no_obj=18
 N = int(no_obj/3)
 vol = N/rho_si
 box_l = pow(vol, 1/3)
@@ -31,9 +31,24 @@ quadriplex_config_list = [Quadriplex.config.specify(associated_objects=elem, esp
 quadriplex = [Quadriplex(config=elem) for elem in quadriplex_config_list]
 
 diag_bond = BondWrapper(espressomd.interactions.FeneBond(k=10., r_0=np.sqrt(2)*(2*2.), d_r_max=2*1.5))
+across_bond = BondWrapper(espressomd.interactions.FeneBond(k=10., r_0=2*2., d_r_max=2*1.5))
 grouped_quadriplexes = [quadriplex[i:i+part_per_filament:]
                         for i in range(0, len(quadriplex), part_per_filament)]
-tel_config_list = [TelSeq.config.specify(n_parts=part_per_filament, espresso_handle=sim_inst.sys, associated_objects=elem, size=quadriplex[0].params['size']*part_per_filament+np.sqrt(3)*bond_quad.r_0+(part_per_filament-1),bond_handle=bond_quad,diag_bond_handle=diag_bond,spacing=6.) for elem in grouped_quadriplexes]
+fold_types = ['parallel', 'hybrid', 'antiparallel']
+tel_config_list = [
+    TelSeq.config.specify(
+        n_parts=part_per_filament,
+        espresso_handle=sim_inst.sys,
+        associated_objects=grouped_quadriplexes[idx],
+        size=quadriplex[0].params['size'] * part_per_filament + np.sqrt(3) * bond_quad.r_0 + (part_per_filament - 1),
+        bond_handle=bond_quad,
+        diag_bond_handle=diag_bond,
+        across_bond_handle=across_bond,
+        spacing=6.,
+        type=fold_type,
+    )
+    for idx, fold_type in enumerate(fold_types)
+]
 telomeres = [TelSeq(config=elem) for elem in tel_config_list]
 sim_inst.store_objects(telomeres)
 sim_inst.set_objects(telomeres)

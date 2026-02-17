@@ -3,35 +3,76 @@ import numpy as np
 import random
 from pressomancy.object_classes.quadriplex_class import *
 from pressomancy.object_classes.object_class import Simulation_Object, ObjectConfigParams 
-from pressomancy.helper_functions import RoutineWithArgs, make_centered_rand_orient_point_array, PartDictSafe, SinglePairDict, BondWrapper, get_orientation_vec
+from pressomancy.helper_functions import RoutineWithArgs, make_centered_rand_orient_point_array, PartDictSafe, SinglePairDict, BondWrapper, get_orientation_vec, get_random_perpendicular
 import logging
 import warnings
 
-def rule_maker(choice_id, offset, n=3):
+def rule_maker(fold_type, choice_id, offset, n=3):
     top = [26, 45, 49, 30]
     bottom = [51, 70, 74, 55]
     length = 4
-    trigger_warning = False
+    choice_local = choice_id - offset
 
-    try:
-        i = bottom.index(choice_id-offset)
-    except ValueError:
-        i = top.index(choice_id-offset)
-        trigger_warning = True
+    if choice_local in bottom:
+        i = bottom.index(choice_local)
+        start_on_top = False
+    elif choice_local in top:
+        i = top.index(choice_local)
+        start_on_top = True
+    else:
+        raise ValueError(
+            f"choice_id={choice_id} (local={choice_local}) is not a valid TelSeq corner id"
+        )
 
-    results = []
+    diag_pairs = []
+    across_pairs = []
     free_end = 0
-    for _ in range(n):
-        next_index = (i + 1) % length
-        if trigger_warning:
-            results.append((bottom[i]+offset, top[next_index]+offset))
-            free_end = bottom[next_index]+offset
-        else:
-            results.append((top[i]+offset, bottom[next_index]+offset))
-            free_end = top[next_index]+offset
 
-        i = (i + 1) % length
-    return results, free_end
+    if fold_type == 'parallel':
+        for _ in range(n):
+            next_index = (i + 1) % length
+            if start_on_top:
+                diag_pairs.append((bottom[i] + offset, top[next_index] + offset))
+                free_end = bottom[next_index] + offset
+            else:
+                diag_pairs.append((top[i] + offset, bottom[next_index] + offset))
+                free_end = top[next_index] + offset
+            i = next_index
+
+    elif fold_type == 'hybrid':
+        idx1 = (i + 1) % length
+        idx2 = (i + 2) % length
+        idx3 = (i + 3) % length
+        idxm1 = (i - 1) % length
+        if start_on_top:
+            diag_pairs.append((bottom[i] + offset, top[idx1] + offset))
+            across_pairs.append((bottom[idx1] + offset, bottom[idx2] + offset))
+            across_pairs.append((top[idx2] + offset, top[idx3] + offset))
+            free_end = bottom[idxm1] + offset
+        else:
+            diag_pairs.append((top[i] + offset, bottom[idx1] + offset))
+            across_pairs.append((top[idx1] + offset, top[idx2] + offset))
+            across_pairs.append((bottom[idx2] + offset, bottom[idx3] + offset))
+            free_end = top[idxm1] + offset
+
+    elif fold_type == 'antiparallel':
+        idxm1 = (i - 1) % length
+        idx1 = (i + 1) % length
+        idx2 = (i + 2) % length
+        if start_on_top:
+            across_pairs.append((bottom[i] + offset, bottom[idxm1] + offset))
+            diag_pairs.append((top[idxm1] + offset, top[idx1] + offset))
+            across_pairs.append((bottom[idx1] + offset, bottom[idx2] + offset))
+            free_end = top[idx2] + offset
+        else:
+            across_pairs.append((top[i] + offset, top[idxm1] + offset))
+            diag_pairs.append((bottom[idxm1] + offset, bottom[idx1] + offset))
+            across_pairs.append((top[idx1] + offset, top[idx2] + offset))
+            free_end = bottom[idx2] + offset
+
+    else:
+        raise ValueError(f"unknown fold_type: {fold_type}")
+    return diag_pairs, across_pairs, free_end
 
 class TelSeq(metaclass=Simulation_Object):
     '''
@@ -44,7 +85,9 @@ class TelSeq(metaclass=Simulation_Object):
     config = ObjectConfigParams(
         bond_handle=BondWrapper(espressomd.interactions.FeneBond(k=0, r_0=0, d_r_max=0)),
         diag_bond_handle=BondWrapper(espressomd.interactions.FeneBond(k=0, r_0=0, d_r_max=0)),
+        across_bond_handle=BondWrapper(espressomd.interactions.FeneBond(k=0, r_0=0, d_r_max=0)),
         spacing=None,
+        type='parallel',
     )
 
     def __init__(self, config: ObjectConfigParams):
@@ -52,6 +95,7 @@ class TelSeq(metaclass=Simulation_Object):
         Initialisation of a TelSeq object requires the specification of particle size, number of parts and a handle to the espresso system
         '''
         self.sys=config['espresso_handle']
+        assert config['type'] in ['parallel', 'antiparallel','hybrid'], 'type must be either parallel, antiparallel or hybrid!!!'
         self.params=config
         if self.params['associated_objects']==None:
             warnings.warn('no associated_objects have been passed explicity. Creating objects required to initialise object implicitly!')
@@ -85,8 +129,11 @@ class TelSeq(metaclass=Simulation_Object):
         assert self.params['n_parts'] == len(
             self.associated_objects), " there doest seem to be enough monomers stored!!! "
         assert all([x.simulation_type==self.associated_objects[0].simulation_type for x in self.associated_objects[1:]]), 'all objects must have the same simulation type!'
+        local_orientor = self.orientor
+        if self.params['type'] == 'antiparallel':
+            local_orientor=get_random_perpendicular(self.orientor)
         for obj_el, pos_el in zip(self.associated_objects, pos):
-            _=obj_el.set_object(pos_el, self.orientor)
+            _=obj_el.set_object(pos_el, local_orientor)
         return self
 
     def wrap_into_Tel(self):
@@ -103,11 +150,28 @@ class TelSeq(metaclass=Simulation_Object):
             candidates1.extend(monomer.associated_objects[2].corner_particles)
             if monomer == self.associated_objects[0]:
                 start_part_id = random.choice(candidates1).id
-            logging.info(f'begin print {start_part_id}')
-            res, free_end = rule_maker(start_part_id, monomer.who_am_i*75)
-            logging.info(f'res, free_end {res, free_end}')
-            for id1, id2 in res:
+            logging.debug(
+                "wrap_into_Tel step=%s monomer_id=%s start_part_id=%s",
+                iid,
+                monomer.who_am_i,
+                start_part_id,
+            )
+            offset = monomer.who_am_i * 75                
+            diag_pairs, across_pairs, free_end = rule_maker(
+                self.params['type'], start_part_id, offset
+            )
+            logging.debug(
+                "rule_result fold_type=%s choice_local=%s diag_pairs=%s across_pairs=%s free_end=%s",
+                self.params['type'],
+                start_part_id - offset,
+                diag_pairs,
+                across_pairs,
+                free_end,
+            )
+            for id1, id2 in diag_pairs:
                 self.bond_owned_part_pair(self.sys.part.by_id(id1), self.sys.part.by_id(id2), bond_handle=self.params['diag_bond_handle'])
+            for id1, id2 in across_pairs:
+                self.bond_owned_part_pair(self.sys.part.by_id(id1), self.sys.part.by_id(id2), bond_handle=self.params['across_bond_handle'])
 
             candidates2 = []
 
@@ -119,28 +183,26 @@ class TelSeq(metaclass=Simulation_Object):
                     monomer.associated_objects[2].corner_particles)
                 candidate_pos = np.array([x.pos for x in candidates2])
 
-                pair_distances = np.linalg.norm(
-                    candidate_pos-self.sys.part.by_id(free_end).pos, axis=-1)
-                filtered = np.isclose(
-                    pair_distances, fene_r0)
-
-                if filtered.any() == True:
-                    index = np.argmax(filtered)
-                    self.bond_owned_part_pair(candidates2[index],self.sys.part.by_id(free_end))
-                else:
-                    logging.info('alt filter')
-                    pair_distances = np.linalg.norm(
-                        candidate_pos-self.sys.part.by_id(start_part_id).pos, axis=-1)
-                    filtered = np.isclose(
-                        pair_distances, fene_r0)
-                    index = np.argmax(filtered)
-                    self.bond_owned_part_pair(candidates2[index],self.sys.part.by_id(start_part_id))
-
-
-                logging.info(f'index, start_part_id {res, free_end}')
+                pair_distances_free = np.linalg.norm(
+                    candidate_pos - self.sys.part.by_id(free_end).pos, axis=-1
+                )
+                pair_distances_start = np.linalg.norm(
+                    candidate_pos - self.sys.part.by_id(start_part_id).pos, axis=-1
+                )
+                combined_distances = np.column_stack((pair_distances_free, pair_distances_start))
+                index, ref_index = np.unravel_index(np.argmin(combined_distances), combined_distances.shape)
+                ref_part_id = free_end if ref_index == 0 else start_part_id
+                logging.debug(
+                    "handoff_choice next_monomer_id=%s index=%s ref=%s min_dist=%s",
+                    monomer.who_am_i,
+                    index,
+                    "free_end" if ref_index == 0 else "start_part_id",
+                    combined_distances[index, ref_index],
+                )
+                self.bond_owned_part_pair(candidates2[index], self.sys.part.by_id(ref_part_id))
 
                 start_part_id = candidates2[index].id
-                logging.info(f'end print {start_part_id}')
+                logging.debug("new_start_part_id=%s", start_part_id)
             except IndexError:
-                logging.info('end of chain rached')
+                logging.info('end of chain reached')
                 continue
