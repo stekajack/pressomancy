@@ -9,7 +9,6 @@ elif espressomd.version.major()==4:
     from espressomd.magnetostatics import DipolarDirectSumCpu
 else:
     raise ImportError(f"Unsupported ESPResSo version: {espressomd.version}. Please use version 4 or 5.")
-from espressomd.magnetostatics import DipolarDirectSum
 from espressomd.io.writer import vtf
 
 sigma = 1.
