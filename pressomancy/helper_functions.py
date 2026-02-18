@@ -657,6 +657,38 @@ def normalize_vectors(vectors, axis=-1):
         return array_of_vectors / np.expand_dims(norms_array, axis)
     else: # if only one vector return an array of shape (dims,)Z
         return array_of_vectors / np.linalg.norm(array_of_vectors)
+    
+def random_nested_3d_vectors_like(item, rng=None):
+    """
+    Recursively generate random 3D unit vectors,
+    matching the shape of nested lists, tuples, or arrays.
+    - Lists/tuples of len==3 with all numbers => treated as vector and replaced by a random unit vector.
+    - NumPy arrays with last dimension == 3 => generate array of random unit vectors with same shape.
+    - Otherwise recurse.
+    Raises error if a scalar or other unsupported leaf is found.
+    """
+    if rng is None:
+        rng = np.random.default_rng()
+    
+    if isinstance(item, (list, tuple)):
+        # Check if it is a 3D vector (leaf)
+        if len(item) == 3 and all(isinstance(x, (float, int)) for x in item):
+            return generate_random_unit_vectors(1).flatten().tolist()
+        else:
+            return [random_nested_3d_vectors_like(sub, rng) for sub in item]
+    
+    elif isinstance(item, np.ndarray):
+        if item.shape[-1] != 3:
+            raise ValueError(f"Expected last dimension to be 3 for 3D vectors, got shape {item.shape}")
+        
+        n_vectors = np.prod(item.shape[:-1])
+        vectors = generate_random_unit_vectors(n_vectors)
+        vectors = vectors.reshape(item.shape)
+        # Just to be sure normalize (your function is safe)
+        return normalize_vectors(vectors, axis=-1)
+
+    else:
+        raise ValueError(f"Expected last dimension to be 3 for 3D vectors, got {item}")
 
 def build_grid_and_adjacent(lattice_points, volume_side, cell_size):
     """
@@ -757,65 +789,6 @@ def get_neighbours(lattice_points: np.ndarray, volume_side: float, cuttoff: floa
 
     return grouped_indices
 
-def get_neighbours_ordered(lattice_points: np.ndarray, volume_side: float, cuttoff: float = 1., map_indices=None, periodicity=[True,True,True]) -> defaultdict:
-    """
-    Returns grouped_indices, where grouped_indices is a dictionary that maps each particle index
-    to a list of neighbor indices within the cuttoff distance. Uses a grid-based method for efficiency,
-    and reuses the min_img_dist function for distance calculations.
-    
-    Parameters
-    ----------
-    lattice_points : np.ndarray of shape (N, 3)
-        Array of particle positions.
-    volume_side : float
-        The side length of the cubic volume.
-    cuttoff : float, optional
-        The neighbor distance threshold.
-    
-    Returns
-    -------
-    grouped_indices : defaultdict[int, list[int]]
-        Dictionary mapping each particle index to a list of neighbor indices.
-
-    note:
-        - if no index mapping is provided, particle indices will be assumed to start on 0 and end on n_particles-1
-    """
-    # map indices (optional)
-    if map_indices is None:
-        map_indices = [i for i in range(len(lattice_points))]
-    # Use cuttoff as the grid cell size.
-    cell_size = cuttoff
-    grid, adjacent_cells = build_grid_and_adjacent(lattice_points, volume_side, cell_size)
-    
-    grouped_indices = defaultdict(list)
-    box_dim = np.ones(3) * volume_side
-
-    for i, p in enumerate(periodicity):
-        if not p:
-            box_dim[i] = 1000000
-    
-    # For each occupied cell in the grid...
-    for cell, indices in grid.items():
-        # Get the list of adjacent cells (neighbors) for this cell.
-        neighbor_cells = adjacent_cells[cell]
-        # For every particle in the current cell...
-        for i in indices:
-            grouped_indices_dist = []
-            # Check particles in each neighboring cell.
-            for adj_cell in neighbor_cells:
-                for j in grid.get(adj_cell, []):
-                    if j == i:
-                        continue
-                    # Use min_img_dist to compute the distance with periodic boundaries.
-                    diff = min_img_dist(lattice_points[i], lattice_points[j], box_dim=box_dim)
-                    dist = np.linalg.norm(diff)
-                    if dist <= cuttoff:
-                        grouped_indices_dist.append((j, dist))
-            grouped_indices_dist = [id_ for id_, _ in sorted(grouped_indices_dist, key=lambda x: x[1])]
-            assert len(list(set(grouped_indices))) == len(grouped_indices)
-            grouped_indices[map_indices[i]] = [map_indices[j] for j in grouped_indices_dist]
-    return grouped_indices
-
 def get_neighbours_cross_lattice(lattice1, lattice2, box_lengths, cuttoff=1.):
     """
     Get neighbors between two lattices in a cuboid under PBC using minimum image convention.
@@ -835,16 +808,13 @@ def get_neighbours_cross_lattice(lattice1, lattice2, box_lengths, cuttoff=1.):
     if isinstance(box_lengths, float):
         box_lengths = box_lengths * np.ones(3)
     box_lengths = np.asarray(box_lengths)
+    
     grouped_indices = defaultdict(list)
     points_a = np.atleast_2d(lattice1)
     points_b = np.atleast_2d(lattice2)
     num_b = len(points_b)
     indices_b = np.arange(num_b)
-    volume_side = np.asarray(volume_side)
-    if volume_side.ndim == 0:
-        box_dim = np.ones(3) * volume_side
-    else:
-        box_dim = volume_side
+
     for id,point in enumerate(points_a):
         distances=np.linalg.norm(min_img_dist(point, points_b, box_dim=box_lengths), axis=-1)
         mask=np.where(distances<=cuttoff)

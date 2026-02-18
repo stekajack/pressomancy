@@ -1,5 +1,5 @@
 import espressomd
-import espressomd.magnetostatics
+from espressomd.magnetostatics import DipolarDirectSum
 import espressomd.checkpointing
 import logging
 logging.basicConfig(level=logging.INFO)
@@ -59,7 +59,7 @@ assert dens_A - DENS_PART < 0.001, f"DENS_{dens_A}"
 sim_inst = Simulation(box_dim=box_l)
 sim_inst.sys.box_l=box_l
 sim_inst.seed = sim_params['seed']
-sim_inst.set_sys(timestep=0.001)
+sim_inst.set_sys(time_step=0.001)
 
 config_pdp = PointDipolePermanent.config.specify(dipm=1., espresso_handle=sim_inst.sys)
 config_pds = PointDipoleSuperpara.config.specify(dipm=1., espresso_handle=sim_inst.sys)
@@ -83,7 +83,7 @@ print("bonded",energy["bonded"])
 print("non_bonded",energy["non_bonded"])
 
 elastomer.mix_elastomer_stuff(test=True)
-elastomer.cure_elastomer(test=True)
+elastomer.cure_elastomer()
 
 #### Run the sample with external H ####
 
@@ -92,8 +92,7 @@ sim_inst.sys.thermostat.set_langevin(kT=1., gamma=1., seed=sim_inst.seed)
 
 # Add magnetic dipole interactions - direct sum, non-preiodic in z
 sim_inst.sys.periodicity = [True, True, False]
-dds = espressomd.magnetostatics.DipolarDirectSumCpu(prefactor=1)
-sim_inst.sys.magnetostatics.solver = dds
+sim_inst.init_magnetic_inter(DipolarDirectSum( prefactor=1))
 sim_inst.sys.integrator.run(0)
 
 # Mark particles to magnetize. Careful to use python lists, and not espressomd particle slices

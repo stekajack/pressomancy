@@ -1,6 +1,6 @@
 import numpy as np
 import espressomd
-from create_system import sim_inst , BaseTestCase
+from .create_system import sim_inst , BaseTestCase
 from pressomancy.simulation import Filament, Quartet, Quadriplex, Crowder
 from pressomancy.helper_functions import BondWrapper
 from pressomancy.analysis import H5DataSelector
@@ -171,7 +171,7 @@ class IOTest(BaseTestCase):
             GLOBAL_COUNTER=sim_inst.inscribe_part_group_to_h5(group_type=[Filament, Crowder], h5_data_path=h5_filename)
             for iid in range(2):
                 sim_inst.sys.integrator.run(1)
-                sim_inst.write_part_group_to_h5(time_step=GLOBAL_COUNTER)
+                sim_inst.write_part_group_to_h5(step=GLOBAL_COUNTER)
                 data = H5DataSelector(sim_inst.io_dict['h5_file'], particle_group="Filament")
                 data_crowder = H5DataSelector(sim_inst.io_dict['h5_file'], particle_group="Crowder")
                 parts,_=self.filaments[iid].get_owned_part()

@@ -26,10 +26,11 @@ class Elastomer(metaclass=Simulation_Object):
         bond_K_lims= (0.01,0.1),
         bond_cutoff= 5.,
         max_bonds= 6,
-        seed= int.from_bytes(os.urandom(2), sysos.byteorder)
+        seed= int.from_bytes(os.urandom(2), sysos.byteorder),
+        sigma= None
         )
     
-    _substrate_size = 0.5
+    _substrate_size = 1.
 
     def __init__(self, config: ObjectConfigParams):
         '''
@@ -37,20 +38,24 @@ class Elastomer(metaclass=Simulation_Object):
         '''
         self.sys=config['espresso_handle']
         if config['box_E'] is None:
+            config['box_E'] = np.array(self.sys.box_l, copy=True)
             if config['layer_height'] is None:
-                config['box_E'] = np.asarray(self.sys.box_l)
+                config['box_E'][2] = self.sys.box_l[2] / 4
+                config['layer_height'] = config['box_E'][2] - self._substrate_size
             else:
-                config['box_E'] = np.array(self.sys.box_l, copy=True)
                 config['box_E'][2] = self._substrate_size + config['layer_height']
                 assert config['box_E'][2] <= self.sys.box_l[2]
         else:
             if config['layer_height'] is None:
-                config['layer_height'] = config['box_E'] - self._substrate_size
+                config['layer_height'] = config['box_E'][2] - self._substrate_size
             elif config['box_E'][2] != self.sys.box_l[2]:
                 raise ValueError("box_E and layer_height are not compatible. Ensure that box_E[2] == layer_height.\nAlternatively, use only on of the parameters and hae the other be automatically chosen.")
+        assert config['layer_height'] == config['box_E'][2] - self._substrate_size
+        if config['sigma'] is None:
+            config['sigma'] = config['size'] * 0.89089872 # size / 2^(1/6)
         if config['n_parts'] is None:
-            config['n_parts']= int( 0.2 * (np.prod(config['box_E']) /  4.18879) )
-            warnings.warn('monomer size assumed to be 1. and inferred number of particles from volume of Elastomer (to get 0.3 volume fraction)')
+            config['n_parts']= int( 0.3 * (config['box_E'][0] * config['box_E'][1] * config['layer_height']) /  ( 4.1887902 * (config['size']/2)**3 ) ) # 0.3 * V_box / V_sphere
+            warnings.warn('Inferred number of particles from volume of Elastomer (to get 0.3 volume fraction)')
         self.params=config
         self.associated_objects=self.params['associated_objects']
         if self.associated_objects is not None:
@@ -75,7 +80,8 @@ class Elastomer(metaclass=Simulation_Object):
 
         '''
         pos=np.atleast_2d(pos)
-        assert np.all((pos >= self._substrate_size + self.params['size']/2) & (pos <= self.params['box_E'])), "particle positions are outisde of elastomer space. Make sure to use elastomer.params['box_E'] and elastomer.params['box_E_shift'] as inputs to the Simulation.set_objects."
+        pos_z=pos[:,2]
+        assert np.all((pos_z >= self._substrate_size + self.params['size']/2) & (pos_z <= self.params['box_E'][2] - self.params['size'] / 2)), f"particle positions are outisde of elastomer space.\n\t min({pos_z.min()}) max({pos_z.max()}). should be min({self._substrate_size+self.params['size']/2}) max({self.params['box_E'][2]-self.params['size'] / 2})"
         assert check_free_cuboid(self.sys, self.params['box_E']), "Elastomer must be build on empty space. Adjust box_E or remove non-elastomer particles to make space."
         assert len(pos) == self.params['n_parts'], 'there is a missmatch between the pos lenth and Elastomer n_parts'
         if self.associated_objects is None:
@@ -90,14 +96,19 @@ class Elastomer(metaclass=Simulation_Object):
                         for obj_el, pos_el, ori_el in zip(self.associated_objects, pos, ori))
         for part in logic:
             pass
+
+        self.create_substrate()
         
         return self
     
-    def build_Elastomer(self, center=None, sphere_radius=1., num_monomers=1, spacing=None, flag='rand'):
-        box_lengths = np.asarray(self.params['box_E'])
+    def build_Elastomer(self, center=None, sphere_radius=1., num_monomers=1, spacing=None, flag='rand', box_lengths=None):
+        box_lengths_tmp = np.asarray(self.params['box_E'])
+        assert (box_lengths_tmp <= box_lengths).all()
+        box_lengths = box_lengths_tmp
+
         z_offset = self._substrate_size + self.params['size'] / 2
         box_lengths_eff = box_lengths.copy()
-        box_lengths_eff[2] -= z_offset
+        box_lengths_eff[2] = self.params['layer_height'] - self.params['size'] / 2 # layer height menius the shpere radius, to take into account for pbc volume in fcc funciton
 
         scaling = 1.0
         # Adjust scaling until we have enough sphere centers
@@ -108,23 +119,23 @@ class Elastomer(metaclass=Simulation_Object):
                 break
             scaling -= 0.1
 
-        # Center point distribution in box (x/y) and enforce bottom z clearance.
-        min_centers = np.min(sphere_centers, axis=0)
-        max_centers = np.max(sphere_centers, axis=0)
-        sphere_centers += box_lengths_eff / 2 - (min_centers + max_centers) / 2
-        min_centers = np.min(sphere_centers, axis=0)
-        max_centers = np.max(sphere_centers, axis=0)
-        z_shift = z_offset - min_centers[2]
-        sphere_centers[:, 2] += z_shift
-        if np.max(sphere_centers[:, 2]) > box_lengths[2]:
-            warnings.warn('Elastomer lattice exceeds box_E after substrate clearance shift. This should not happen. Contact customer services.')
-
         # Randomly shuffle the available centers and select the required number of centers
         take_index = np.arange(len(sphere_centers))
         if flag=='rand':
             np.random.shuffle(take_index)
         take_index = take_index[:num_monomers]
         sphere_centers=sphere_centers[take_index]
+
+        # Center point distribution in box (x/y) and enforce bottom z clearance.
+        min_centers = np.min(sphere_centers, axis=0)
+        max_centers = np.max(sphere_centers, axis=0)
+        sphere_centers += box_lengths / 2 - (min_centers + max_centers) / 2
+        min_centers = np.min(sphere_centers, axis=0)
+        max_centers = np.max(sphere_centers, axis=0)
+        z_shift = z_offset - min_centers[2]
+        sphere_centers[:, 2] += z_shift
+        if np.max(sphere_centers[:, 2]) > box_lengths[2]:
+            warnings.warn('Elastomer lattice exceeds box_E after substrate clearance shift. This should not happen. Contact customer services.')
 
         points=sphere_centers
         orientations=generate_random_unit_vectors(len(sphere_centers))
@@ -140,10 +151,10 @@ class Elastomer(metaclass=Simulation_Object):
 
         if test:
             n_iter_1 = 100
-            self.sys.time_step = 0.0001
+            self.sys.time_step = 0.001
         else:
-            n_iter_1 = int(2000000 * iter_multiplier)
-            timestep_iter_1 = 0.0001
+            n_iter_1 = int(1000000 * iter_multiplier)
+            self.sys.time_step = 0.001
 
 
         if self.substrate is None:
@@ -159,7 +170,7 @@ class Elastomer(metaclass=Simulation_Object):
             sys=self.sys,
         )
 
-        self.sys.thermostat.set_langevin(kT=1, gamma=1, seed=self.params['seed'])
+        self.sys.thermostat.set_langevin(kT=1e-3, gamma=10, seed=self.params['seed'])
         self.sys.integrator.run(n_iter_1)
 
         # Remove temporary box particles
@@ -167,9 +178,8 @@ class Elastomer(metaclass=Simulation_Object):
 
         self.sys.thermostat.turn_off()
         self.sys.time_step = old_time_step
-        
     
-    def cure_elastomer(self, fold_coord=True, test=False, test_bad=False):
+    def cure_elastomer(self, fold_coord=True, test_bad=False):
         if isinstance(self, list):
             raise ValueError("Must be used on Elastomer object type")
 
@@ -230,53 +240,53 @@ class Elastomer(metaclass=Simulation_Object):
             if lonely_M:
                 self.bond_to_neighbors(parts=self.sys.part.by_ids(lonely_M), n_nghb=n_bonds_if_0, bond_k=bond_k, r_cut=-1, r_catch=r_catch_if_0, dist=dist, std_scaling=6)
 
-    def relax_langevin(self, iter_multiplier=1, kT=1E-3, gamma=10, time_step=0.001, test=False):
-        if isinstance(self, list):
-            raise ValueError("Must be used on Elastomer object type")
+    # def relax_langevin(self, iter_multiplier=1, kT=1E-3, gamma=10, time_step=0.001, test=False):
+    #     if isinstance(self, list):
+    #         raise ValueError("Must be used on Elastomer object type")
 
-        # add iniziatilation process, to get a nice random distribution before bonding
-        if test:
-            n_iter = 0
-        else:
-            n_iter = int(200000 * iter_multiplier)
+    #     # add iniziatilation process, to get a nice random distribution before bonding
+    #     if test:
+    #         n_iter = 0
+    #     else:
+    #         n_iter = int(200000 * iter_multiplier)
 
-        old_time_step= float(self.sys.time_step)
-        self.sys.time_step = time_step
+    #     old_time_step= float(self.sys.time_step)
+    #     self.sys.time_step = time_step
 
-        self.sys.thermostat.set_langevin(kT=kT, gamma=gamma, seed=self.params['seed'])
-        self.sys.integrator.run(n_iter)
-        self.sys.time_step = old_time_step
-        self.sys.thermostat.turn_off()
+    #     self.sys.thermostat.set_langevin(kT=kT, gamma=gamma, seed=self.params['seed'])
+    #     self.sys.integrator.run(n_iter)
+    #     self.sys.time_step = old_time_step
+    #     self.sys.thermostat.turn_off()
 
-    def add_anchors(self,type_keys='all'): #TO BE DONE FOR ROTATION CONSTRAINTS
-        '''
-        Adds virtual particles at top and bottom of a particle with size sigma, as given by their director (aligned with the dipole moments for magnetic particles).
-        Logic firstly adds front anchors and then back anchors, so there is a consistent logic to track ids. Indices of particles added here are stored in self.fronts_indices/self.backs_indices attributes respectively.
+    # def add_anchors(self,type_keys='all'): #TO BE DONE FOR ROTATION CONSTRAINTS
+    #     '''
+    #     Adds virtual particles at top and bottom of a particle with size sigma, as given by their director (aligned with the dipole moments for magnetic particles).
+    #     Logic firstly adds front anchors and then back anchors, so there is a consistent logic to track ids. Indices of particles added here are stored in self.fronts_indices/self.backs_indices attributes respectively.
 
-        :None:
+    #     :None:
 
-        '''
-        if type_keys == 'all':
-            type_keys = tuple(typ for key, typ in self.part_types.items() if "real" in key)
-        if self.associated_objects is not None:
-            raise NotImplementedError('add_anchors is still WIP for generic objects')
-        else:
-            self.fronts_indices=[]
-            self.backs_indices=[]
+    #     '''
+    #     if type_keys == 'all':
+    #         type_keys = tuple(typ for key, typ in self.part_types.items() if "real" in key)
+    #     if self.associated_objects is not None:
+    #         raise NotImplementedError('add_anchors is still WIP for generic objects')
+    #     else:
+    #         self.fronts_indices=[]
+    #         self.backs_indices=[]
 
-            handles = self.type_part_dict['real']
+    #         handles = self.type_part_dict['real']
 
-            logic_front = ((self.add_particle(type_name='virt', pos=part.pos + 0.5 * self.params['size'] * part.director, rotation=(False, False, False)), part) for part in handles)
-            logic_back  = ((self.add_particle(type_name='virt', pos=part.pos - 0.5 * self.params['size'] * part.director, rotation=(False, False, False)), part) for part in handles)
+    #         logic_front = ((self.add_particle(type_name='virt', pos=part.pos + 0.5 * self.params['size'] * part.director, rotation=(False, False, False)), part) for part in handles)
+    #         logic_back  = ((self.add_particle(type_name='virt', pos=part.pos - 0.5 * self.params['size'] * part.director, rotation=(False, False, False)), part) for part in handles)
 
-            for part_front, part in logic_front:
-                part_front.vs_auto_relate_to(part)
-                self.fronts_indices.append(part_front.id)
+    #         for part_front, part in logic_front:
+    #             part_front.vs_auto_relate_to(part)
+    #             self.fronts_indices.append(part_front.id)
 
-            for part_back, part in logic_back:
-                part_back.vs_auto_relate_to(part)
-                self.backs_indices.append(part_back.id)
-            logging.info(f'anchors added for Elastomer particles: {self.who_am_i}')
+    #         for part_back, part in logic_back:
+    #             part_back.vs_auto_relate_to(part)
+    #             self.backs_indices.append(part_back.id)
+    #         logging.info(f'anchors added for Elastomer particles: {self.who_am_i}')
 
     def random_harmonic_bonds(self, r_catch, bond_k=(0.001, 0.01), max_bonds=None, r_cut=-1, dist="normal", std_scaling=6):
         """
@@ -483,12 +493,13 @@ class Elastomer(metaclass=Simulation_Object):
             warnings.warn("Substrate not yet set. Will ignore this call.")
 
     def create_substrate_part(self):
+        substrate_radius = self._substrate_size / 2.
         n_substrate_x = int(np.ceil(self.params['box_E'][0]))
         n_substrate_y = int(np.ceil(self.params['box_E'][1]))
         n_substrate= n_substrate_x * n_substrate_y
-        pos_x, pos_y = np.meshgrid( np.linspace(0.5, self.params['box_E'][0]-0.5, n_substrate_x),
-                                    np.linspace(0.5, self.params['box_E'][1]-0.5, n_substrate_y) )
-        pos = np.column_stack((pos_x.ravel(), pos_y.ravel(), np.zeros(n_substrate)))
+        pos_x, pos_y = np.meshgrid( np.linspace(substrate_radius, self.params['box_E'][0]-substrate_radius, n_substrate_x),
+                                    np.linspace(substrate_radius, self.params['box_E'][1]-substrate_radius, n_substrate_y) )
+        pos = np.column_stack((pos_x.ravel(), pos_y.ravel(), np.zeros(n_substrate) + substrate_radius))
 
         substrate_list= []
         for i in range(n_substrate):
@@ -496,11 +507,10 @@ class Elastomer(metaclass=Simulation_Object):
             substrate_list.append(part_hndl)
         self.substrate = substrate_list
 
+        substrate_sigma_half = substrate_radius * 0.89089871814 # radius / 2^(1/6)
         for key, typ in self.part_types.items():
             if "real" in key:
-                sigma = self.params['sigma']
-                if sigma < 0.001:
-                    raise ValueError(f"Interaction of type {typ} with wall is 0, has these particles have no interaction defined. If you would like to have no interactions between particles, but only with wall, then hange this function or do it with normal espresso constraints.")
+                sigma = self.params['sigma'] / 2 + substrate_sigma_half
                 self.sys.non_bonded_inter[self.part_types['substrate'], typ].wca.set_params(epsilon=1e6, sigma=sigma)
         
     def remove_substrate_part(self):
@@ -520,35 +530,3 @@ class Elastomer(metaclass=Simulation_Object):
     def remove_substrate_wall(self):
         remove_box_constraints_func(wall_type=self.part_types['substrate'], sys=self.sys)
         self.substrate = None
-        
-def random_like_nested_3d_vectors(item, rng=None):
-    """
-    Recursively generate random 3D unit vectors,
-    matching the shape of nested lists, tuples, or arrays.
-    - Lists/tuples of len==3 with all numbers => treated as vector and replaced by a random unit vector.
-    - NumPy arrays with last dimension == 3 => generate array of random unit vectors with same shape.
-    - Otherwise recurse.
-    Raises error if a scalar or other unsupported leaf is found.
-    """
-    if rng is None:
-        rng = np.random.default_rng()
-    
-    if isinstance(item, (list, tuple)):
-        # Check if it is a 3D vector (leaf)
-        if len(item) == 3 and all(isinstance(x, (float, int)) for x in item):
-            return generate_random_unit_vectors(1).flatten().tolist()
-        else:
-            return [random_like_nested_3d_vectors(sub, rng) for sub in item]
-    
-    elif isinstance(item, np.ndarray):
-        if item.shape[-1] != 3:
-            raise ValueError(f"Expected last dimension to be 3 for 3D vectors, got shape {item.shape}")
-        
-        n_vectors = np.prod(item.shape[:-1])
-        vectors = generate_random_unit_vectors(n_vectors)
-        vectors = vectors.reshape(item.shape)
-        # Just to be sure normalize (your function is safe)
-        return normalize_vectors(vectors, axis=-1)
-
-    else:
-        raise ValueError(f"Expected last dimension to be 3 for 3D vectors, got {item}")

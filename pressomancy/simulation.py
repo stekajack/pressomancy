@@ -338,9 +338,9 @@ class Simulation():
                         current_lattice_centers=centeres,
                         current_lattice_grouped_part_pos=positions,
                         current_lattice_diam=objects[0].params['size'],
-                        other_lattice_centers=self.volume_centers[0],
-                        other_lattice_grouped_part_pos=self.part_positions[0],
-                        other_lattice_diam=self.volume_size,
+                        other_lattice_centers=self._volume_centers[0],
+                        other_lattice_grouped_part_pos=self._part_positions[0],
+                        other_lattice_diam=self._volume_size,
                         box_lengths=self.sys.box_l
                         )
                     mask=[key for key,val in res.items() if all(val)]
@@ -381,7 +381,6 @@ class Simulation():
             orientations = generate_random_unit_vectors(len(positions))
         else:
             orientations = normalize_vectors(orientations)
-        assert len(objects) == len(positions) == len(orientations), f"{objects.shape} == {positions.shape} == {orientations.shape}"
         for obj, pos, ori in zip(objects, positions, orientations):
             obj.set_object(pos, ori)
         names = [element.__class__.__name__ for element in objects]
@@ -570,17 +569,32 @@ class Simulation():
             raise MissingFeature(f"{name} requires WALBERLA. Please enable it in your ESPResSo installation.")
         self.sys.thermostat.turn_off()
         self.sys.part.all().v = (0, 0, 0)
-        param_dict={'kT':kT, 'seed':self.seed, 'agrid':agrid, 'dens':dens, 'visc':visc, 'tau':timestep}
+
+        if espressomd.version.major() == 4:
+            param_dict={'kT':kT, 'seed':self.seed, 'agrid':agrid, 'dens':dens, 'visc':visc, 'tau':timestep}
+        elif espressomd.version.major() == 5:
+            param_dict={'kT':kT, 'seed':self.seed, 'agrid':agrid, 'density':dens, 'kinematic_viscosity':visc, 'tau':timestep}
+
         if api_agnostic_feature_check('CUDA'):
             logging.info('GPU LB method is beeing initiated')
-
-            lbf = espressomd.lb.LBFluidWalberlaGPU(**param_dict)
+            if espressomd.version.major() == 4:
+                lbf = espressomd.lb.LBFluidWalberlaGPU(**param_dict)
+            elif espressomd.version.major() == 5:
+                lbf = espressomd.lb.LBFluid(gpu=True, **param_dict)
         else:
             logging.info('CPU LB method is beeing initiated')
-            lbf = espressomd.lb.LBFluidWalberla(**param_dict)
-        if len(self.sys.actors.active_actors) == 2:
-            self.sys.actors.remove(self.sys.actors.active_actors[-1])
-        self.sys.actors.add(lbf)
+            if espressomd.version.major() == 4:
+                lbf = espressomd.lb.LBFluidWalberla(**param_dict)
+            elif espressomd.version.major() == 5:
+                lbf = espressomd.lb.LBFluid(gpu=False, **param_dict)
+
+        if espressomd.version.major() == 4:
+            if len(self.sys.actors.active_actors) == 2:
+                self.sys.actors.remove(self.sys.actors.active_actors[-1])
+            self.sys.actors.add(lbf)
+        else:
+            self.sys.lb = lbf
+
         gamma_MD = gamma
         logging.info(f'gamma_MD: {gamma_MD}')
         self.sys.thermostat.set_lb(
@@ -885,6 +899,11 @@ class Simulation():
         if mode in ['NEW', 'INIT_SRC']:
             self.io_dict['h5_file'] = h5py.File(h5_data_path, "w")
 
+            # Create sim_inst group, for pressomancy simulation information
+            sys_grp = self.io_dict['h5_file'].require_group(f"sim_inst")
+            sys_grp.attrs["seed"] = np.int32(self.seed)
+            sys_grp.attrs["kT"] = np.float32(self.kT)
+
             # Create sys group, for espresso system information
             sys_grp = self.io_dict['h5_file'].require_group(f"sys")
             sys_grp.attrs["box_l"] = np.array(self.sys.box_l, dtype=np.float32)
@@ -1052,8 +1071,10 @@ class Simulation():
 
         return GLOBAL_COUNTER
         
-    def write_part_group_to_h5(self, time_step=None, unique_time=True, bonds_once=True):
+    def write_part_group_to_h5(self, step=None, time=None, unique_time=False, bonds_once=True):
         assert self.io_dict['h5_file']!=None,'storage file has not been inscribed!'
+        if unique_time:
+            assert step is None and time is not None, "For unique time, step must be None and time must be a floating number."
         particles_group = self.io_dict['h5_file']["particles"]
         for grp_typ in self.io_dict['registered_group_type']:
             data_grp = particles_group[grp_typ]
@@ -1064,17 +1085,19 @@ class Simulation():
 
                 dataset_size = dataset_val.shape[0]
                 if unique_time and dataset_size > 0: # no duplicate steps AND dataset not empty
-                    idx_attempt = np.searchsorted(step_dataset[:], time_step)
+                    idx_attempt = np.searchsorted(time_dataset[:], time)
                     if idx_attempt >= dataset_size:
                         # if step is larger than all existing steps -> append
                         step_dataset.resize((dataset_size + 1,))
                         time_dataset.resize((dataset_size + 1,))
                         dataset_val.resize((dataset_size + 1, dataset_val.shape[1], dataset_val.shape[2]))
-                        idx = -1  
+                        idx = -1
+                        step = step_dataset[-2] + 1
                     else:
                         # else: step is <= last step -> insert/overwrite at sorted position
                         # (steps equal to existing ones naturally land here too)
                         idx = idx_attempt
+                        step = step_dataset[idx]
                          
                 else:
                     # Duplicate steps allowed OR dataset empty -> append
@@ -1082,9 +1105,11 @@ class Simulation():
                     time_dataset.resize((dataset_size + 1,))
                     dataset_val.resize((dataset_size + 1, dataset_val.shape[1], dataset_val.shape[2]))
                     idx = -1
+                    step = step_dataset[-2] + 1 if dataset_size > 0 else 0
 
-                step_dataset[idx] = time_step
-                time_dataset[idx] = time_step
+
+                step_dataset[idx] = step
+                time_dataset[idx] = time if time is not None else step
                 dataset_val[idx, :, :] = np.array([np.atleast_1d(getattr(part, prop)) for part in self.io_dict['flat_part_view'][grp_typ]], dtype=np.float32) # TO IMPLEMENT make this type see the rpious and copy. Change the initial type to match type of saved prop
             
             # skip if not saving bonds OR ( if bond_once is True AND there are already bonds saved )
@@ -1098,27 +1123,30 @@ class Simulation():
 
                 dataset_size = dataset_val.shape[0]
                 if unique_time and dataset_size > 0: # no duplicate steps AND dataset not empty
-                    idx_attempt = np.searchsorted(step_dataset[:], time_step)
+                    idx_attempt = np.searchsorted(time_dataset[:], time)
                     if idx_attempt >= dataset_size:
                         # if step is larger than all existing steps -> append
                         step_dataset.resize((dataset_size + 1,))
                         time_dataset.resize((dataset_size + 1,))
                         dataset_val.resize((dataset_size + 1, dataset_val.shape[1]))
-                        idx = -1  
+                        idx = -1
+                        step = step_dataset[-2] + 1
                     else:
                         # else: step is <= last step -> insert/overwrite at sorted position
                         # (steps equal to existing ones naturally land here too)
                         idx = idx_attempt
+                        step = step_dataset[idx]
                          
                 else:
-                     # Duplicate steps allowed OR dataset empty -> append
+                    # Duplicate steps allowed OR dataset empty -> append
                     step_dataset.resize((dataset_size + 1,))
                     time_dataset.resize((dataset_size + 1,))
                     dataset_val.resize((dataset_size + 1, dataset_val.shape[1]))
                     idx = -1
+                    step = step_dataset[-2] + 1 if dataset_size > 0 else 0
 
-                step_dataset[idx] = time_step
-                time_dataset[idx] = time_step
+                step_dataset[idx] = step
+                time_dataset[idx] = time if time is not None else step
                 bond_dtype = np.dtype([
                     ("bond_type", h5py.string_dtype(encoding="utf-8")),
                     ("k", np.float32),

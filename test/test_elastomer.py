@@ -1,5 +1,5 @@
 from pressomancy.simulation import Elastomer, PointDipoleSuperpara
-from create_system import sim_inst, BaseTestCase
+from .create_system import sim_inst, BaseTestCase
 import numpy as np
 
 class ElastomerTest(BaseTestCase):
@@ -37,8 +37,9 @@ class ElastomerTest(BaseTestCase):
         sim_inst.store_objects([instance])
         sim_inst.set_objects([instance])
 
-        sim_inst.set_steric(tuple((type_name for type_name in instance.part_types.keys())))
+        sim_inst.set_steric(tuple((type_name for type_name in instance.part_types.keys() if "real" in type_name)))
 
+        sim_inst.sys.time_step = 0.01
         instance.mix_elastomer_stuff(test=True)
 
     def test_cure_elastomer(self):
@@ -52,7 +53,7 @@ class ElastomerTest(BaseTestCase):
         sim_inst.store_objects([instance])
         sim_inst.set_objects([instance])
 
-        instance.cure_elastomer(test=True)
+        instance.cure_elastomer()
 
         n_bond_dict = defaultdict(list)
         for part in sim_inst.sys.part.select(type=62):
@@ -74,7 +75,7 @@ class ElastomerTest(BaseTestCase):
         sim_inst.store_objects([instance])
         sim_inst.set_objects([instance])
 
-        instance.cure_elastomer(test=True, test_bad=True)
+        instance.cure_elastomer(test_bad=True)
 
         n_bond_dict = defaultdict(list)
         for part in sim_inst.sys.part.select(type=sim_inst.part_types["real"]):
@@ -97,17 +98,17 @@ class ElastomerTest(BaseTestCase):
 
         instance.create_substrate()
 
-        substrate_pos = np.asarray([[ 0.5,0.5,-0.5],
-                                    [ 1.5,0.5,-0.5],
-                                    [ 2.5,0.5,-0.5],
-                                    [ 0.5,1.5,-0.5],
-                                    [ 1.5,1.5,-0.5],
-                                    [ 2.5,1.5,-0.5],
-                                    [ 0.5,2.5,-0.5],
-                                    [ 1.5,2.5,-0.5],
-                                    [ 2.5,2.5,-0.5]])
+        substrate_pos = np.asarray([[ 0.5,0.5, 0.5],
+                                    [ 1.5,0.5, 0.5],
+                                    [ 2.5,0.5, 0.5],
+                                    [ 0.5,1.5, 0.5],
+                                    [ 1.5,1.5, 0.5],
+                                    [ 2.5,1.5, 0.5],
+                                    [ 0.5,2.5, 0.5],
+                                    [ 1.5,2.5, 0.5],
+                                    [ 2.5,2.5, 0.5]])
 
-        assert set(map(tuple, np.asarray([p.pos for p in instance.substrate]))) == set(map(tuple, substrate_pos))
+        assert set(map(tuple, np.asarray([p.pos for p in instance.substrate]))) == set(map(tuple, substrate_pos)), f"{[p.pos for p in instance.substrate]}"
     
     def test_remove_substrate(self):
         mag_part = [PointDipoleSuperpara(config=PointDipoleSuperpara.config.specify(dipm=1.,
@@ -131,11 +132,13 @@ class ElastomerTest(BaseTestCase):
         sim_inst.store_objects([instance])
         sim_inst.set_objects([instance])
 
+        sim_inst.sys.time_step = 0.001
+
         instance.create_substrate()
 
         instance.mix_elastomer_stuff(test=True)
 
-        instance.cure_elastomer(test=True)
+        instance.cure_elastomer()
 
         assert (np.asarray(sim_inst.sys.part.select(type=sim_inst.part_types["real"]).pos)[:,2] >= 0.5).all()
 

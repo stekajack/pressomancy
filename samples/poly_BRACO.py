@@ -85,7 +85,7 @@ with tempfile.TemporaryDirectory() as tmpdirname:
     path=os.path.join(tmpdirname, "src_file.h5")
     GLOBAL_COUNTER=sim_inst.inscribe_part_group_to_h5(group_type=[Filament,], h5_data_path=path, mode='NEW')
     sim_inst.sys.integrator.run(1)
-    sim_inst.write_part_group_to_h5(time_step=GLOBAL_COUNTER)
+    sim_inst.write_part_group_to_h5(step=GLOBAL_COUNTER)
     old_pos=sim_inst.sys.part.all().pos.copy()
     sim_inst.set_init_src(
         path=path,

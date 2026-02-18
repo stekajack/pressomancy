@@ -3,7 +3,7 @@ import pkgutil
 import logging
 import samples 
 import os
-from create_system import sim_inst, BaseTestCase
+from .create_system import sim_inst, BaseTestCase
 from unittest import mock
 from pressomancy.object_classes import Quadriplex
 from pressomancy.helper_functions import MissingFeature

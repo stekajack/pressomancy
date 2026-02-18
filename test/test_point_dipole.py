@@ -1,5 +1,5 @@
 from pressomancy.simulation import PointDipolePermanent, PointDipoleSuperpara
-from create_system import sim_inst, BaseTestCase
+from .create_system import sim_inst, BaseTestCase
 import numpy as np
 
 class PointDipoleTest(BaseTestCase):
