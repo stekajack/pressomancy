@@ -678,7 +678,7 @@ class Simulation():
             H_tot = part.dip_fld+H_ext
             tri = np.linalg.norm(H_tot)
             if tri < 1e-5:
-                part.dip = H_tot/tri * 1e-6
+                part.dipm = 0.
             else:
                 dip_tri = dip_magnitude*tri #/ self.kT
                 inv_dip_tri = 1.0/(dip_tri)

@@ -81,7 +81,7 @@ class PointDipoleSuperpara(metaclass=Simulation_Object):
         '''
         particl_real=self.add_particle(type_name='pds_real', pos=pos, rotation=[True, True, True], director=ori)
         
-        particl_virt=self.add_particle(type_name='pds_virt', pos=pos, rotation=[False, False, False], dip=(ori * 1e-6))
+        particl_virt=self.add_particle(type_name='pds_virt', pos=pos, rotation=[False, False, False], director=ori, dipm=0.)
         particl_virt.vs_auto_relate_to(particl_real)
         particl_virt.propagation = espressomd.propagation.Propagation.TRANS_VS_RELATIVE | espressomd.propagation.Propagation.ROT_VS_INDEPENDENT
 

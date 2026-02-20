@@ -46,7 +46,7 @@ class H5DataSelector:
         self.pt_slice = pt_slice if pt_slice is not None else slice(None)
 
         # Get step array (from particle 0)
-        self.steps_array = h5_file[f"particles/{particle_group}/id/step"][self.ts_slice]
+        self._times_array = h5_file[f"particles/{particle_group}/id/time"][self.ts_slice]
         
         # Set sys group in its little wrapper to be nicer and more seperate from the rest of the suspicious looking groups - like connectivity, for real, what is that supossed to mean. We are indeed all connected, in a way, I guess, so why separate connections based on some set and arbitrary rule. And I stopped there. Long day of coding.
         # TO IMPLEMENT
@@ -175,7 +175,7 @@ class H5DataSelector:
         """
         return TimestepAccessor(self)
         
-    def step(self, step):
+    def time(self, time):
         """
         Accessor for slicing/iterating over the timestep axis, with the simulation step values, insted of indexes.
 
@@ -194,7 +194,7 @@ class H5DataSelector:
 
 
         """
-        matches = np.flatnonzero(np.isin(self.steps_array, np.atleast_1d(step)))
+        matches = np.flatnonzero(np.isin(self._times_array, np.atleast_1d(time)))
         if len(matches)==1: # To behave closer to timestep
             return self.timestep[int(matches[0])] # get tuple if many, or int if only one match
         else:
@@ -262,8 +262,8 @@ class H5DataSelector:
                 bond_list_all_ts_slice.append(bond_list_single_ts[0] if pt_slice_flag else bond_list_single_ts)
             return bond_list_all_ts_slice[0] if ts_slice_flag else np.asarray(bond_list_all_ts_slice, dtype=object)
 
-    def get_step_values(self):
-        return tuple(map(int, self.steps_array))
+    def times_array(self):
+        return self._times_array
     
     def get_connectivity_values(self, object_name, predicate=None, fast=False):
         """
