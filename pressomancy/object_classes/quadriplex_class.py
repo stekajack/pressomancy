@@ -50,6 +50,7 @@ class Quartet(GenericRigidObj):
         rotation_matrix = align_vectors(np.array([0.0,0.0,1.0]),ori) # 0,0,1 is the default director in espressomd
         positions = np.dot(self._reference_sheet[self.params['alias']],rotation_matrix.T) + pos 
         particles=[self.add_particle(type_name='virt',pos=pos) for pos in positions]
+        self.unperturbed_particles=particles
         diag = np.sqrt(2)*4
         self.corner_particles = [part for part0, part in product(
             particles, particles) if np.isclose(np.linalg.norm(part0.pos - part.pos), diag, atol=1e-06)]
@@ -70,11 +71,11 @@ class Quartet(GenericRigidObj):
                 ii.add_exclusion(jj)
 
         if self.params['type'] == 'broken':
-            self.change_part_type(particles[0],'real')
-            # particles[0].q = 5
+            self.change_part_type(particles[0],'cation')
+            particles[0].q = 1
 
             recepie_dict = {'assoc': {1: [2, 3, 6, 7, 8], 5: [4, 9, 10, 13, 14], 20: [11, 12, 15, 16, 21], 24: [
-                17, 18, 19, 22, 23]}, 'circ': [8, 13, 12, 17], 'squareA': [6, 4, 21, 19], 'squareB': [11, 3, 22, 14], 'charged': [7, 9, 16, 18]}
+                17, 18, 19, 22, 23]}, 'circ': [8, 13, 12, 17], 'squareA': [6, 4, 21, 19], 'squareB': [11, 3, 22, 14], 'cation': [7, 9, 16, 18]}
             particles = np.array(particles)
             for part in self.corner_particles:
                 self.change_part_type(part,'real')
@@ -83,12 +84,13 @@ class Quartet(GenericRigidObj):
 
             for part in particles[np.array(recepie_dict['circ'])]:
                 self.change_part_type(part,'circ')
-                # part.q = -1.25
+                part.q = -0.25
 
             if self.params['bond_handle'] != None:
                 for part1, part2 in zip(particles[np.array(recepie_dict['squareA'])], particles[np.array(recepie_dict['squareB'])]):
-                    self.change_part_type(part1,'squareA')
-                    self.change_part_type(part2,'squareB')
+                    pass
+                    # self.change_part_type(part1,'squareA')
+                    # self.change_part_type(part2,'squareB')
             else:
                 for part in particles[np.array(recepie_dict['squareA'])]:
                     self.change_part_type(part,'squareA')
@@ -107,6 +109,53 @@ class Quartet(GenericRigidObj):
         random_part = random.choice(self.corner_particles)
         random_part.type = part_type
         logging.info(f'covalent corners marked for {self.__class__.__name__}s with part_type {part_type}')
+    
+    def add_h_bond_patches(self):
+        recepie_dict = {'assoc': {1: [2, 3, 6, 7, 8], 5: [4, 9, 10, 13, 14], 20: [11, 12, 15, 16, 21], 24: [
+                17, 18, 19, 22, 23]}, 'circ': [8, 13, 12, 17], 'squareA': [6, 4, 21, 19], 'squareB': [11, 3, 22, 14], 'cation': [7, 9, 16, 18]}
+        square_b_set = recepie_dict['squareB']
+        square_a_set = recepie_dict['squareA']
+
+        cation_offset = 0.5
+        cation_radius=0.2
+
+        # For each corner, place its associated cation just beyond the squareB site
+        # along the corner->squareB direction.
+        particles=self.unperturbed_particles
+        for corner_idx, assoc_indices in recepie_dict['assoc'].items():
+            square_b_matches = [idx for idx in assoc_indices if idx in square_b_set]
+            square_a_matches = [idx for idx in assoc_indices if idx in square_a_set]
+            if len(square_b_matches) != 1 or len(square_a_matches) != 1:
+                raise ValueError(f'Expected exactly one squareB and one squareA match for corner index {corner_idx}, but found {len(square_b_matches)} squareB matches and {len(square_a_matches)} squareA matches')
+            square_b_idx = square_b_matches[0]
+            square_a_idx = square_a_matches[0]
+            corner_part = particles[corner_idx]
+            square_b_part = particles[square_b_idx]
+            square_a_part = particles[square_a_idx]
+            
+            direction_b = corner_part.pos-square_b_part.pos
+            direction_a = corner_part.pos-square_a_part.pos
+
+            direction_norm_b = np.linalg.norm(direction_b)
+            direction_norm_a = np.linalg.norm(direction_a)
+            unit_direction_b = direction_b / direction_norm_b
+            unit_direction_a = direction_a / direction_norm_a
+            part_hndlB=self.add_particle(type_name='squareB',pos=square_b_part.pos - cation_offset * unit_direction_b)
+            part_hndlB.vs_auto_relate_to(corner_part)
+            part_hndlA=self.add_particle(type_name='squareA',pos=square_a_part.pos - cation_offset * unit_direction_a)
+            part_hndlA.vs_auto_relate_to(corner_part)
+
+            part_hndlBB=self.add_particle(type_name='squareB',pos=part_hndlB.pos  - direction_a)
+            part_hndlBB.vs_auto_relate_to(corner_part)
+            part_hndlAA=self.add_particle(type_name='squareA',pos=part_hndlA.pos - direction_b/2.)
+            part_hndlAA.vs_auto_relate_to(corner_part)
+
+            part_hndlA.add_exclusion(part_hndlB.id)
+            part_hndlAA.add_exclusion(part_hndlBB.id)
+            part_hndlAA.add_exclusion(part_hndlB.id)
+            part_hndlBB.add_exclusion(part_hndlA.id)
+            corner_part.pos = corner_part.pos + unit_direction_a*cation_radius + unit_direction_b*cation_radius
+
 
 class Quadriplex(metaclass=Simulation_Object):
 
@@ -245,4 +294,96 @@ class Quadriplex(metaclass=Simulation_Object):
             part_type=part_type)
         self.associated_objects[2].mark_covalent_corner(
             part_type=part_type)
+        
+    def add_dihedrals(self):
+        assert len(
+            self.associated_objects) == 3, "a quadriplex can only be created from 3 quartets!!! "
+        center_quartet=self.associated_objects[0]
+        top_quartet=self.associated_objects[1]
+        bottom_quartet=self.associated_objects[2]
 
+        center_corners, top_corners, bottom_corners, pair_distances = center_quartet.corner_particles, top_quartet.corner_particles, bottom_quartet.corner_particles, []
+        dihedral = espressomd.interactions.Dihedral(bend=10, mult=1, phase=np.pi/2.)
+        self.sys.bonded_inter.add(dihedral)
+        for ref_corner in top_corners:
+            pair_distances=[np.linalg.norm(ref_corner.pos-corner.pos) for corner in center_corners]
+            closest_corner=center_corners[np.argmin(pair_distances)]
+            parts,_=top_quartet.get_owned_part()
+            related_parts=[part for part in parts if part.vs_relative[0]==ref_corner.id]
+            related_parts=[part for part in related_parts if part.type==top_quartet.part_types['squareB']]
+            pB=related_parts[0]
+
+            parts,_=center_quartet.get_owned_part()
+            related_parts=[part for part in parts if part.vs_relative[0]==closest_corner.id]
+            related_parts=[part for part in related_parts if part.type==center_quartet.part_types['squareA']]
+            pA=related_parts[0]
+            pB.add_bond((dihedral, ref_corner, closest_corner, pA))
+            print('dihdral added between parts with ids', pB.id, closest_corner.id, pA.id, ref_corner.id)
+
+        for ref_corner in center_corners:
+            pair_distances=[np.linalg.norm(ref_corner.pos-corner.pos) for corner in bottom_corners]
+            closest_corner=bottom_corners[np.argmin(pair_distances)]
+            parts,_=center_quartet.get_owned_part()
+            related_parts=[part for part in parts if part.vs_relative[0]==ref_corner.id]
+            related_parts=[part for part in related_parts if part.type==center_quartet.part_types['squareB']]
+            pB=related_parts[0]
+
+            parts,_=bottom_quartet.get_owned_part()
+            related_parts=[part for part in parts if part.vs_relative[0]==closest_corner.id]
+            related_parts=[part for part in related_parts if part.type==bottom_quartet.part_types['squareA']]
+            pA=related_parts[0]
+            pB.add_bond((dihedral, ref_corner, closest_corner, pA))
+            print('dihdral added between parts with ids', pB.id, closest_corner.id, pA.id, ref_corner.id)
+
+    def add_extra_bendings(self):
+        angle_another = espressomd.interactions.AngleHarmonic(bend=10.0, phi0=np.pi/2.)
+        self.sys.bonded_inter.add(angle_another)
+        center_quartet=self.associated_objects[0]
+        top_quartet=self.associated_objects[1]
+        bottom_quartet=self.associated_objects[2]
+
+        center_corners, top_corners, bottom_corners, pair_distances = center_quartet.corner_particles, top_quartet.corner_particles, bottom_quartet.corner_particles, []
+
+        for ref_corner in top_corners:
+            pair_distances=[np.linalg.norm(ref_corner.pos-corner.pos) for corner in center_corners]
+            closest_corner=center_corners[np.argmin(pair_distances)]
+            parts,_=top_quartet.get_owned_part()
+            related_parts=[part for part in parts if part.vs_relative[0]==ref_corner.id]
+            related_parts=[part for part in related_parts if part.type==top_quartet.part_types['squareB']]
+            pB=related_parts[0]
+            related_parts=[part for part in parts if part.vs_relative[0]==ref_corner.id]
+            related_parts=[part for part in related_parts if part.type==top_quartet.part_types['squareA']]
+            pA=related_parts[0]
+            ref_corner.add_bond((angle_another, pB,  closest_corner))
+            ref_corner.add_bond((angle_another, pA,  closest_corner))
+        
+        for ref_corner in center_corners:
+            pair_distances=[np.linalg.norm(ref_corner.pos-corner.pos) for corner in bottom_corners]
+            closest_corner=bottom_corners[np.argmin(pair_distances)]
+            parts,_=center_quartet.get_owned_part()
+            related_parts=[part for part in parts if part.vs_relative[0]==ref_corner.id]
+            related_parts=[part for part in related_parts if part.type==center_quartet.part_types['squareB']]
+            pB=related_parts[0]
+            related_parts=[part for part in parts if part.vs_relative[0]==ref_corner.id]
+            related_parts=[part for part in related_parts if part.type==center_quartet.part_types['squareA']]
+            pA=related_parts[0]
+            ref_corner.add_bond((angle_another, pB,  closest_corner))
+            ref_corner.add_bond((angle_another, pA,  closest_corner))
+        
+        for ref_corner in bottom_corners:
+            pair_distances=[np.linalg.norm(ref_corner.pos-corner.pos) for corner in center_corners]
+            closest_corner=center_corners[np.argmin(pair_distances)]
+            parts,_=bottom_quartet.get_owned_part()
+            related_parts=[part for part in parts if part.vs_relative[0]==ref_corner.id]
+            related_parts=[part for part in related_parts if part.type==bottom_quartet.part_types['squareB']]
+            pB=related_parts[0]
+            related_parts=[part for part in parts if part.vs_relative[0]==ref_corner.id]
+            related_parts=[part for part in related_parts if part.type==bottom_quartet.part_types['squareA']]
+            pA=related_parts[0]
+            ref_corner.add_bond((angle_another, pB,  closest_corner))
+            ref_corner.add_bond((angle_another, pA,  closest_corner))
+
+
+    
+
+    

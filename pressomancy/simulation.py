@@ -77,10 +77,10 @@ class Simulation():
         set_steric_custom(pairs, wca_eps, sigma):
             Configures custom WCA interactions for specific particle type pairs.
 
-        set_vdW(key, lj_eps, lj_size):
+        set_vdW(key, lj_eps, lj_sigma):
             Sets Lennard-Jones interactions for specified particle types.
 
-        set_vdW_custom(pairs, lj_eps, lj_size):
+        set_vdW_custom(pairs, lj_eps, lj_sigma):
             Configures custom Lennard-Jones interactions for specific particle type pairs.
 
         init_lb(kT, agrid, dens, visc, gamma, timestep):
@@ -340,7 +340,7 @@ class Simulation():
             self.sys.non_bonded_inter[self.part_types[key_el], self.part_types[key_el2]
                                       ].wca.set_params(epsilon=eps, sigma=sgm)
 
-    def set_vdW(self, key=('nonmagn',), lj_eps=1., lj_size=1.):
+    def set_vdW(self, key=('nonmagn',), lj_eps=1., lj_sigma=1.):
         """
         Configures Lennard-Jones (LJ) interactions for specified particle types.
 
@@ -349,17 +349,17 @@ class Simulation():
 
         :param key: tuple of str | Particle type keys from `self.part_types` for which interactions are defined. Defaults to ('nonmagn',).
         :param lj_eps: float | Strength of the LJ attraction (epsilon). Defaults to 1.0.
-        :param lj_size: float | Interaction range (sigma). Defaults to 1.0.
+        :param lj_sigma: float | Interaction range (sigma). Defaults to 1.0.
         :return: None
         """
 
-        lj_cut = 2.5*lj_size
+        lj_cut = 2.5*lj_sigma
         for key_el, key_el2 in combinations_with_replacement(key, 2):
             self.sys.non_bonded_inter[self.part_types[key_el], self.part_types[key_el2]].lennard_jones.set_params(
-                epsilon=lj_eps, sigma=lj_size, cutoff=lj_cut, shift=0)
+                epsilon=lj_eps, sigma=lj_sigma, cutoff=lj_cut, shift=0)
         logging.info(f'vdW interactions initiated initiated for keys: {key}')
 
-    def set_vdW_custom(self, pairs=[(None, None),], lj_eps=[1.,], lj_size=[1.,]):
+    def set_vdW_custom(self, pairs=[(None, None),], lj_eps=[1.,], lj_sigma=[1.,], lj_cuttoffs=None, r_min=0):
         """
         Custom setter for Lennard-Jones (LJ) interactions between specified particle type pairs.
 
@@ -367,18 +367,24 @@ class Simulation():
 
         :param pairs: list of tuples | Each tuple specifies a pair of keys from `self.part_types` for which interactions are defined. Defaults to [(None, None)].
         :param lj_eps: list of float | Strength of the LJ interaction for each pair. Defaults to [1.0].
-        :param lj_size: list of float | Interaction range (sigma) for each pair. Defaults to [1.0].
+        :param lj_sigma: list of float | Interaction range (sigma) for each pair. Defaults to [1.0].
         :return: None
 
-        :raises AssertionError: If the lengths of `pairs`, `lj_eps`, and `lj_size` are not equal.
+        :raises AssertionError: If the lengths of `pairs`, `lj_eps`, and `lj_sigma` are not equal.
         """
 
         assert len(pairs) == len(lj_eps) and len(pairs) == len(
-            lj_size), 'epsilon and sigma must be specified explicitly for each type pair'
-        for (key_el, key_el2), eps, sgm in zip(pairs, lj_eps, lj_size):
-            lj_cut = 1.5*sgm
-            self.sys.non_bonded_inter[self.part_types[key_el], self.part_types[key_el2]].lennard_jones.set_params(
-                epsilon=eps, sigma=sgm, cutoff=lj_cut, shift=0)
+            lj_sigma), 'epsilon and sigma must be specified explicitly for each type pair'
+        if lj_cuttoffs is None:
+            for (key_el, key_el2), eps, sgm in zip(pairs, lj_eps, lj_sigma):
+                lj_cut = 2.5*sgm
+                self.sys.non_bonded_inter[self.part_types[key_el], self.part_types[key_el2]].lennard_jones.set_params(
+                    epsilon=eps, sigma=sgm, cutoff=lj_cut, shift=0, min=r_min)
+        else:
+            assert len(pairs) == len(lj_cuttoffs), 'cutoffs must be specified explicitly for each type pair'
+            for (key_el, key_el2), eps, sgm, cut in zip(pairs, lj_eps, lj_sigma, lj_cuttoffs):
+                self.sys.non_bonded_inter[self.part_types[key_el], self.part_types[key_el2]].lennard_jones.set_params(
+                    epsilon=eps, sigma=sgm, cutoff=cut, shift=0, min=r_min)
         logging.info('vdW interactions initiated!')
 
     def init_lb(self, kT, agrid, dens, visc, gamma, timestep=0.01):
