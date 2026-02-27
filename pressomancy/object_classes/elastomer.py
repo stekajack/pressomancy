@@ -510,7 +510,7 @@ class Elastomer(metaclass=Simulation_Object):
         substrate_sigma_half = substrate_radius * 0.89089871814 # radius / 2^(1/6)
         for key, typ in self.part_types.items():
             if "real" in key:
-                sigma = self.params['sigma'] / 2 + substrate_sigma_half
+                sigma = self.params['size'] * 0.445449359 + substrate_sigma_half # size/2 /2^(1/6) + substrate_sigma_half
                 self.sys.non_bonded_inter[self.part_types['substrate'], typ].wca.set_params(epsilon=1e6, sigma=sigma)
         
     def remove_substrate_part(self):
