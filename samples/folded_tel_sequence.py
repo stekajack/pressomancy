@@ -7,10 +7,13 @@ import logging
 # mass scale 2.5727522264874994e-20
 # energy scale 4.116403562379999e-21
 # time scale 1e-09
+fold_types = ['antiparallel','parallel', 'hybrid', ]
+# 'parallel', 'hybrid', 
+
 N_avog = 6.02214076e23
 sigma = 1.
 rho_si = 0.6*N_avog
-no_obj=18
+no_obj=6*len(fold_types)
 N = int(no_obj/3)
 vol = N/rho_si
 box_l = pow(vol, 1/3)
@@ -31,23 +34,51 @@ sheets_per_quad = 3
 part_per_filament = 2
 
 sim_inst = Simulation(box_dim=box_dim)
-sim_inst.set_sys(timestep=0.005)
+sim_inst.set_sys(timestep=0.001)
 logging.info(f'box_dim: {sim_inst.sys.box_l}')
 bond_hndl=BondWrapper(espressomd.interactions.FeneBond(k=10., r_0=1., d_r_max=1.5))
-quartet_config = Quartet.config.specify(bond_handle=bond_hndl,type='broken', espresso_handle=sim_inst.sys)
-quartets = [Quartet(config=quartet_config) for x in range(no_obj)]
-
-grouped_quartets = [quartets[i:i+sheets_per_quad]
-                    for i in range(0, len(quartets), sheets_per_quad)]
 bond_quad = BondWrapper(espressomd.interactions.FeneBond(k=10., r_0=2., d_r_max=2*1.5))
-quadriplex_config_list = [Quadriplex.config.specify(associated_objects=elem, espresso_handle=sim_inst.sys, bonding_mode='ftf',bond_handle=bond_quad, size=np.sqrt(3)*5) for elem in grouped_quartets]
-quadriplex = [Quadriplex(config=elem) for elem in quadriplex_config_list]
+quartets = []
+quadriplex = []
+for fold_type in fold_types:
+    for _ in range(part_per_filament):
+        if fold_type == 'antiparallel':
+            quartet_types = ['brokenB', 'brokenA', 'brokenA']  # [center, top, bottom]
+        else:
+            quartet_types = ['brokenA', 'brokenA', 'brokenA']  # [center, top, bottom]
+
+        quartet_triplet = []
+        for quartet_type in quartet_types:
+            quartet_config = Quartet.config.specify(
+                bond_handle=bond_hndl,
+                type=quartet_type,
+                espresso_handle=sim_inst.sys,
+            )
+            quartet = Quartet(config=quartet_config)
+            quartets.append(quartet)
+            quartet_triplet.append(quartet)
+
+        quadriplex_config = Quadriplex.config.specify(
+            associated_objects=quartet_triplet,
+            espresso_handle=sim_inst.sys,
+            bonding_mode='ftf',
+            bond_handle=bond_quad,
+            size=np.sqrt(3)*5,
+        )
+        quadriplex.append(Quadriplex(config=quadriplex_config))
+
+        assert len(quartet_triplet) == 3
+        expected_types = ['brokenB', 'brokenA', 'brokenA'] if fold_type == 'antiparallel' else ['brokenA', 'brokenA', 'brokenA']
+        observed_types = [quartet.params['type'] for quartet in quartet_triplet]
+        assert observed_types == expected_types, f"quartet type mismatch for fold={fold_type}: expected={expected_types}, got={observed_types}"
+
+assert len(quartets) == no_obj, f"unexpected quartet count: expected={no_obj}, got={len(quartets)}"
 
 diag_bond = BondWrapper(espressomd.interactions.FeneBond(k=10., r_0=np.sqrt(2)*4.2, d_r_max=2*1.5))
 across_bond = BondWrapper(espressomd.interactions.FeneBond(k=10., r_0=4.2, d_r_max=2*1.5))
 grouped_quadriplexes = [quadriplex[i:i+part_per_filament:]
                         for i in range(0, len(quadriplex), part_per_filament)]
-fold_types = ['parallel', 'hybrid', 'antiparallel']
+
 tel_config_list = [
     TelSeq.config.specify(
         n_parts=part_per_filament,
@@ -100,7 +131,7 @@ sim_inst.sys.thermostat.set_langevin(kT=1.0, gamma=gamma_T,
 
 electrostatidcs_solver=espressomd.electrostatics.DH(prefactor = 1., kappa=0, r_cut=8)
 # ,check_neutrality=False
-sim_inst.sys.electrostatics.solver = electrostatidcs_solver
+# sim_inst.sys.electrostatics.solver = electrostatidcs_solver
 sim_inst.sys.integrator.run(0)
 energy = sim_inst.sys.analysis.energy()
 
@@ -112,7 +143,7 @@ from espressomd.io.writer import vtf
 with open(f"/home/stekajack/DATA_VIEW/quadriplex/sim_test/folded_tel_compulsion.vtf", mode="w+t") as fp:
     vtf.writevsf(sim_inst.sys, fp)
     vtf.writevcf(sim_inst.sys, fp)
-    for _ in range(2000):
-        sim_inst.sys.integrator.run(1)
+    for _ in range(20):
+        sim_inst.sys.integrator.run(100)
         vtf.writevcf(sim_inst.sys, fp)
         fp.flush()

@@ -15,6 +15,24 @@ class Quartet(GenericRigidObj):
     Class that contains quartet relevant paramaters and methods. At construction one must pass an espresso handle becaouse the class manages parameters that are both internal and external to espresso. It is assumed that in any simulation instanse there will be only one type of a Quartet. Therefore many relevant parameters are class specific, not instance specific.
     '''
     numInstances = 0
+    
+    recepie_dictA = {'assoc': {1: [2, 3, 6, 7, 8], 
+                               5: [4, 9, 10, 13, 14], 
+                               20: [11, 12, 15, 16, 21], 
+                               24: [17, 18, 19, 22, 23]}, 
+                    'circ': [8, 13, 12, 17], 
+                    'squareA': [6, 4, 21, 19], 
+                    'squareB': [11, 3, 22, 14], 
+                    'squareC': [7, 9, 16, 18]}
+    
+    recepie_dictB = {'assoc': {1: [2, 6, 7, 11, 12], 
+                               5: [4, 9, 10, 8, 3], 
+                               20: [15, 16, 21, 22, 17], 
+                               24: [18, 19, 23, 13, 14]}, 
+                    'circ': [8, 13, 12, 17], 
+                    'squareA': [2, 10, 15, 23], 
+                    'squareB': [11, 3,  22, 14], 
+                    'squareC': [7, 9, 16, 18]}
     part_types = PartDictSafe()
     config = ObjectConfigParams(
         n_parts=25,
@@ -28,9 +46,9 @@ class Quartet(GenericRigidObj):
         Initialisation of a quartet object requires the specification of particle size, number of parts and a handle to the espresso system
         '''
         super().__init__(config)
-        assert config['type'] == 'solid' or config['type'] == 'broken', 'type must be either solid or broken!!!'
+        assert config['type'] in ['solid', 'brokenA', 'brokenB'], 'type must be either solid, brokenA or brokenB!!!'
         assert config['n_parts'] ==len(self._reference_sheet[self.params['alias']]), 'n_parts must be equal to the number of parts in the reference sheet!!!'
-        if self.params['type'] == 'broken':
+        if self.params['type'] in ['brokenA', 'brokenB']:
             assert self.params['bond_handle'] != None, 'broken quartets require a bond to be set!!!'
             Quartet.part_types.update({'circ': 28,
                   'squareA': 24, 'squareB': 25, 'cation': 27})
@@ -70,39 +88,71 @@ class Quartet(GenericRigidObj):
             for ii, jj in combinations(particles, 2):
                 ii.add_exclusion(jj)
 
-        if self.params['type'] == 'broken':
+        if self.params['type'] == 'brokenA':
             self.change_part_type(particles[0],'cation')
             particles[0].q = 1
 
-            recepie_dict = {'assoc': {1: [2, 3, 6, 7, 8], 5: [4, 9, 10, 13, 14], 20: [11, 12, 15, 16, 21], 24: [
-                17, 18, 19, 22, 23]}, 'circ': [8, 13, 12, 17], 'squareA': [6, 4, 21, 19], 'squareB': [11, 3, 22, 14], 'cation': [7, 9, 16, 18]}
+            
             particles = np.array(particles)
             for part in self.corner_particles:
                 self.change_part_type(part,'real')
                 part.rotation = (True, True, True)
                 part.director = ori
 
-            for part in particles[np.array(recepie_dict['circ'])]:
+            for part in particles[np.array(self.recepie_dictA['circ'])]:
                 self.change_part_type(part,'circ')
                 part.q = -0.25
 
             if self.params['bond_handle'] != None:
-                for part1, part2 in zip(particles[np.array(recepie_dict['squareA'])], particles[np.array(recepie_dict['squareB'])]):
+                for part1, part2 in zip(particles[np.array(self.recepie_dictA['squareA'])], particles[np.array(self.recepie_dictA['squareB'])]):
                     pass
                     # self.change_part_type(part1,'squareA')
                     # self.change_part_type(part2,'squareB')
             else:
-                for part in particles[np.array(recepie_dict['squareA'])]:
+                for part in particles[np.array(self.recepie_dictA['squareA'])]:
                     self.change_part_type(part,'squareA')
 
-                for part in particles[np.array(recepie_dict['squareB'])]:
+                for part in particles[np.array(self.recepie_dictA['squareB'])]:
                     self.change_part_type(part,'squareB')
 
-            for key, values in recepie_dict['assoc'].items():
+            for key, values in self.recepie_dictA['assoc'].items():
                 np.vectorize(lambda real, virts: virts.vs_auto_relate_to(real))(
                     particles[key], particles[values])
                 for ii, jj in combinations([particles[key],]+[x for x in particles[values]], 2):
                     ii.add_exclusion(jj)
+
+        if self.params['type'] == 'brokenB':
+            self.change_part_type(particles[0],'cation')
+            particles[0].q = 1
+
+            particles = np.array(particles)
+            for part in self.corner_particles:
+                self.change_part_type(part,'real')
+                part.rotation = (True, True, True)
+                part.director = ori
+
+            for part in particles[np.array(self.recepie_dictB['circ'])]:
+                self.change_part_type(part,'circ')
+                part.q = -0.25
+
+            if self.params['bond_handle'] != None:
+                for part1, part2 in zip(particles[np.array(self.recepie_dictB['squareA'])], particles[np.array(self.recepie_dictB['squareB'])]):
+                    pass
+                    # self.change_part_type(part1,'squareA')
+                    # self.change_part_type(part2,'squareB')
+            else:
+                for part in particles[np.array(self.recepie_dictB['squareA'])]:
+                    self.change_part_type(part,'squareA')
+
+                for part in particles[np.array(self.recepie_dictB['squareB'])]:
+                    self.change_part_type(part,'squareB')
+
+            for key, values in self.recepie_dictB['assoc'].items():
+                np.vectorize(lambda real, virts: virts.vs_auto_relate_to(real))(
+                    particles[key], particles[values])
+                for ii, jj in combinations([particles[key],]+[x for x in particles[values]], 2):
+                    ii.add_exclusion(jj)
+
         return self
 
     def mark_covalent_corner(self, part_type=666):
@@ -111,8 +161,7 @@ class Quartet(GenericRigidObj):
         logging.info(f'covalent corners marked for {self.__class__.__name__}s with part_type {part_type}')
     
     def add_h_bond_patches(self):
-        recepie_dict = {'assoc': {1: [2, 3, 6, 7, 8], 5: [4, 9, 10, 13, 14], 20: [11, 12, 15, 16, 21], 24: [
-                17, 18, 19, 22, 23]}, 'circ': [8, 13, 12, 17], 'squareA': [6, 4, 21, 19], 'squareB': [11, 3, 22, 14], 'cation': [7, 9, 16, 18]}
+        recepie_dict = self.recepie_dictA if self.params['type'] == 'brokenA' else self.recepie_dictB
         square_b_set = recepie_dict['squareB']
         square_a_set = recepie_dict['squareA']
 
@@ -315,10 +364,12 @@ class Quadriplex(metaclass=Simulation_Object):
 
             parts,_=center_quartet.get_owned_part()
             related_parts=[part for part in parts if part.vs_relative[0]==closest_corner.id]
-            related_parts=[part for part in related_parts if part.type==center_quartet.part_types['squareA']]
+            if top_quartet.params['type'] == center_quartet.params['type']:
+                related_parts=[part for part in related_parts if part.type==center_quartet.part_types['squareA']]
+            else:
+                related_parts=[part for part in related_parts if part.type==center_quartet.part_types['squareB']]
             pA=related_parts[0]
             pB.add_bond((dihedral, ref_corner, closest_corner, pA))
-            print('dihdral added between parts with ids', pB.id, closest_corner.id, pA.id, ref_corner.id)
 
         for ref_corner in center_corners:
             pair_distances=[np.linalg.norm(ref_corner.pos-corner.pos) for corner in bottom_corners]
@@ -330,10 +381,14 @@ class Quadriplex(metaclass=Simulation_Object):
 
             parts,_=bottom_quartet.get_owned_part()
             related_parts=[part for part in parts if part.vs_relative[0]==closest_corner.id]
-            related_parts=[part for part in related_parts if part.type==bottom_quartet.part_types['squareA']]
+            if center_quartet.params['type'] == bottom_quartet.params['type']:
+                related_parts=[part for part in related_parts if part.type==bottom_quartet.part_types['squareA']]
+            else:
+                related_parts=[part for part in related_parts if part.type==bottom_quartet.part_types['squareB']]
+                dihedral = espressomd.interactions.Dihedral(bend=10, mult=1, phase=-np.pi/2.)
+                self.sys.bonded_inter.add(dihedral)
             pA=related_parts[0]
             pB.add_bond((dihedral, ref_corner, closest_corner, pA))
-            print('dihdral added between parts with ids', pB.id, closest_corner.id, pA.id, ref_corner.id)
 
     def add_extra_bendings(self):
         angle_another = espressomd.interactions.AngleHarmonic(bend=10.0, phi0=np.pi/2.)

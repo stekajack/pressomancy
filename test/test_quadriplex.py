@@ -52,7 +52,7 @@ class QuadriplexTest(BaseTestCase):
         instance.add_bending_potential(bending_potential_handle=int_nhdl)
     
     def test_set_object_broken(self):
-        quartets = [Quartet(config=Quartet.config.specify(espresso_handle=sim_inst.sys,type='broken')) for x in range(3)]
+        quartets = [Quartet(config=Quartet.config.specify(espresso_handle=sim_inst.sys,type='brokenA')) for x in range(3)]
         sim_inst.store_objects(quartets)
         instance=Quadriplex(Quadriplex.config.specify(espresso_handle=sim_inst.sys, associated_objects=quartets, bonding_mode='ctc'))
         sim_inst.store_objects([instance,])

@@ -21,7 +21,7 @@ def rule_maker(fold_type, choice_id, offset, n=3):
         start_on_top = True
     else:
         raise ValueError(
-            f"choice_id={choice_id} (local={choice_local}) is not a valid TelSeq corner id"
+            f"choice_id={choice_id} is not a valid TelSeq corner id for top={top}, bottom={bottom}"
         )
 
     diag_pairs = []
@@ -99,7 +99,7 @@ class TelSeq(metaclass=Simulation_Object):
         self.params=config
         if self.params['associated_objects']==None:
             warnings.warn('no associated_objects have been passed explicity. Creating objects required to initialise object implicitly!')
-            configuration=Quartet.config.specify(espresso_handle=self.sys,type='broken')
+            configuration=Quartet.config.specify(espresso_handle=self.sys,type='brokenA')
             quartets=[Quartet(config=configuration) for _ in range(3*self.params['n_parts'])]
             grouped_quartets = [quartets[i:i+3]
                     for i in range(0, len(quartets), 3)]
@@ -156,7 +156,7 @@ class TelSeq(metaclass=Simulation_Object):
                 monomer.who_am_i,
                 start_part_id,
             )
-            offset = monomer.who_am_i * 75                
+            offset = monomer.who_am_i * 75
             diag_pairs, across_pairs, free_end = rule_maker(
                 self.params['type'], start_part_id, offset
             )
