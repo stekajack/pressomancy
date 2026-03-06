@@ -1148,34 +1148,26 @@ def align_vectors(v1, v2):
     )
     return rotation_matrix
 
-def get_random_perpendicular(vec):
-   
+def get_perpendicular(vec, phi=None):
     vec = np.asarray(vec, dtype=float)
     norm = np.linalg.norm(vec)
     if np.isclose(norm, 0.0):
         raise ValueError("input vector must be non-zero")
     unit_vec = vec / norm
-    rng = np.random
 
-    # Sample random directions until we get a stable perpendicular component.
-    perp = None
-    for _ in range(16):
-        candidate = rng.normal(size=3)
-        candidate_norm = np.linalg.norm(candidate)
-        if np.isclose(candidate_norm, 0.0):
-            continue
-        candidate /= candidate_norm
-        candidate -= np.dot(candidate, unit_vec) * unit_vec
-        cand_perp_norm = np.linalg.norm(candidate)
-        if not np.isclose(cand_perp_norm, 0.0):
-            perp = candidate / cand_perp_norm
-            break
-    if perp is None:
-        # Deterministic fallback for pathological RNG outputs.
-        ref = np.array([1.0, 0.0, 0.0]) if not np.isclose(unit_vec[0], 1.0) else np.array([0.0, 1.0, 0.0])
-        perp = ref - np.dot(ref, unit_vec) * unit_vec
-        perp /= np.linalg.norm(perp)
-
+    ref = np.array([1.0, 0.0, 0.0])
+    if np.isclose(np.abs(np.dot(ref, unit_vec)), 1.0):
+        ref = np.array([0.0, 1.0, 0.0])
+    base_perp = ref - np.dot(ref, unit_vec) * unit_vec
+    base_perp /= np.linalg.norm(base_perp)
+    phi_val = np.random.uniform(0.0, 2.0 * np.pi) if phi is None else float(phi)
+    # Rodrigues rotation of base_perp around the input axis by phi.
+    perp = (
+        base_perp * np.cos(phi_val)
+        + np.cross(unit_vec, base_perp) * np.sin(phi_val)
+        + unit_vec * np.dot(unit_vec, base_perp) * (1.0 - np.cos(phi_val))
+    )
+    perp /= np.linalg.norm(perp)
     return perp
 
 def api_agnostic_feature_check(feature_name):

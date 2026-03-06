@@ -3,7 +3,7 @@ import numpy as np
 import random
 from pressomancy.object_classes.quadriplex_class import *
 from pressomancy.object_classes.object_class import Simulation_Object, ObjectConfigParams 
-from pressomancy.helper_functions import RoutineWithArgs, make_centered_rand_orient_point_array, PartDictSafe, SinglePairDict, BondWrapper, get_orientation_vec, get_random_perpendicular
+from pressomancy.helper_functions import RoutineWithArgs, make_centered_rand_orient_point_array, PartDictSafe, SinglePairDict, BondWrapper, get_orientation_vec, get_perpendicular, align_vectors
 import logging
 import warnings
 
@@ -113,6 +113,28 @@ class TelSeq(metaclass=Simulation_Object):
         self.orientor = np.empty(shape=3, dtype=float)
         self.type_part_dict=PartDictSafe({key: [] for key in TelSeq.part_types.keys()})
 
+    def _choose_antiparallel_phi(self, chain_dir, n_phi=720):
+        chain_dir = np.asarray(chain_dir, dtype=float)
+        chain_dir /= np.linalg.norm(chain_dir)
+
+        z_axis = np.array([0.0, 0.0, 1.0])
+        x_axis = np.array([1.0, 0.0, 0.0])
+        y_axis = np.array([0.0, 1.0, 0.0])
+
+        best_phi = 0.0
+        best_score = -np.inf
+        for idx in range(n_phi):
+            phi = 2.0 * np.pi * idx / n_phi
+            side_axis = get_perpendicular(chain_dir, phi=phi)
+            rotation_matrix = align_vectors(z_axis, side_axis)
+            x_world = rotation_matrix @ x_axis
+            y_world = rotation_matrix @ y_axis
+            score = max(np.abs(np.dot(x_world, chain_dir)), np.abs(np.dot(y_world, chain_dir)))
+            if score > best_score + 1e-12:
+                best_score = score
+                best_phi = phi
+        return best_phi
+
     def set_object(self,  pos, ori):
         '''
         Sets a n_parts sequence of particles in espresso, asserting that the dimensionality of the pos paramater passed is commesurate with n_part.Using a generator object with the particle enumeration logic, and a try catch paradigm. Particles created here are treated as real, non_magnetic, with enabled rotations. Indices of added particles stored in self.realz_indices.append attribute. Orientation of TelSeq stored in self.orientor = self.get_orientation_vec()
@@ -131,7 +153,8 @@ class TelSeq(metaclass=Simulation_Object):
         assert all([x.simulation_type==self.associated_objects[0].simulation_type for x in self.associated_objects[1:]]), 'all objects must have the same simulation type!'
         local_orientor = self.orientor
         if self.params['type'] == 'antiparallel':
-            local_orientor=get_random_perpendicular(self.orientor)
+            phi_opt = self._choose_antiparallel_phi(self.orientor)
+            local_orientor = get_perpendicular(self.orientor, phi=phi_opt)
         for obj_el, pos_el in zip(self.associated_objects, pos):
             _=obj_el.set_object(pos_el, local_orientor)
         return self

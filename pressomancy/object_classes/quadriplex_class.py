@@ -343,100 +343,172 @@ class Quadriplex(metaclass=Simulation_Object):
             part_type=part_type)
         self.associated_objects[2].mark_covalent_corner(
             part_type=part_type)
+
+    def _signed_dihedral(self, p0, p1, p2, p3):
+        x0 = np.array(p0.pos)
+        x1 = np.array(p1.pos)
+        x2 = np.array(p2.pos)
+        x3 = np.array(p3.pos)
+
+        b0 = x0 - x1
+        b1 = x2 - x1
+        b2 = x3 - x2
+
+        b1_norm = np.linalg.norm(b1)
+        if np.isclose(b1_norm, 0.0):
+            return 0.0
+        b1_unit = b1 / b1_norm
+
+        v = b0 - np.dot(b0, b1_unit) * b1_unit
+        w = b2 - np.dot(b2, b1_unit) * b1_unit
+
+        x = np.dot(v, w)
+        y = np.dot(np.cross(b1_unit, v), w)
+        # ESPResSo's dihedral sign convention is opposite to this raw geometric form.
+        return -np.arctan2(y, x)
+
+    def _angle_error(self, phi, target):
+        delta = phi - target
+        return np.abs(np.arctan2(np.sin(delta), np.cos(delta)))
+
+    def _build_corner_patch_map(self, quartet):
+        parts, _ = quartet.get_owned_part()
+        square_a_type = quartet.part_types['squareA']
+        square_b_type = quartet.part_types['squareB']
+        corner_to_patches = {}
+
+        for corner in quartet.corner_particles:
+            related_parts = [
+                part for part in parts
+                if part.vs_relative[0] == corner.id
+            ]
+            square_a_parts = [part for part in related_parts if part.type == square_a_type]
+            square_b_parts = [part for part in related_parts if part.type == square_b_type]
+            if len(square_a_parts) < 1 or len(square_b_parts) < 1:
+                raise ValueError(
+                    f'Invalid patch map for quartet_id={quartet.who_am_i} type={quartet.params["type"]} corner_id={corner.id}: '
+                    f'squareA={len(square_a_parts)} squareB={len(square_b_parts)}'
+                )
+            square_a_parts_sorted = sorted(
+                square_a_parts,
+                key=lambda part: (np.linalg.norm(np.array(part.pos) - np.array(corner.pos)), part.id),
+            )
+            square_b_parts_sorted = sorted(
+                square_b_parts,
+                key=lambda part: (np.linalg.norm(np.array(part.pos) - np.array(corner.pos)), part.id),
+            )
+            corner_to_patches[corner.id] = {
+                'squareA': square_a_parts_sorted[0],
+                'squareB': square_b_parts_sorted[0],
+            }
+        return corner_to_patches
+
+    def _nearest_corner(self, ref_corner, candidate_corners):
+        pair_distances = np.array([np.linalg.norm(ref_corner.pos - corner.pos) for corner in candidate_corners])
+        min_distance = np.min(pair_distances)
+        closest_indices = np.flatnonzero(np.isclose(pair_distances, min_distance, atol=1e-8))
+        if len(closest_indices) > 1:
+            tied_corners = [candidate_corners[idx] for idx in closest_indices]
+            return min(tied_corners, key=lambda part: part.id)
+        return candidate_corners[closest_indices[0]]
+
+    def _add_dihedrals_between(self, q_src, q_dst, dihedral_handle, target_phase=np.pi/2.):
+        src_patch_map = self._build_corner_patch_map(q_src)
+        dst_patch_map = self._build_corner_patch_map(q_dst)
+        dst_corners = q_dst.corner_particles
+        tie_break_order = [
+            ('squareA', 'squareA', 'forward'),
+            ('squareB', 'squareB', 'forward'),
+            ('squareA', 'squareB', 'forward'),
+            ('squareB', 'squareA', 'forward'),
+            ('squareA', 'squareA', 'reverse'),
+            ('squareB', 'squareB', 'reverse'),
+            ('squareA', 'squareB', 'reverse'),
+            ('squareB', 'squareA', 'reverse'),
+        ]
+
+        for src_corner in q_src.corner_particles:
+            pair_distances = np.array([np.linalg.norm(src_corner.pos - corner.pos) for corner in dst_corners])
+            min_distance = np.min(pair_distances)
+            closest_indices = np.flatnonzero(np.isclose(pair_distances, min_distance, atol=1e-8))
+            if len(closest_indices) > 1:
+                tied_corners = [dst_corners[idx] for idx in closest_indices]
+                dst_corner = min(tied_corners, key=lambda part: part.id)
+                logging.debug(
+                    'dihedral tie break: src_corner=%s dst_candidates=%s selected=%s',
+                    src_corner.id,
+                    [part.id for part in tied_corners],
+                    dst_corner.id,
+                )
+            else:
+                dst_corner = dst_corners[closest_indices[0]]
+
+            src_patches = src_patch_map[src_corner.id]
+            dst_patches = dst_patch_map[dst_corner.id]
+            best_choice = None
+            best_error = np.inf
+            for src_key, dst_key, direction in tie_break_order:
+                src_patch = src_patches[src_key]
+                dst_patch = dst_patches[dst_key]
+                if direction == 'forward':
+                    phi = self._signed_dihedral(src_patch, src_corner, dst_corner, dst_patch)
+                else:
+                    phi = self._signed_dihedral(dst_patch, dst_corner, src_corner, src_patch)
+                error = self._angle_error(phi, target_phase)
+                if error < best_error - 1e-12:
+                    best_error = error
+                    best_choice = (src_key, dst_key, direction)
+
+            if best_choice is None:
+                raise RuntimeError(
+                    f'No valid dihedral candidate for src_corner={src_corner.id}, dst_corner={dst_corner.id}'
+                )
+            src_key, dst_key, direction = best_choice
+            if direction == 'forward':
+                src_patches[src_key].add_bond((dihedral_handle, src_corner, dst_corner, dst_patches[dst_key]))
+            else:
+                dst_patches[dst_key].add_bond((dihedral_handle, dst_corner, src_corner, src_patches[src_key]))
         
     def add_dihedrals(self):
         assert len(
             self.associated_objects) == 3, "a quadriplex can only be created from 3 quartets!!! "
-        center_quartet=self.associated_objects[0]
-        top_quartet=self.associated_objects[1]
-        bottom_quartet=self.associated_objects[2]
+        center_quartet = self.associated_objects[0]
+        top_quartet = self.associated_objects[1]
+        bottom_quartet = self.associated_objects[2]
 
-        center_corners, top_corners, bottom_corners, pair_distances = center_quartet.corner_particles, top_quartet.corner_particles, bottom_quartet.corner_particles, []
         dihedral = espressomd.interactions.Dihedral(bend=10, mult=1, phase=np.pi/2.)
         self.sys.bonded_inter.add(dihedral)
-        for ref_corner in top_corners:
-            pair_distances=[np.linalg.norm(ref_corner.pos-corner.pos) for corner in center_corners]
-            closest_corner=center_corners[np.argmin(pair_distances)]
-            parts,_=top_quartet.get_owned_part()
-            related_parts=[part for part in parts if part.vs_relative[0]==ref_corner.id]
-            related_parts=[part for part in related_parts if part.type==top_quartet.part_types['squareB']]
-            pB=related_parts[0]
-
-            parts,_=center_quartet.get_owned_part()
-            related_parts=[part for part in parts if part.vs_relative[0]==closest_corner.id]
-            if top_quartet.params['type'] == center_quartet.params['type']:
-                related_parts=[part for part in related_parts if part.type==center_quartet.part_types['squareA']]
-            else:
-                related_parts=[part for part in related_parts if part.type==center_quartet.part_types['squareB']]
-            pA=related_parts[0]
-            pB.add_bond((dihedral, ref_corner, closest_corner, pA))
-
-        for ref_corner in center_corners:
-            pair_distances=[np.linalg.norm(ref_corner.pos-corner.pos) for corner in bottom_corners]
-            closest_corner=bottom_corners[np.argmin(pair_distances)]
-            parts,_=center_quartet.get_owned_part()
-            related_parts=[part for part in parts if part.vs_relative[0]==ref_corner.id]
-            related_parts=[part for part in related_parts if part.type==center_quartet.part_types['squareB']]
-            pB=related_parts[0]
-
-            parts,_=bottom_quartet.get_owned_part()
-            related_parts=[part for part in parts if part.vs_relative[0]==closest_corner.id]
-            if center_quartet.params['type'] == bottom_quartet.params['type']:
-                related_parts=[part for part in related_parts if part.type==bottom_quartet.part_types['squareA']]
-            else:
-                related_parts=[part for part in related_parts if part.type==bottom_quartet.part_types['squareB']]
-                dihedral = espressomd.interactions.Dihedral(bend=10, mult=1, phase=-np.pi/2.)
-                self.sys.bonded_inter.add(dihedral)
-            pA=related_parts[0]
-            pB.add_bond((dihedral, ref_corner, closest_corner, pA))
+        self._add_dihedrals_between(top_quartet, center_quartet, dihedral, target_phase=np.pi/2.)
+        self._add_dihedrals_between(center_quartet, bottom_quartet, dihedral, target_phase=np.pi/2.)
 
     def add_extra_bendings(self):
         angle_another = espressomd.interactions.AngleHarmonic(bend=10.0, phi0=np.pi/2.)
         self.sys.bonded_inter.add(angle_another)
-        center_quartet=self.associated_objects[0]
-        top_quartet=self.associated_objects[1]
-        bottom_quartet=self.associated_objects[2]
+        center_quartet = self.associated_objects[0]
+        top_quartet = self.associated_objects[1]
+        bottom_quartet = self.associated_objects[2]
 
-        center_corners, top_corners, bottom_corners, pair_distances = center_quartet.corner_particles, top_quartet.corner_particles, bottom_quartet.corner_particles, []
+        top_patch_map = self._build_corner_patch_map(top_quartet)
+        center_patch_map = self._build_corner_patch_map(center_quartet)
+        bottom_patch_map = self._build_corner_patch_map(bottom_quartet)
 
-        for ref_corner in top_corners:
-            pair_distances=[np.linalg.norm(ref_corner.pos-corner.pos) for corner in center_corners]
-            closest_corner=center_corners[np.argmin(pair_distances)]
-            parts,_=top_quartet.get_owned_part()
-            related_parts=[part for part in parts if part.vs_relative[0]==ref_corner.id]
-            related_parts=[part for part in related_parts if part.type==top_quartet.part_types['squareB']]
-            pB=related_parts[0]
-            related_parts=[part for part in parts if part.vs_relative[0]==ref_corner.id]
-            related_parts=[part for part in related_parts if part.type==top_quartet.part_types['squareA']]
-            pA=related_parts[0]
-            ref_corner.add_bond((angle_another, pB,  closest_corner))
-            ref_corner.add_bond((angle_another, pA,  closest_corner))
-        
-        for ref_corner in center_corners:
-            pair_distances=[np.linalg.norm(ref_corner.pos-corner.pos) for corner in bottom_corners]
-            closest_corner=bottom_corners[np.argmin(pair_distances)]
-            parts,_=center_quartet.get_owned_part()
-            related_parts=[part for part in parts if part.vs_relative[0]==ref_corner.id]
-            related_parts=[part for part in related_parts if part.type==center_quartet.part_types['squareB']]
-            pB=related_parts[0]
-            related_parts=[part for part in parts if part.vs_relative[0]==ref_corner.id]
-            related_parts=[part for part in related_parts if part.type==center_quartet.part_types['squareA']]
-            pA=related_parts[0]
-            ref_corner.add_bond((angle_another, pB,  closest_corner))
-            ref_corner.add_bond((angle_another, pA,  closest_corner))
-        
-        for ref_corner in bottom_corners:
-            pair_distances=[np.linalg.norm(ref_corner.pos-corner.pos) for corner in center_corners]
-            closest_corner=center_corners[np.argmin(pair_distances)]
-            parts,_=bottom_quartet.get_owned_part()
-            related_parts=[part for part in parts if part.vs_relative[0]==ref_corner.id]
-            related_parts=[part for part in related_parts if part.type==bottom_quartet.part_types['squareB']]
-            pB=related_parts[0]
-            related_parts=[part for part in parts if part.vs_relative[0]==ref_corner.id]
-            related_parts=[part for part in related_parts if part.type==bottom_quartet.part_types['squareA']]
-            pA=related_parts[0]
-            ref_corner.add_bond((angle_another, pB,  closest_corner))
-            ref_corner.add_bond((angle_another, pA,  closest_corner))
+        for ref_corner in top_quartet.corner_particles:
+            closest_corner = self._nearest_corner(ref_corner, center_quartet.corner_particles)
+            ref_patches = top_patch_map[ref_corner.id]
+            ref_corner.add_bond((angle_another, ref_patches['squareB'], closest_corner))
+            ref_corner.add_bond((angle_another, ref_patches['squareA'], closest_corner))
+
+        for ref_corner in center_quartet.corner_particles:
+            closest_corner = self._nearest_corner(ref_corner, bottom_quartet.corner_particles)
+            ref_patches = center_patch_map[ref_corner.id]
+            ref_corner.add_bond((angle_another, ref_patches['squareB'], closest_corner))
+            ref_corner.add_bond((angle_another, ref_patches['squareA'], closest_corner))
+
+        for ref_corner in bottom_quartet.corner_particles:
+            closest_corner = self._nearest_corner(ref_corner, center_quartet.corner_particles)
+            ref_patches = bottom_patch_map[ref_corner.id]
+            ref_corner.add_bond((angle_another, ref_patches['squareB'], closest_corner))
+            ref_corner.add_bond((angle_another, ref_patches['squareA'], closest_corner))
 
 
     
