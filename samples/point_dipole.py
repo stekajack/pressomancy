@@ -101,7 +101,7 @@ assert np.array_equal(sim_inst.sys.part.all().dip_fld, dip_fld), f"{sim_inst.sys
 
 sim_inst.sys.part.clear()
 
-# Test two superparamagnetic point dipoles aligned in the same direction as the field (Langevin magnetization
+# Test two superparamagnetic point dipoles aligned in the same direction as the field (Langevin magnetization)
 pds_list = [PointDipoleSuperpara(config=config_pdp) for _ in range(2)]
 sim_inst.store_objects(pds_list)
 sim_inst.place_objects(pds_list, pos, orientations=dip)
@@ -131,5 +131,47 @@ assert np.array_equal(sim_inst.sys.part.select(type=sim_inst.part_types["pds_rea
 assert np.array_equal(sim_inst.sys.part.select(type=sim_inst.part_types["pds_virt"]).pos, pos), f"{sim_inst.sys.part.select(type=sim_inst.part_types["pds_virt"]).pos},\n{pos}"
 assert np.array_equal(sim_inst.sys.part.select(type=sim_inst.part_types["pds_real"]).dip, dip*0.), f"{sim_inst.sys.part.select(type=sim_inst.part_types["pds_real"]).dip},\n{dip*0.}"
 assert np.allclose(sim_inst.sys.part.select(type=sim_inst.part_types["pds_virt"]).dip, dip_assert, atol=0.00005, rtol=0), f"{sim_inst.sys.part.select(type=sim_inst.part_types["pds_virt"]).dip},\n{dip_assert}"
+
+poss_for_next_test = sim_inst.sys.part.select(type=sim_inst.part_types["pds_virt"]).pos
+dips_for_next_test = sim_inst.sys.part.select(type=sim_inst.part_types["pds_virt"]).dip
+
+sim_inst.sys.part.clear()
+
+# Test two superparamagnetic point dipoles aligned in the same direction as the field (Langevin magnetization) - for espresso with magnetization in integrator. Commetn out otherwise
+pds_list = [PointDipoleSuperpara(config=config_pdp) for _ in range(2)]
+sim_inst.store_objects(pds_list)
+sim_inst.place_objects(pds_list, pos, orientations=dip)
+
+# Fix because point dipoles will atract eachother wihout volume exclusion
+part_list = list(sim_inst.sys.part.select(type=sim_inst.part_types["pds_real"]))
+for part in part_list:
+    part.fix = [True, True, True]
+
+sim_inst.init_magnetic_inter(DipolarDirectSum( prefactor=1))
+sim_inst.sys.integrator.run(0)
+sim_inst.set_H_ext(H=[0,0,H])
+
+parts_to_magnetize = list(sim_inst.sys.part.select(type=sim_inst.part_types["pds_virt"]))
+for part in parts_to_magnetize:
+    part.is_magnetizable = True
+    print(part.magnetize_func)
+
+H_ext = sim_inst.get_H_ext()
+assert np.array_equal(H_ext, [0,0,H])
+
+sim_inst.sys.integrator.run(10)
+
+dip_assert = np.array(dip, copy=True)
+dip_assert[:,2] = 0.5563
+
+#NOTE FOR TEST DEBUGGING. If the problem is the dipole momento modulus, try to increase the number of iterations by 1, until it works (probably just one more will do the trick). If the values are very close, something inside espresso might have changed this value.
+
+assert np.array_equal(sim_inst.sys.part.select(type=sim_inst.part_types["pds_real"]).pos, pos), f"{sim_inst.sys.part.select(type=sim_inst.part_types["pds_real"]).pos},\n{pos}"
+assert np.array_equal(sim_inst.sys.part.select(type=sim_inst.part_types["pds_virt"]).pos, pos), f"{sim_inst.sys.part.select(type=sim_inst.part_types["pds_virt"]).pos},\n{pos}"
+assert np.array_equal(sim_inst.sys.part.select(type=sim_inst.part_types["pds_real"]).dip, dip*0.), f"{sim_inst.sys.part.select(type=sim_inst.part_types["pds_real"]).dip},\n{dip*0.}"
+assert np.allclose(sim_inst.sys.part.select(type=sim_inst.part_types["pds_virt"]).dip, dip_assert, atol=0.00005, rtol=0), f"{sim_inst.sys.part.select(type=sim_inst.part_types["pds_virt"]).dip},\n{dip_assert}"
+
+assert np.array_equal(sim_inst.sys.part.select(type=sim_inst.part_types["pds_virt"]).pos, poss_for_next_test), f"{sim_inst.sys.part.select(type=sim_inst.part_types["pds_virt"]).pos},\n{poss_for_next_test}"
+assert np.array_equal(sim_inst.sys.part.select(type=sim_inst.part_types["pds_virt"]).dip, dips_for_next_test), f"{sim_inst.sys.part.select(type=sim_inst.part_types["pds_virt"]).dip},\n{dips_for_next_test}"
 
 sim_inst.sys.part.clear()
