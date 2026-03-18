@@ -18,6 +18,7 @@ from collections import Counter
 import shutil
 from pathlib import Path
 import inspect
+from numbers import Integral
 
 @ManagedSimulation
 class Simulation():
@@ -140,7 +141,7 @@ class Simulation():
         for typ_decl in declare_types:
             for x,y in typ_decl.items():
                 self.part_types[x]=y
-    
+
     def set_sys(self, timestep=0.01, min_global_cut=3.0, have_quaternion=False):
         '''
         Set espresso cellsystem params, and import virtual particle scheme. Run automatically on initialisation of the System class.
@@ -695,7 +696,7 @@ class Simulation():
                 for prop,dim in self.io_dict['properties']:
                     prop_group = data_grp.require_group(prop)
                     prop_group.create_dataset("step", shape=(0,), maxshape=(None,), dtype=np.int32)
-                    prop_group.create_dataset("time", shape=(0,), maxshape=(None,), dtype=np.float32)
+                    prop_group.create_dataset("time", shape=(0,), maxshape=(None,), dtype=np.float64)
                     prop_group.create_dataset(
                         "value",
                         shape=(0, total_part_num, dim),  # Store all particles in a single dataset
@@ -773,7 +774,11 @@ class Simulation():
         return GLOBAL_COUNTER
         
     def write_part_group_to_h5(self, time_step=None):
+        """Append one frame using an integer frame counter and current ESPResSo time."""
         assert self.io_dict['h5_file']!=None,'storage file has not been inscribed!'
+        if not isinstance(time_step, Integral):
+            raise TypeError("time_step must be provided as an integer frame counter.")
+        physical_time = float(self.sys.time)
         for grp_typ in self.io_dict['registered_group_type']:
             particles_group = self.io_dict['h5_file']["particles"]
             data_grp = particles_group[grp_typ]
@@ -785,10 +790,10 @@ class Simulation():
                 time_dataset.resize((dataset_val.shape[0] + 1,))
                 dataset_val.resize((dataset_val.shape[0] + 1, dataset_val.shape[1], dataset_val.shape[2]))
                 step_dataset[-1] = time_step
-                time_dataset[-1] = time_step
+                time_dataset[-1] = physical_time
                 dataset_val[-1, :, :] = np.array([np.atleast_1d(getattr(part, prop)) for part in self.io_dict['flat_part_view'][grp_typ]], dtype=np.float32)
 
-        logging.info(f"Successfully wrote timestep for {self.io_dict['registered_group_type']}.")
+        logging.debug(f"Successfully wrote timestep for {self.io_dict['registered_group_type']}.")
 
     def mk_src_file(self, original_data_file_path, dest_h5_file_path, prop_dim=None, time_step=-1):
         """
@@ -811,8 +816,8 @@ class Simulation():
         - ``time`` : float32, shape ``(T,)`` (created empty, then resized to 1)
         - ``value``: float32, shape ``(T, N, D)`` (gzip, chunked as ``(1, N, D)``)
         
-        It then appends **one** frame (T=1), setting both ``step[-1]`` and
-        ``time[-1]`` to ``time_step``, and fills ``value[-1, :, :]`` from the
+        It then appends **one** frame (T=1), reusing the preserved
+        ``step[-1]`` and ``time[-1]`` values from the kept frame, and fills ``value[-1, :, :]`` from the
         in-memory list ``self.io_dict['flat_part_view'][<Group>]`` using
         ``getattr(part, prop)`` for each particle.
 
@@ -825,7 +830,7 @@ class Simulation():
         prop_dim : iterable[tuple[str, int]] or None, optional
             Iterable of ``(prop_name, dim)`` pairs describing new properties to add as single-frame datasets. If ``None`` (default), the function only performs the copy-and-shrink phase.
         time_step : int, optional
-            Index of the frame to keep during the shrink phase and the value written to both ``step`` (int32) and ``time`` (float32) when adding new properties. Must be a valid index for all existing per-property datasets.
+            Index of the frame to keep during the shrink phase. Must be a valid index for all existing per-property datasets.
 
         Returns
         -------
@@ -869,6 +874,8 @@ class Simulation():
         
         dst_path=Path(dest_h5_file_path)
         dst_path.parent.mkdir(parents=True, exist_ok=True)
+        if self.io_dict['h5_file'] is not None:
+            self.io_dict['h5_file'].flush()
         shutil.copy2(original_data_file_path, dst_path)
         with h5py.File(dst_path, "r+") as f:
             grp_particles = f["particles"]
@@ -898,11 +905,14 @@ class Simulation():
                 for grp_typ in self.io_dict['registered_group_type']:
                     particles_group = h5_file_handle["particles"]
                     data_grp = particles_group[grp_typ]
+                    reference_prop = data_grp["pos"]  # Use 'pos' as a reference for step/time values and particle count
+                    kept_step = int(reference_prop["step"][0])
+                    kept_time = float(reference_prop["time"][0])
                     total_part_num=len(self.io_dict['flat_part_view'][grp_typ])
                     for prop,dim in prop_dim:
                         prop_group = data_grp.require_group(prop)
                         step_dataset=prop_group.create_dataset("step", shape=(0,), maxshape=(None,), dtype=np.int32)
-                        time_dataset=prop_group.create_dataset("time", shape=(0,), maxshape=(None,), dtype=np.float32)
+                        time_dataset=prop_group.create_dataset("time", shape=(0,), maxshape=(None,), dtype=np.float64)
                         dataset_val=prop_group.create_dataset(
                             "value",
                             shape=(0, total_part_num, dim),  # Store all particles in a single dataset
@@ -915,8 +925,8 @@ class Simulation():
                         step_dataset.resize((dataset_val.shape[0] + 1,))
                         time_dataset.resize((dataset_val.shape[0] + 1,))
                         dataset_val.resize((dataset_val.shape[0] + 1, dataset_val.shape[1], dataset_val.shape[2]))
-                        step_dataset[-1] = time_step
-                        time_dataset[-1] = time_step
+                        step_dataset[-1] = kept_step
+                        time_dataset[-1] = kept_time
                         dataset_val[-1, :, :] = np.array([np.atleast_1d(getattr(part, prop)) for part in self.io_dict['flat_part_view'][grp_typ]], dtype=np.float32)
                         src_data_grp = H5DataSelector(h5_file_handle, particle_group=grp_typ)
                         assert len(src_data_grp.timestep)==1,'dataset is ragged!!!'

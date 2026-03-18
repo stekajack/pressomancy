@@ -29,6 +29,7 @@ class H5DataSelector:
 
     **Notes:**
       - Direct indexing on a top-level H5DataSelector is disallowed to ensure explicit axis selection. Use the accessor properties (.timestep or .particles) for slicing.
+      - `.timestep[...]` slices by frame index on axis 0. It does not query the stored HDF5 `step` or `time` datasets.
       - Iteration and len() are only defined on the accessor objects.
     
     **Raises:**

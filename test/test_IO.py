@@ -101,6 +101,14 @@ class IOTest(BaseTestCase):
         np.testing.assert_array_equal(lens, [2, 2, 2, 1, 2, 2, 2 ,1], err_msg="Slicing did not return expected lengths!")
 
     @staticmethod
+    def assert_step_time(h5_file, group_name, prop, expected_step, expected_time):
+        step_value = h5_file[f"particles/{group_name}/{prop}/step"][-1]
+        time_dataset = h5_file[f"particles/{group_name}/{prop}/time"]
+        time_value = time_dataset[-1]
+        np.testing.assert_equal(step_value, expected_step, err_msg=f"Stored step for {group_name}/{prop} does not match!")
+        np.testing.assert_allclose(time_value, expected_time, err_msg=f"Stored time for {group_name}/{prop} does not match!")
+
+    @staticmethod
     def get_and_check(data, view_type, identity, ref_parts):
         properties=['pos','f','dip']
         for prop in properties:
@@ -170,8 +178,9 @@ class IOTest(BaseTestCase):
             h5_filename = os.path.join(tmpdirname, "testfile.h5")
             GLOBAL_COUNTER=sim_inst.inscribe_part_group_to_h5(group_type=[Filament, Crowder], h5_data_path=h5_filename)
             for iid in range(2):
+                frame_step = GLOBAL_COUNTER + 10 * (iid + 1)
                 sim_inst.sys.integrator.run(1)
-                sim_inst.write_part_group_to_h5(time_step=GLOBAL_COUNTER)
+                sim_inst.write_part_group_to_h5(time_step=frame_step)
                 data = H5DataSelector(sim_inst.io_dict['h5_file'], particle_group="Filament")
                 data_crowder = H5DataSelector(sim_inst.io_dict['h5_file'], particle_group="Crowder")
                 parts,_=self.filaments[iid].get_owned_part()
@@ -184,11 +193,48 @@ class IOTest(BaseTestCase):
                 self.get_and_check(data_crowder, "Crowder", iid, parts)
                 self.basic_structure(data_crowder,iid,10)
                 self.poke_analysis_api(data_crowder, "Crowder", iid, quadriplex_ids, parts)
+                self.assert_step_time(sim_inst.io_dict['h5_file'], "Filament", "id", frame_step, sim_inst.sys.time)
+                self.assert_step_time(sim_inst.io_dict['h5_file'], "Crowder", "id", frame_step, sim_inst.sys.time)
+            filament_time = sim_inst.io_dict['h5_file']["particles/Filament/id/time"][:]
+            filament_step = sim_inst.io_dict['h5_file']["particles/Filament/id/step"][:]
+            np.testing.assert_array_equal(filament_step, [10, 20], err_msg="Stored frame counters are incorrect!")
+            self.assertTrue(np.all(np.diff(filament_time) > 0.0), "Stored physical times must increase monotonically.")
+            self.assertFalse(np.allclose(filament_step.astype(float), filament_time), "Stored time should no longer mirror stored step.")
             data = H5DataSelector(sim_inst.io_dict['h5_file'], particle_group="Filament")
             self.exceptions(data)
             self.slicing_check(data)
             GLOBAL_COUNTER=sim_inst.inscribe_part_group_to_h5(group_type=[Filament, Crowder], h5_data_path=h5_filename,mode='LOAD_NEW')
             GLOBAL_COUNTER=sim_inst.inscribe_part_group_to_h5(group_type=[Filament, Crowder], h5_data_path=h5_filename,mode='LOAD')
+
+    def test_mk_src_file_preserves_frame_metadata(self):
+        with tempfile.TemporaryDirectory() as tmpdirname:
+            src_filename = os.path.join(tmpdirname, "src.h5")
+            dst_filename = os.path.join(tmpdirname, "dst.h5")
+            sim_inst.inscribe_part_group_to_h5(group_type=[Filament], h5_data_path=src_filename)
+
+            written_steps = []
+            written_times = []
+            for frame_step in (7, 13):
+                sim_inst.write_part_group_to_h5(time_step=frame_step)
+                written_steps.append(frame_step)
+                written_times.append(sim_inst.sys.time)
+                sim_inst.sys.integrator.run(1)
+
+            sim_inst.mk_src_file(src_filename, dst_filename, prop_dim=[("v", 3)], time_step=1)
+
+            with h5py.File(dst_filename, "r") as h5_file:
+                pos_step = h5_file["particles/Filament/pos/step"][:]
+                pos_time = h5_file["particles/Filament/pos/time"][:]
+                v_step = h5_file["particles/Filament/v/step"][:]
+                v_time = h5_file["particles/Filament/v/time"][:]
+
+                np.testing.assert_array_equal(pos_step, [written_steps[1]], err_msg="Shrunk file did not preserve the selected frame step.")
+                np.testing.assert_allclose(pos_time, [written_times[1]], err_msg="Shrunk file did not preserve the selected frame time.")
+                np.testing.assert_array_equal(v_step, [written_steps[1]], err_msg="New property dataset did not inherit the preserved frame step.")
+                np.testing.assert_allclose(v_time, [written_times[1]], err_msg="New property dataset did not inherit the preserved frame time.")
+
+                selector = H5DataSelector(h5_file, particle_group="Filament")
+                np.testing.assert_equal(len(selector.timestep), 1, err_msg="Shrunk file should contain exactly one frame.")
 
     def test_obsolete_IO(self):
         with tempfile.TemporaryDirectory() as tmpdirname:
@@ -201,11 +247,3 @@ class IOTest(BaseTestCase):
                     os.path.join(tmpdirname, "testfile.p.gz"))
             except MissingFeature as excp:
                 logging.warning(f"Skipping depreciated IO pipeline tests because it requires a feature that is not available.  Caught exception {excp}")
-
-
-   
-
-        
-
-
-        
