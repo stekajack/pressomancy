@@ -160,11 +160,12 @@ class Elastomer(metaclass=Simulation_Object):
         if self.substrate is None:
             raise ValueError("Substrate must be created before mix_elastomer_stuff().")
 
-        # Add temporary wall (top only).
+        # Add temporary wall (top and bottom only).
         types_M = tuple(typ for key, typ in self.part_types.items() if "real" in key)
         add_box_constraints_func(
-            sides=['top'],
+            sides=['top', 'bottom'],
             top=self.params['box_E'][2],
+            bottom=self._substrate_size,
             inter='wca',
             types_=types_M,
             sys=self.sys,

@@ -261,7 +261,8 @@ class H5DataSelector:
                         bond_list_single_ts.append([])
                 bond_list_all_ts_slice.append(bond_list_single_ts[0] if pt_slice_flag else bond_list_single_ts)
             return bond_list_all_ts_slice[0] if ts_slice_flag else np.asarray(bond_list_all_ts_slice, dtype=object)
-
+    
+    @property
     def times_array(self):
         return self._times_array
     
