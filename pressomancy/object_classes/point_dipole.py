@@ -56,7 +56,9 @@ class PointDipoleSuperpara(metaclass=Simulation_Object):
     simulation_type= SinglePairDict('point_dipole_superpara', 4)
     part_types = PartDictSafe({'pds_real': 62, 'pds_virt': 666})
     config = ObjectConfigParams(
-         dipm=1.
+         dipm=1.,
+         Xi_0=0.1,
+         mag_func=0
     )
 
     def __init__(self, config: ObjectConfigParams):
@@ -84,6 +86,11 @@ class PointDipoleSuperpara(metaclass=Simulation_Object):
         particl_virt=self.add_particle(type_name='pds_virt', pos=pos, rotation=[False, False, False], director=ori, dipm=0.)
         particl_virt.vs_auto_relate_to(particl_real)
         particl_virt.propagation = espressomd.propagation.Propagation.TRANS_VS_RELATIVE | espressomd.propagation.Propagation.ROT_VS_INDEPENDENT
+
+        particl_virt.is_magnetizable = True
+        particl_virt.magnetize_func = self.params["mag_func"]
+        particl_virt.dipm_sat = self.params["dipm"]
+        particl_virt.mag_susc_0 = self.params["Xi_0"]
 
         # Very Important Particle. To use to bond, calculate distances, and other Very Important Things. Usually at the center of mass, and usually a real particle
         self.vip = particl_real
