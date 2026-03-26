@@ -138,12 +138,3 @@ energy = sim_inst.sys.analysis.energy()
 for keys,val in energy.items():
     if val!=0:
         print(keys,val)
-
-from espressomd.io.writer import vtf
-with open(f"/home/stekajack/DATA_VIEW/quadriplex/sim_test/folded_tel_compulsion.vtf", mode="w+t") as fp:
-    vtf.writevsf(sim_inst.sys, fp)
-    vtf.writevcf(sim_inst.sys, fp)
-    for _ in range(20):
-        sim_inst.sys.integrator.run(100)
-        vtf.writevcf(sim_inst.sys, fp)
-        fp.flush()

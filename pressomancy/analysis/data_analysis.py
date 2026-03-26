@@ -190,6 +190,23 @@ class H5DataSelector:
         ds = self.h5_file[ds_path]
         return ds[self.ts_slice, self.pt_slice, :]
     
+    def get_box(self):
+        """Return fixed-box metadata for the current particle group."""
+        box_path = f"particles/{self.particle_group}/box"
+        box_group = self.h5_file[box_path]
+        dimension = int(box_group.attrs["dimension"])
+        boundary_raw = np.atleast_1d(box_group.attrs["boundary"]).tolist()
+        boundary = tuple(
+            item.decode("ascii") if isinstance(item, bytes) else str(item)
+            for item in boundary_raw
+        )
+        edges = np.asarray(box_group["edges"][:], dtype=np.float64)
+        return {
+            "dimension": dimension,
+            "boundary": boundary,
+            "edges": edges,
+        }
+
     def get_connectivity_values(self, object_name, predicate=None, fast=False):
         """
         Return the raw connectivity pairs for a given object, using the

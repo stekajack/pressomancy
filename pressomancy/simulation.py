@@ -128,7 +128,13 @@ class Simulation():
         self.part_positions=[]
         self.volume_size=None
         self.volume_centers=[]
-        self.io_dict={'h5_file': None,'properties':[('id',1), ('type',1), ('pos',3),('pos_folded',3), ('director',3),('image_box',3), ('f',3),('dip',3)],'flat_part_view':defaultdict(list),'registered_group_type': None}
+        self.io_dict={
+            'h5_file': None,
+            'properties':[('id',1), ('type',1), ('pos',3),('pos_folded',3), ('director',3),('image_box',3), ('f',3),('dip',3)],
+            'flat_part_view':defaultdict(list),
+            'registered_group_type': None,
+            'registered_observables': {},
+        }
         self.src_params_set=False
         # self.sys=espressomd.System(box_l=box_dim) is added and managed by the singleton decrator!
     
@@ -647,6 +653,19 @@ class Simulation():
             par_grp = self.io_dict['h5_file'].require_group(f"particles")
             for grp_typ in group_type:
                 data_grp = par_grp.require_group(grp_typ.__name__)
+                box_grp = data_grp.require_group("box")
+                box_grp.attrs["dimension"] = int(len(self.sys.box_l))
+                box_grp.attrs["boundary"] = np.array(
+                    ["periodic" if flag else "none" for flag in self.sys.periodicity],
+                    dtype=h5py.string_dtype(encoding="ascii"),
+                )
+                if "edges" in box_grp:
+                    del box_grp["edges"]
+                box_grp.create_dataset(
+                    "edges",
+                    data=np.asarray(self.sys.box_l, dtype=np.float64),
+                    dtype=np.float64,
+                )
                 connect_grp = self.io_dict['h5_file'].require_group(f"connectivity").require_group(grp_typ.__name__)
                 logging.info(f"Inscribe: Creating group {grp_typ.__name__} in HDF5 file.")
                 objects_to_register=[obj for obj in self.objects if isinstance(obj,grp_typ)]
@@ -795,6 +814,138 @@ class Simulation():
 
         logging.debug(f"Successfully wrote timestep for {self.io_dict['registered_group_type']}.")
 
+    def inscribe_observables_to_h5(self, observable_defs=None, h5_data_path=None, mode='NEW', force_resize_to_size=None):
+        """
+        Create or reopen observables under ``/observables/<name>/{step,time,value}``.
+        """
+        if not isinstance(observable_defs, list) or not observable_defs:
+            raise ValueError("observable_defs must be a non-empty list.")
+        if mode not in ('NEW', 'LOAD', 'LOAD_NEW', 'INIT_SRC'):
+            raise ValueError(f"Unknown mode: {mode}")
+        if force_resize_to_size is not None:
+            assert mode == 'LOAD_NEW', 'force_resize_to_size can only be used in LOAD_NEW mode'
+
+        normalised_defs = []
+        for obs_def in observable_defs:
+            if len(obs_def) == 2:
+                name, shape = obs_def
+                dtype = np.float64
+            elif len(obs_def) == 3:
+                name, shape, dtype = obs_def
+            else:
+                raise ValueError("Each observable definition must be (name, shape) or (name, shape, dtype).")
+            if shape is None:
+                shape = tuple()
+            elif isinstance(shape, Integral):
+                shape = (int(shape),)
+            else:
+                shape = tuple(shape)
+            normalised_defs.append((str(name), shape, np.dtype(dtype)))
+
+        self.io_dict['registered_observables'] = {
+            name: {'shape': shape, 'dtype': dtype}
+            for name, shape, dtype in normalised_defs
+        }
+
+        if self.io_dict['h5_file'] is None:
+            if h5_data_path is None:
+                raise ValueError("h5_data_path must be provided when no HDF5 file is currently open.")
+            file_mode = "w" if mode in ('NEW', 'INIT_SRC') else "a"
+            self.io_dict['h5_file'] = h5py.File(h5_data_path, file_mode)
+
+        observables_group = self.io_dict['h5_file'].require_group("observables")
+
+        if mode in ('NEW', 'INIT_SRC'):
+            for name, shape, dtype in normalised_defs:
+                obs_group = observables_group.require_group(name)
+                if any(key in obs_group for key in ('step', 'time', 'value')):
+                    raise ValueError(f"Observable '{name}' already exists in HDF5 file.")
+                obs_group.create_dataset("step", shape=(0,), maxshape=(None,), dtype=np.int32)
+                obs_group.create_dataset("time", shape=(0,), maxshape=(None,), dtype=np.float64)
+                obs_group.create_dataset(
+                    "value",
+                    shape=(0, *shape),
+                    maxshape=(None, *shape),
+                    dtype=dtype,
+                    chunks=(1, *shape) if shape else (1,),
+                    compression="gzip",
+                    compression_opts=4,
+                )
+            return 0
+
+        candidate_lens = []
+        for name, shape, dtype in normalised_defs:
+            obs_group = observables_group.get(name)
+            if obs_group is None:
+                obs_group = observables_group.create_group(name)
+                obs_group.create_dataset("step", shape=(0,), maxshape=(None,), dtype=np.int32)
+                obs_group.create_dataset("time", shape=(0,), maxshape=(None,), dtype=np.float64)
+                obs_group.create_dataset(
+                    "value",
+                    shape=(0, *shape),
+                    maxshape=(None, *shape),
+                    dtype=dtype,
+                    chunks=(1, *shape) if shape else (1,),
+                    compression="gzip",
+                    compression_opts=4,
+                )
+            value_dataset = obs_group["value"]
+            if tuple(value_dataset.shape[1:]) != shape:
+                raise ValueError(
+                    f"Observable '{name}' shape mismatch: file has {value_dataset.shape[1:]}, expected {shape}."
+                )
+            candidate_lens.append(value_dataset.shape[0])
+
+        if len(set(candidate_lens)) != 1:
+            raise ValueError(f"Inconsistent step counts across observables: {candidate_lens}")
+
+        observable_counter = candidate_lens[0]
+        if force_resize_to_size is not None:
+            assert type(force_resize_to_size) is int, 'force_resize_to_size must be an integer'
+            assert force_resize_to_size <= observable_counter, 'force_resize_to_size must be smaller than or equal to the current number of timesteps saved in file'
+            if force_resize_to_size != observable_counter:
+                for name, _, _ in normalised_defs:
+                    obs_group = observables_group[name]
+                    obs_group["step"].resize((force_resize_to_size,))
+                    obs_group["time"].resize((force_resize_to_size,))
+                    value_dataset = obs_group["value"]
+                    value_dataset.resize((force_resize_to_size, *value_dataset.shape[1:]))
+                self.io_dict['h5_file'].flush()
+                observable_counter = force_resize_to_size
+        return observable_counter
+
+    def write_observable_to_h5(self, name, time_step=None, value=None):
+        """Append one frame to ``/observables/<name>``."""
+        assert self.io_dict['h5_file'] is not None, 'storage file has not been inscribed!'
+        if not isinstance(time_step, Integral):
+            raise TypeError("time_step must be provided as an integer frame counter.")
+
+        observables_group = self.io_dict['h5_file'].require_group("observables")
+        if name not in observables_group:
+            raise KeyError(f"Observable '{name}' has not been inscribed in HDF5.")
+
+        obs_group = observables_group[name]
+        payload = np.asarray(value)
+        expected_shape = tuple(obs_group["value"].shape[1:])
+        if tuple(payload.shape) != expected_shape:
+            raise ValueError(
+                f"Observable '{name}' shape mismatch: payload has {payload.shape}, dataset expects {expected_shape}."
+            )
+
+        physical_time = float(self.sys.time)
+        value_dataset = obs_group["value"]
+        step_dataset = obs_group["step"]
+        time_dataset = obs_group["time"]
+        next_index = value_dataset.shape[0]
+        value_dataset.resize((next_index + 1, *expected_shape))
+        step_dataset.resize((next_index + 1,))
+        time_dataset.resize((next_index + 1,))
+        step_dataset[-1] = time_step
+        time_dataset[-1] = physical_time
+        value_dataset[-1] = payload
+
+        logging.debug(f"Successfully wrote observable '{name}' at step {time_step}.")
+
     def mk_src_file(self, original_data_file_path, dest_h5_file_path, prop_dim=None, time_step=-1):
         """
         Copy an HDF5 simulation file, shrink it to a single time step, and optionally add one-frame datasets for new particle properties.
@@ -882,6 +1033,8 @@ class Simulation():
             for group_name in grp_particles:
                 g = grp_particles[group_name]
                 for _, prop_grp in g.items():
+                    if not isinstance(prop_grp, h5py.Group) or "value" not in prop_grp:
+                        continue
                     val = prop_grp["value"]
 
                     slice_data = val[time_step, ...]  # shape (1, N, D...)

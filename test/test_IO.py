@@ -109,6 +109,26 @@ class IOTest(BaseTestCase):
         np.testing.assert_allclose(time_value, expected_time, err_msg=f"Stored time for {group_name}/{prop} does not match!")
 
     @staticmethod
+    def assert_box_metadata(h5_file, group_name, expected_edges, expected_boundary=("periodic", "periodic", "periodic")):
+        box_group = h5_file[f"particles/{group_name}/box"]
+        expected_edges = np.array(expected_edges, dtype=float, copy=True)
+        np.testing.assert_equal(int(box_group.attrs["dimension"]), len(expected_edges), err_msg=f"Box dimension for {group_name} does not match!")
+        boundary = tuple(
+            item.decode("ascii") if isinstance(item, bytes) else str(item)
+            for item in np.atleast_1d(box_group.attrs["boundary"]).tolist()
+        )
+        np.testing.assert_equal(boundary, expected_boundary, err_msg=f"Box boundary for {group_name} does not match!")
+        np.testing.assert_allclose(box_group["edges"][:], expected_edges, err_msg=f"Box edges for {group_name} do not match!")
+
+    @staticmethod
+    def assert_box_reader(data, expected_edges, expected_boundary=("periodic", "periodic", "periodic")):
+        box = data.get_box()
+        expected_edges = np.array(expected_edges, dtype=float, copy=True)
+        np.testing.assert_equal(box["dimension"], len(expected_edges), err_msg="Box dimension from selector does not match!")
+        np.testing.assert_equal(box["boundary"], expected_boundary, err_msg="Box boundary from selector does not match!")
+        np.testing.assert_allclose(box["edges"], expected_edges, err_msg="Box edges from selector do not match!")
+
+    @staticmethod
     def get_and_check(data, view_type, identity, ref_parts):
         properties=['pos','f','dip']
         for prop in properties:
@@ -144,7 +164,8 @@ class IOTest(BaseTestCase):
         np.testing.assert_array_equal(parent_ids, [filam_ids[i] for i in range(0,len(filam_ids),IOTest.part_per_ligand)], err_msg="Parent IDs do not match!")
 
     @staticmethod
-    def exceptions(data):
+    def cover_selector_exception_paths(data):
+        """Trigger selector misuse branches for coverage without asserting strict failure."""
         tests = [
             # (callable, expected exception)
             (lambda: H5DataSelector(sim_inst.io_dict['h5_file'], particle_group="DangerNoodle"), ValueError),
@@ -195,18 +216,90 @@ class IOTest(BaseTestCase):
                 self.poke_analysis_api(data_crowder, "Crowder", iid, quadriplex_ids, parts)
                 self.assert_step_time(sim_inst.io_dict['h5_file'], "Filament", "id", frame_step, sim_inst.sys.time)
                 self.assert_step_time(sim_inst.io_dict['h5_file'], "Crowder", "id", frame_step, sim_inst.sys.time)
+                self.assert_box_metadata(sim_inst.io_dict['h5_file'], "Filament", sim_inst.sys.box_l)
+                self.assert_box_metadata(sim_inst.io_dict['h5_file'], "Crowder", sim_inst.sys.box_l)
+                self.assert_box_reader(data, sim_inst.sys.box_l)
+                self.assert_box_reader(data_crowder, sim_inst.sys.box_l)
             filament_time = sim_inst.io_dict['h5_file']["particles/Filament/id/time"][:]
             filament_step = sim_inst.io_dict['h5_file']["particles/Filament/id/step"][:]
             np.testing.assert_array_equal(filament_step, [10, 20], err_msg="Stored frame counters are incorrect!")
             self.assertTrue(np.all(np.diff(filament_time) > 0.0), "Stored physical times must increase monotonically.")
             self.assertFalse(np.allclose(filament_step.astype(float), filament_time), "Stored time should no longer mirror stored step.")
             data = H5DataSelector(sim_inst.io_dict['h5_file'], particle_group="Filament")
-            self.exceptions(data)
+            self.cover_selector_exception_paths(data)
             self.slicing_check(data)
             GLOBAL_COUNTER=sim_inst.inscribe_part_group_to_h5(group_type=[Filament, Crowder], h5_data_path=h5_filename,mode='LOAD_NEW')
+            self.assertEqual(GLOBAL_COUNTER, 2)
+            data = H5DataSelector(sim_inst.io_dict['h5_file'], particle_group="Filament")
+            data_crowder = H5DataSelector(sim_inst.io_dict['h5_file'], particle_group="Crowder")
+            self.assert_box_reader(data, sim_inst.sys.box_l)
+            self.assert_box_reader(data_crowder, sim_inst.sys.box_l)
             GLOBAL_COUNTER=sim_inst.inscribe_part_group_to_h5(group_type=[Filament, Crowder], h5_data_path=h5_filename,mode='LOAD')
+            self.assertEqual(GLOBAL_COUNTER, 2)
+            data = H5DataSelector(sim_inst.io_dict['h5_file'], particle_group="Filament")
+            data_crowder = H5DataSelector(sim_inst.io_dict['h5_file'], particle_group="Crowder")
+            self.assert_box_reader(data, sim_inst.sys.box_l)
+            self.assert_box_reader(data_crowder, sim_inst.sys.box_l)
 
-    def test_mk_src_file_preserves_frame_metadata(self):
+    def test_IO_h5md_legacy_files_without_box(self):
+        with tempfile.TemporaryDirectory() as tmpdirname:
+            h5_filename = os.path.join(tmpdirname, "legacy_no_box.h5")
+            sim_inst.inscribe_part_group_to_h5(group_type=[Filament, Crowder], h5_data_path=h5_filename)
+
+            for frame_step in (10, 20):
+                sim_inst.sys.integrator.run(1)
+                sim_inst.write_part_group_to_h5(time_step=frame_step)
+
+            sim_inst.io_dict['h5_file'].flush()
+            sim_inst.io_dict['h5_file'].close()
+            sim_inst.io_dict['h5_file'] = None
+
+            with h5py.File(h5_filename, "a") as h5_file:
+                del h5_file["particles/Filament/box"]
+                del h5_file["particles/Crowder/box"]
+
+            with h5py.File(h5_filename, "r") as h5_file:
+                filament_selector = H5DataSelector(h5_file, particle_group="Filament")
+                crowder_selector = H5DataSelector(h5_file, particle_group="Crowder")
+                with self.assertRaises(KeyError):
+                    filament_selector.get_box()
+                with self.assertRaises(KeyError):
+                    crowder_selector.get_box()
+
+            sim_inst.io_dict['flat_part_view'].clear()
+            GLOBAL_COUNTER = sim_inst.inscribe_part_group_to_h5(
+                group_type=[Filament, Crowder],
+                h5_data_path=h5_filename,
+                mode='LOAD_NEW',
+            )
+            self.assertEqual(GLOBAL_COUNTER, 2)
+
+            sim_inst.sys.integrator.run(1)
+            sim_inst.write_part_group_to_h5(time_step=30)
+            sim_inst.io_dict['h5_file'].flush()
+
+            with h5py.File(h5_filename, "r") as h5_file:
+                np.testing.assert_array_equal(
+                    h5_file["particles/Filament/id/step"][:],
+                    [10, 20, 30],
+                    err_msg="Legacy file append after LOAD_NEW did not preserve step history.",
+                )
+                np.testing.assert_array_equal(
+                    h5_file["particles/Crowder/id/step"][:],
+                    [10, 20, 30],
+                    err_msg="Legacy crowder file append after LOAD_NEW did not preserve step history.",
+                )
+
+            sim_inst.io_dict['flat_part_view'].clear()
+            GLOBAL_COUNTER = sim_inst.inscribe_part_group_to_h5(
+                group_type=[Filament, Crowder],
+                h5_data_path=h5_filename,
+                mode='LOAD',
+            )
+            self.assertEqual(GLOBAL_COUNTER, 3)
+
+
+    def test_mk_src_file_keeps_selected_frame_and_box_data(self):
         with tempfile.TemporaryDirectory() as tmpdirname:
             src_filename = os.path.join(tmpdirname, "src.h5")
             dst_filename = os.path.join(tmpdirname, "dst.h5")
@@ -228,13 +321,67 @@ class IOTest(BaseTestCase):
                 v_step = h5_file["particles/Filament/v/step"][:]
                 v_time = h5_file["particles/Filament/v/time"][:]
 
-                np.testing.assert_array_equal(pos_step, [written_steps[1]], err_msg="Shrunk file did not preserve the selected frame step.")
-                np.testing.assert_allclose(pos_time, [written_times[1]], err_msg="Shrunk file did not preserve the selected frame time.")
-                np.testing.assert_array_equal(v_step, [written_steps[1]], err_msg="New property dataset did not inherit the preserved frame step.")
-                np.testing.assert_allclose(v_time, [written_times[1]], err_msg="New property dataset did not inherit the preserved frame time.")
+                np.testing.assert_array_equal(pos_step, [written_steps[1]], err_msg="mk_src_file did not keep the selected frame step.")
+                np.testing.assert_allclose(pos_time, [written_times[1]], err_msg="mk_src_file did not keep the selected frame time.")
+                np.testing.assert_array_equal(v_step, [written_steps[1]], err_msg="New property dataset did not inherit the kept frame step.")
+                np.testing.assert_allclose(v_time, [written_times[1]], err_msg="New property dataset did not inherit the kept frame time.")
+                self.assert_box_metadata(h5_file, "Filament", sim_inst.sys.box_l)
 
                 selector = H5DataSelector(h5_file, particle_group="Filament")
-                np.testing.assert_equal(len(selector.timestep), 1, err_msg="Shrunk file should contain exactly one frame.")
+                np.testing.assert_equal(len(selector.timestep), 1, err_msg="mk_src_file output should contain exactly one kept frame.")
+                self.assert_box_reader(selector, sim_inst.sys.box_l)
+
+    def test_observables_h5md(self):
+        with tempfile.TemporaryDirectory() as tmpdirname:
+            h5_filename = os.path.join(tmpdirname, "testfile.h5")
+            sim_inst.inscribe_part_group_to_h5(group_type=[Filament], h5_data_path=h5_filename)
+            observable_counter = sim_inst.inscribe_observables_to_h5(
+                observable_defs=[("magnetic_dipole_moment", 3)],
+                h5_data_path=h5_filename,
+                mode='NEW',
+            )
+            self.assertEqual(observable_counter, 0)
+
+            written_steps = []
+            written_times = []
+            written_values = []
+            for frame_step, value in ((3, np.array([1.0, 2.0, 3.0])), (7, np.array([4.0, 5.0, 6.0]))):
+                sim_inst.sys.integrator.run(1)
+                sim_inst.write_observable_to_h5(
+                    name="magnetic_dipole_moment",
+                    time_step=frame_step,
+                    value=value,
+                )
+                written_steps.append(frame_step)
+                written_times.append(sim_inst.sys.time)
+                written_values.append(value)
+
+            with h5py.File(h5_filename, "r") as h5_file:
+                obs_group = h5_file["observables/magnetic_dipole_moment"]
+                np.testing.assert_array_equal(obs_group["step"][:], written_steps, err_msg="Observable steps do not match appended data.")
+                np.testing.assert_allclose(obs_group["time"][:], written_times, err_msg="Observable times do not match appended data.")
+                np.testing.assert_allclose(obs_group["value"][:], np.array(written_values), err_msg="Observable values do not match appended data.")
+
+            observable_counter = sim_inst.inscribe_observables_to_h5(
+                observable_defs=[("magnetic_dipole_moment", 3)],
+                h5_data_path=h5_filename,
+                mode='LOAD_NEW',
+            )
+            self.assertEqual(observable_counter, 2)
+
+            observable_counter = sim_inst.inscribe_observables_to_h5(
+                observable_defs=[("magnetic_dipole_moment", 3)],
+                h5_data_path=h5_filename,
+                mode='LOAD_NEW',
+                force_resize_to_size=1,
+            )
+            self.assertEqual(observable_counter, 1)
+
+            with h5py.File(h5_filename, "r") as h5_file:
+                obs_group = h5_file["observables/magnetic_dipole_moment"]
+                np.testing.assert_array_equal(obs_group["step"][:], [written_steps[0]], err_msg="Observable resize did not preserve the leading frame step.")
+                np.testing.assert_allclose(obs_group["time"][:], [written_times[0]], err_msg="Observable resize did not preserve the leading frame time.")
+                np.testing.assert_allclose(obs_group["value"][:], np.array([written_values[0]]), err_msg="Observable resize did not preserve the leading frame value.")
 
     def test_obsolete_IO(self):
         with tempfile.TemporaryDirectory() as tmpdirname:
