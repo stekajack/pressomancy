@@ -185,7 +185,6 @@ class IOTest(BaseTestCase):
             except exc as e:
                 print(f"{exc.__name__}: {e}")
 
-
     def test_IO_h5md(self):
         filam_ids=[filam.who_am_i for filam in self.filaments]
         quadriplex=[filam.associated_objects for filam in self.filaments]
@@ -298,7 +297,6 @@ class IOTest(BaseTestCase):
             )
             self.assertEqual(GLOBAL_COUNTER, 3)
 
-
     def test_mk_src_file_keeps_selected_frame_and_box_data(self):
         with tempfile.TemporaryDirectory() as tmpdirname:
             src_filename = os.path.join(tmpdirname, "src.h5")
@@ -331,12 +329,71 @@ class IOTest(BaseTestCase):
                 np.testing.assert_equal(len(selector.timestep), 1, err_msg="mk_src_file output should contain exactly one kept frame.")
                 self.assert_box_reader(selector, sim_inst.sys.box_l)
 
+    def test_write_registered_to_h5_keeps_streams_in_sync(self):
+        with tempfile.TemporaryDirectory() as tmpdirname:
+            h5_filename = os.path.join(tmpdirname, "mixed_streams.h5")
+            magnetic_dipole_moment = np.zeros(3, dtype=np.float64)
+            sim_inst.inscribe_part_group_to_h5(group_type=[Filament], h5_data_path=h5_filename)
+            sim_inst.inscribe_observable_group_to_h5(
+                observable_defs=[("magnetic_dipole_moment", 3, np.float64, magnetic_dipole_moment)],
+                h5_data_path=h5_filename,
+                mode='NEW',
+            )
+
+            written_steps = []
+            written_times = []
+            written_values = []
+            for frame_step, value in ((3, np.array([1.0, 2.0, 3.0])), (7, np.array([4.0, 5.0, 6.0]))):
+                sim_inst.sys.integrator.run(1)
+                magnetic_dipole_moment[:] = value
+                sim_inst.write_registered_to_h5(time_step=frame_step)
+                written_steps.append(frame_step)
+                written_times.append(sim_inst.sys.time)
+                written_values.append(value.copy())
+
+            with h5py.File(h5_filename, "r") as h5_file:
+                particle_step = h5_file["particles/Filament/id/step"][:]
+                particle_time = h5_file["particles/Filament/id/time"][:]
+                obs_group = h5_file["observables/magnetic_dipole_moment"]
+                np.testing.assert_array_equal(particle_step, written_steps, err_msg="Particle frames do not match the unified write steps.")
+                np.testing.assert_array_equal(obs_group["step"][:], written_steps, err_msg="Observable frames do not match the unified write steps.")
+                np.testing.assert_allclose(particle_time, written_times, err_msg="Particle times do not match the unified write times.")
+                np.testing.assert_allclose(obs_group["time"][:], written_times, err_msg="Observable times do not match the unified write times.")
+                np.testing.assert_allclose(obs_group["value"][:], np.array(written_values), err_msg="Observable values do not match unified writes.")
+
+            magnetic_dipole_moment[:] = np.array([7.0, 8.0, 9.0])
+            sim_inst.write_observable_group_to_h5(time_step=11)
+            sim_inst.io_dict['h5_file'].flush()
+            sim_inst.io_dict['h5_file'].close()
+            sim_inst.io_dict['h5_file'] = None
+            sim_inst.io_dict['flat_part_view'].clear()
+
+            particle_counter = sim_inst.inscribe_part_group_to_h5(
+                group_type=[Filament],
+                h5_data_path=h5_filename,
+                mode='LOAD_NEW',
+                force_resize_to_size=2,
+            )
+            observable_counter = sim_inst.inscribe_observable_group_to_h5(
+                observable_defs=[("magnetic_dipole_moment", 3, np.float64, magnetic_dipole_moment)],
+                h5_data_path=h5_filename,
+                mode='LOAD_NEW',
+                force_resize_to_size=2,
+            )
+            self.assertEqual(particle_counter, 2)
+            self.assertEqual(observable_counter, 2)
+
+            with h5py.File(h5_filename, "r") as h5_file:
+                np.testing.assert_array_equal(h5_file["particles/Filament/id/step"][:], written_steps, err_msg="Particle stream should remain at the checkpointed counter.")
+                np.testing.assert_array_equal(h5_file["observables/magnetic_dipole_moment/step"][:], written_steps, err_msg="Observable stream should be truncated back to the checkpointed counter.")
+
     def test_observables_h5md(self):
         with tempfile.TemporaryDirectory() as tmpdirname:
             h5_filename = os.path.join(tmpdirname, "testfile.h5")
+            magnetic_dipole_moment = np.zeros(3, dtype=np.float64)
             sim_inst.inscribe_part_group_to_h5(group_type=[Filament], h5_data_path=h5_filename)
-            observable_counter = sim_inst.inscribe_observables_to_h5(
-                observable_defs=[("magnetic_dipole_moment", 3)],
+            observable_counter = sim_inst.inscribe_observable_group_to_h5(
+                observable_defs=[("magnetic_dipole_moment", 3, np.float64, magnetic_dipole_moment)],
                 h5_data_path=h5_filename,
                 mode='NEW',
             )
@@ -347,14 +404,11 @@ class IOTest(BaseTestCase):
             written_values = []
             for frame_step, value in ((3, np.array([1.0, 2.0, 3.0])), (7, np.array([4.0, 5.0, 6.0]))):
                 sim_inst.sys.integrator.run(1)
-                sim_inst.write_observable_to_h5(
-                    name="magnetic_dipole_moment",
-                    time_step=frame_step,
-                    value=value,
-                )
+                magnetic_dipole_moment[:] = value
+                sim_inst.write_observable_group_to_h5(time_step=frame_step)
                 written_steps.append(frame_step)
                 written_times.append(sim_inst.sys.time)
-                written_values.append(value)
+                written_values.append(value.copy())
 
             with h5py.File(h5_filename, "r") as h5_file:
                 obs_group = h5_file["observables/magnetic_dipole_moment"]
@@ -362,15 +416,15 @@ class IOTest(BaseTestCase):
                 np.testing.assert_allclose(obs_group["time"][:], written_times, err_msg="Observable times do not match appended data.")
                 np.testing.assert_allclose(obs_group["value"][:], np.array(written_values), err_msg="Observable values do not match appended data.")
 
-            observable_counter = sim_inst.inscribe_observables_to_h5(
-                observable_defs=[("magnetic_dipole_moment", 3)],
+            observable_counter = sim_inst.inscribe_observable_group_to_h5(
+                observable_defs=[("magnetic_dipole_moment", 3, np.float64, magnetic_dipole_moment)],
                 h5_data_path=h5_filename,
                 mode='LOAD_NEW',
             )
             self.assertEqual(observable_counter, 2)
 
-            observable_counter = sim_inst.inscribe_observables_to_h5(
-                observable_defs=[("magnetic_dipole_moment", 3)],
+            observable_counter = sim_inst.inscribe_observable_group_to_h5(
+                observable_defs=[("magnetic_dipole_moment", 3, np.float64, magnetic_dipole_moment)],
                 h5_data_path=h5_filename,
                 mode='LOAD_NEW',
                 force_resize_to_size=1,
