@@ -421,6 +421,97 @@ class H5DataSelector:
                 f"ts_slice={self.ts_slice}, pt_slice={self.pt_slice})>")
 
 
+class H5ObservableSelector:
+    """
+    A simplified interface to access observable data stored in an HDF5 file.
+
+    The selector maintains internal slice information for the timestep axis only
+    and exposes direct access to the stored ``step``, ``time``, and ``value``
+    datasets under ``/observables/<name>``.
+    """
+    def __init__(self, h5_file, observable_name, ts_slice=None):
+        self.h5_file = h5_file
+        self.observable_name = observable_name
+        self.metadata = self._build_h5_tree(h5_file)
+        self.common_dims = self.sanity_check(self.metadata, self.observable_name)
+        self.ts_slice = ts_slice if ts_slice is not None else slice(None)
+
+    def __getitem__(self, key):
+        raise TypeError(
+            "Direct indexing on a H5ObservableSelector is not allowed. "
+            "Use the 'timestep' accessor for slicing instead."
+        )
+
+    def _build_h5_tree(self, obj):
+        tree = {}
+        if isinstance(obj, h5py.Group):
+            tree['_meta'] = {
+                'type': 'Group',
+                'members': list(obj.keys())
+            }
+            for key, item in obj.items():
+                tree[key] = self._build_h5_tree(item)
+        elif isinstance(obj, h5py.Dataset):
+            tree = {
+                'type': 'Dataset',
+                'shape': obj.shape,
+                'dtype': str(obj.dtype),
+                'attributes': {attr: obj.attrs[attr] for attr in obj.attrs}
+            }
+        return tree
+
+    def sanity_check(self, metadata, observable_name):
+        try:
+            observable_meta = metadata['observables'][observable_name]
+        except KeyError:
+            raise ValueError(f"Observable '{observable_name}' not found in metadata.")
+
+        try:
+            step_shape = observable_meta['step']['shape']
+            time_shape = observable_meta['time']['shape']
+            value_shape = observable_meta['value']['shape']
+        except KeyError as exc:
+            raise ValueError(
+                f"Observable '{observable_name}' must contain step, time, and value datasets."
+            ) from exc
+
+        common_dims = (step_shape[0], time_shape[0], value_shape[0])
+        if len(set(common_dims)) != 1:
+            raise ValueError(
+                f"Observable '{observable_name}' has inconsistent step/time/value lengths: {common_dims}"
+            )
+        return (value_shape[0],)
+
+    def __iter__(self):
+        raise TypeError("H5ObservableSelector objects are not iterable. Use the '.timestep' accessor for iteration.")
+
+    def __len__(self):
+        raise TypeError("len() is ambiguous on H5ObservableSelector objects. Use '.timestep' to get the number of selected frames.")
+
+    @property
+    def timestep(self):
+        return ObservableTimestepAccessor(self)
+
+    @property
+    def value(self):
+        ds = self.h5_file[f"observables/{self.observable_name}/value"]
+        return ds[self.ts_slice, ...]
+
+    @property
+    def step(self):
+        ds = self.h5_file[f"observables/{self.observable_name}/step"]
+        return ds[self.ts_slice]
+
+    @property
+    def time(self):
+        ds = self.h5_file[f"observables/{self.observable_name}/time"]
+        return ds[self.ts_slice]
+
+    def __repr__(self):
+        return (f"<H5ObservableSelector(observable_name={self.observable_name}, "
+                f"ts_slice={self.ts_slice})>")
+
+
 class TimestepAccessor:
     """
     An accessor for slicing and iterating over timesteps of a H5DataSelector.
@@ -493,6 +584,47 @@ class TimestepAccessor:
 
     def __repr__(self):
         return f"<TimestepAccessor(ts_slice={self.sim_data.ts_slice})>"
+
+
+class ObservableTimestepAccessor:
+    """
+    An accessor for slicing and iterating over timesteps of a H5ObservableSelector.
+    """
+    def __init__(self, sim_data):
+        self.sim_data = sim_data
+
+    def __getitem__(self, key):
+        total_timesteps = self.sim_data.common_dims[0]
+        composed = _compose_index(self.sim_data.ts_slice, key, total_timesteps)
+        return H5ObservableSelector(self.sim_data.h5_file, self.sim_data.observable_name, ts_slice=composed)
+
+    def __iter__(self):
+        total_timesteps = self.sim_data.common_dims[0]
+        ts_slice = self.sim_data.ts_slice
+        if isinstance(ts_slice, slice):
+            indices = list(range(*ts_slice.indices(total_timesteps)))
+        elif isinstance(ts_slice, (list, tuple)):
+            indices = ts_slice
+        else:
+            indices = [ts_slice]
+        for idx in indices:
+            yield H5ObservableSelector(self.sim_data.h5_file, self.sim_data.observable_name, ts_slice=idx)
+
+    def __len__(self):
+        total_timesteps = self.sim_data.common_dims[0]
+        ts_slice = self.sim_data.ts_slice
+        if isinstance(ts_slice, slice):
+            start, stop, step = ts_slice.indices(total_timesteps)
+            return len(range(start, stop, step))
+        elif isinstance(ts_slice, (list, tuple)):
+            return len(ts_slice)
+        elif isinstance(ts_slice, int):
+            return 1
+        else:
+            return total_timesteps
+
+    def __repr__(self):
+        return f"<ObservableTimestepAccessor(ts_slice={self.sim_data.ts_slice})>"
 
 
 class ParticleAccessor:

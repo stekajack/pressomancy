@@ -3,7 +3,7 @@ import espressomd
 from create_system import sim_inst , BaseTestCase
 from pressomancy.simulation import Filament, Quartet, Quadriplex, Crowder
 from pressomancy.helper_functions import BondWrapper
-from pressomancy.analysis import H5DataSelector
+from pressomancy.analysis import H5DataSelector, H5ObservableSelector
 import h5py
 import tempfile
 import os
@@ -436,6 +436,53 @@ class IOTest(BaseTestCase):
                 np.testing.assert_array_equal(obs_group["step"][:], [written_steps[0]], err_msg="Observable resize did not preserve the leading frame step.")
                 np.testing.assert_allclose(obs_group["time"][:], [written_times[0]], err_msg="Observable resize did not preserve the leading frame time.")
                 np.testing.assert_allclose(obs_group["value"][:], np.array([written_values[0]]), err_msg="Observable resize did not preserve the leading frame value.")
+
+    def test_observable_selector_h5md(self):
+        with tempfile.TemporaryDirectory() as tmpdirname:
+            h5_filename = os.path.join(tmpdirname, "observable_selector.h5")
+            magnetic_dipole_moment = np.zeros(3, dtype=np.float64)
+            observable_counter = sim_inst.inscribe_observable_group_to_h5(
+                observable_defs=[("magnetic_dipole_moment", 3, np.float64, magnetic_dipole_moment)],
+                h5_data_path=h5_filename,
+                mode='NEW',
+            )
+            self.assertEqual(observable_counter, 0)
+
+            written_steps = []
+            written_times = []
+            written_values = []
+            for frame_step, value in ((3, np.array([1.0, 2.0, 3.0])), (7, np.array([4.0, 5.0, 6.0]))):
+                sim_inst.sys.integrator.run(1)
+                magnetic_dipole_moment[:] = value
+                sim_inst.write_observable_group_to_h5(time_step=frame_step)
+                written_steps.append(frame_step)
+                written_times.append(sim_inst.sys.time)
+                written_values.append(value.copy())
+
+            with h5py.File(h5_filename, "r") as h5_file:
+                selector = H5ObservableSelector(h5_file, observable_name="magnetic_dipole_moment")
+                np.testing.assert_array_equal(selector.step, written_steps, err_msg="Observable selector did not return the stored step values.")
+                np.testing.assert_allclose(selector.time, written_times, err_msg="Observable selector did not return the stored times.")
+                np.testing.assert_allclose(selector.value, np.array(written_values), err_msg="Observable selector did not return the stored values.")
+                sliced = selector.timestep[0:2]
+                np.testing.assert_equal(len(sliced.timestep), 2, err_msg="Observable timestep slicing did not preserve the expected frame count.")
+                np.testing.assert_array_equal(sliced.step, written_steps, err_msg="Observable timestep slicing did not preserve the expected steps.")
+                frames = [frame for frame in selector.timestep]
+                np.testing.assert_equal(len(frames), 2, err_msg="Observable timestep iteration did not yield the expected number of frame selectors.")
+                np.testing.assert_array_equal(frames[0].step, written_steps[0], err_msg="Observable timestep iteration did not keep the expected stored step for the first frame.")
+                np.testing.assert_allclose(frames[0].time, written_times[0], err_msg="Observable timestep iteration did not keep the expected stored time for the first frame.")
+                np.testing.assert_allclose(frames[0].value, written_values[0], err_msg="Observable timestep iteration did not keep the expected stored value for the first frame.")
+                with self.assertRaises(TypeError):
+                    selector[0]
+
+            with h5py.File(h5_filename, "r") as h5_file:
+                with self.assertRaises(ValueError):
+                    H5ObservableSelector(h5_file, observable_name="missing_observable")
+
+            with h5py.File(h5_filename, "a") as h5_file:
+                h5_file["observables/magnetic_dipole_moment/step"].resize((1,))
+                with self.assertRaises(ValueError):
+                    H5ObservableSelector(h5_file, observable_name="magnetic_dipole_moment")
 
     def test_obsolete_IO(self):
         with tempfile.TemporaryDirectory() as tmpdirname:
