@@ -44,6 +44,8 @@ for fold_type in fold_types:
     for _ in range(part_per_filament):
         if fold_type == 'antiparallel':
             quartet_types = ['brokenB', 'brokenA', 'brokenA']  # [center, top, bottom]
+        elif fold_type == 'hybrid':
+            quartet_types = ['brokenA', 'brokenB', 'brokenA']  # [center, top, bottom]
         else:
             quartet_types = ['brokenA', 'brokenA', 'brokenA']  # [center, top, bottom]
 
@@ -68,7 +70,12 @@ for fold_type in fold_types:
         quadriplex.append(Quadriplex(config=quadriplex_config))
 
         assert len(quartet_triplet) == 3
-        expected_types = ['brokenB', 'brokenA', 'brokenA'] if fold_type == 'antiparallel' else ['brokenA', 'brokenA', 'brokenA']
+        if fold_type == 'antiparallel':
+            expected_types = ['brokenB', 'brokenA', 'brokenA']
+        elif fold_type == 'hybrid':
+            expected_types = ['brokenA', 'brokenB', 'brokenA']
+        else:
+            expected_types = ['brokenA', 'brokenA', 'brokenA']
         observed_types = [quartet.params['type'] for quartet in quartet_triplet]
         assert observed_types == expected_types, f"quartet type mismatch for fold={fold_type}: expected={expected_types}, got={observed_types}"
 
