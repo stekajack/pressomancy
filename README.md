@@ -1,4 +1,3 @@
-
 # Pressomancy
 
 [![GitHub Pages](https://img.shields.io/badge/GitHub-Pages-blue.svg)](https://stekajack.github.io/pressomancy/)
@@ -60,29 +59,37 @@ $path_to_espresso/build/pypresso -m unittest discover -s test
 Here’s a quick example to get started with **Pressomancy**.
 
 1. **Initialize the Simulation**: The `Simulation` class is a singleton-like wrapper for managing an EspressoMD instance with specialised methods to manage a molecular simualation.
-2. **Add Simulation Objects**: Add various simulation objects (e.g., magnetic filaments, multimers) that inherit from the `SimulationObject` abstract class, ensuring easy integration and compliance.
+2. **Add Simulation Objects**: Add simulation objects that inherit from the `SimulationObject` abstract class, ensuring easy integration and compliance.
 
 ```python
-from pressomancy import Simulation
-from pressomancy.objects import Filament
+from pressomancy.simulation import Simulation
+from pressomancy.object_classes.part_class import GenericPart
 
-# Initialize EsoressoMD instace and set system parameters
-sim_inst = Simulation(box_dim=(10,10,10))
-sim_inst.set_sys()
+# Initialize EspressoMD instance and set system parameters
+sim_inst = Simulation(box_dim=(10, 10, 10))
+sim_inst.set_sys(timestep=0.01, min_global_cut=3.0)
+
 # Make a custom configuration (object aware)
-configuration=Filament.config.specify(params....)
+configuration = GenericPart.config.specify(
+    espresso_handle=sim_inst.sys,
+    size=1.0,
+    espresso_part_kwargs={"type": GenericPart.part_types["real"]},
+)
+
 # Add simulation objects
-filaments = [Filament(configuration) for x in range(#)]
-# Register objects  in the simulation instance
-sim_inst.store_objects(filaments)
+particles = [GenericPart(config=configuration) for _ in range(100)]
+
+# Register objects in the simulation instance
+sim_inst.store_objects(particles)
+
 # Create objects inside the EspressoMD instance
-sim_inst.set_objects(filaments)
+sim_inst.set_objects(particles)
+
 # Set interactions
-sim_inst.set_vdW(key=('type_key',),lj_eps=#)
+sim_inst.set_steric(key=("real",), wca_eps=1.0, sigma=1.0)
+
 # Do work
-.
-.
-.
+sim_inst.sys.integrator.run(1000)
 ```
 ## Usage
 

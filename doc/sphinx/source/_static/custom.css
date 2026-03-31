@@ -1,0 +1,31 @@
+/* Keep layout expectation from conf.py theme options. */
+div.document {
+  max-width: 1120px;
+}
+
+/* Make links clearly clickable. */
+a.reference,
+a.reference:visited {
+  color: #0b57d0;
+  text-decoration: underline;
+  text-decoration-thickness: 1.5px;
+  text-underline-offset: 2px;
+}
+
+a.reference:hover,
+a.reference:focus {
+  color: #0038a8;
+  background-color: #eaf2ff;
+  border-radius: 3px;
+}
+
+/* Cross-reference roles often wrap code/literals; keep those blue too. */
+a.reference code,
+a.reference .pre,
+a.reference.internal code,
+a.reference.internal .pre,
+a.reference.external code,
+a.reference.external .pre {
+  color: inherit !important;
+  font-weight: 600;
+}
