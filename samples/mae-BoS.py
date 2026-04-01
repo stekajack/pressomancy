@@ -1,9 +1,12 @@
 import espressomd
-import espressomd.magnetostatics
-import espressomd.checkpointing
+if espressomd.version.major()==5:
+    from espressomd.magnetostatics import DipolarDirectSum
+elif espressomd.version.major()==4:
+    from espressomd.magnetostatics import DipolarDirectSumCpu
+else:
+    raise ImportError(f"Unsupported ESPResSo version: {espressomd.version}. Please use version 4 or 5.")
 import logging
 logging.basicConfig(level=logging.INFO)
-from espressomd.io.writer import vtf
                   
 espressomd.assert_features(['WCA', 'ROTATION', 'DIPOLES', 'DP3M',
                             'VIRTUAL_SITES', 'VIRTUAL_SITES_RELATIVE',
@@ -92,8 +95,10 @@ sim_inst.sys.thermostat.set_langevin(kT=1., gamma=1., seed=sim_inst.seed)
 
 # Add magnetic dipole interactions - direct sum, non-preiodic in z
 sim_inst.sys.periodicity = [True, True, False]
-dds = espressomd.magnetostatics.DipolarDirectSumCpu(prefactor=1)
-sim_inst.sys.magnetostatics.solver = dds
+if espressomd.version.major()==5:
+    sim_inst.init_magnetic_inter(DipolarDirectSum(prefactor=1))
+else:
+    sim_inst.init_magnetic_inter(DipolarDirectSumCpu(prefactor=1))
 sim_inst.sys.integrator.run(0)
 
 # Mark particles to magnetize. Careful to use python lists, and not espressomd particle slices
