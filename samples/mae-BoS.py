@@ -1,4 +1,5 @@
 import espressomd
+import espressomd.version
 if espressomd.version.major()==5:
     from espressomd.magnetostatics import DipolarDirectSum
 elif espressomd.version.major()==4:
@@ -79,7 +80,8 @@ sim_inst.set_steric(key=("pdp_real", "pds_real"))
 sim_inst.sys.integrator.run(0)
 
 # must add non_bonded interactions before creating substrate
-elastomer.create_substrate(geometry='part')
+substrate_geometry = 'wall' if espressomd.version.major() == 4 else 'part'
+elastomer.create_substrate(geometry=substrate_geometry)
 energy = sim_inst.sys.analysis.energy()
 print("total",energy["total"])
 print("bonded",energy["bonded"])
