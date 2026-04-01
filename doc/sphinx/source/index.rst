@@ -1,25 +1,31 @@
-.. pressomancy documentation master file, created by
-   sphinx-quickstart on Thu Dec  5 17:42:33 2024.
-   You can adapt this file completely to your liking, but it should at least
-   contain the root `toctree` directive.
-
 pressomancy documentation
 =========================
 
 User's Guide
 ------------
 .. toctree::
+   :numbered:
    :maxdepth: 1
- 
-   introduction.rst
 
-Modules
---------------
+   introduction
+   first_simulation
+   simulation_and_objects
+   io_and_analysis
 
+Tutorials
+---------
 .. toctree::
-    :maxdepth: 2
+   :numbered:
+   :maxdepth: 1
 
-    modules.rst
+   g_quadruplex
+
+API Reference
+-------------
+.. toctree::
+   :maxdepth: 1
+
+   modules
 
 Online resources
 ----------------
@@ -34,5 +40,3 @@ Indices and tables
 * :ref:`genindex`
 * :ref:`modindex`
 * :ref:`search`
-
-

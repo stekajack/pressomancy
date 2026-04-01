@@ -20,6 +20,14 @@ pressomancy.object\_classes.filament\_class module
    :undoc-members:
    :show-inheritance:
 
+pressomancy.object\_classes.part\_class module
+----------------------------------------------
+
+.. automodule:: pressomancy.object_classes.part_class
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 pressomancy.object\_classes.object\_class module
 ------------------------------------------------
 
@@ -44,6 +52,14 @@ pressomancy.object\_classes.quadriplex\_class module
    :undoc-members:
    :show-inheritance:
 
+pressomancy.object\_classes.rigid\_obj module
+---------------------------------------------
+
+.. automodule:: pressomancy.object_classes.rigid_obj
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 pressomancy.object\_classes.raspberry\_sphere module
 ----------------------------------------------------
 
@@ -61,25 +77,25 @@ pressomancy.object\_classes.stoner\_wohlfarth\_part module
    :show-inheritance:
 
 pressomancy.object\_classes.egg\_model\_part module
-----------------------------------------------------------
+----------------------------------------------------
 
 .. automodule:: pressomancy.object_classes.egg_model_part
    :members:
    :undoc-members:
    :show-inheritance:
 
-pressomancy.object\_classes.tel\_sequence module
-----------------------------------------------------------
+pressomancy.object\_classes.multicore\_particle module
+-------------------------------------------------------
 
-.. automodule:: pressomancy.object_classes.tel_sequence
+.. automodule:: pressomancy.object_classes.multicore_particle
    :members:
    :undoc-members:
    :show-inheritance:
 
-Module contents
----------------
+pressomancy.object\_classes.tel\_sequence module
+------------------------------------------------
 
-.. automodule:: pressomancy.object_classes
+.. automodule:: pressomancy.object_classes.tel_sequence
    :members:
    :undoc-members:
    :show-inheritance:

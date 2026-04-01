@@ -89,7 +89,6 @@ class Quartet(GenericRigidObj):
                 for part1, part2 in zip(particles[np.array(recepie_dict['squareA'])], particles[np.array(recepie_dict['squareB'])]):
                     self.change_part_type(part1,'squareA')
                     self.change_part_type(part2,'squareB')
-                    self.bond_owned_part_pair(part1, part2)
             else:
                 for part in particles[np.array(recepie_dict['squareA'])]:
                     self.change_part_type(part,'squareA')
