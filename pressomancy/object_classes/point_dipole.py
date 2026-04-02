@@ -51,7 +51,7 @@ class PointDipoleSuperpara(metaclass=Simulation_Object):
     Requires to run a magnetization function every step. Eg. system.magnetize()
     '''
 
-    required_features=['DIPOLES', 'DIPOLE_FIELD_TRACKING']	
+    required_features=['DIPOLES', 'DIPOLE_FIELD_TRACKING', 'MAGNETIZE']	
     numInstances = 0
     simulation_type= SinglePairDict('point_dipole_superpara', 4)
     part_types = PartDictSafe({'pds_real': 62, 'pds_virt': 666})
