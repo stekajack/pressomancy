@@ -89,7 +89,7 @@ the simulation manager need to agree on.
 
 Particle creation begins when you call
 :meth:`~pressomancy.simulation.Simulation.set_objects`. The simulation first
-uses :func:`~pressomancy.helper_functions.partition_cubic_volume` to generate
+uses :func:`~pressomancy.helper_functions.partition_cuboid_volume` to generate
 candidate regions in the box. That helper uses an FCC lattice as a dense and
 regular scaffold for placement. For each chosen region, the simulation calls
 the object's ``build_function`` to obtain the local pattern appropriate for

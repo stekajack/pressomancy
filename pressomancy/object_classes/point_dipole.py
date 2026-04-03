@@ -1,6 +1,8 @@
 from pressomancy.object_classes.object_class import Simulation_Object, ObjectConfigParams 
 from pressomancy.helper_functions import PartDictSafe, SinglePairDict
 
+import espressomd.propagation
+
 class PointDipolePermanent(metaclass=Simulation_Object):
     '''
     Class that contains permanent magnetic point dipole particles relevant paramaters and methods. At construction one must pass an espresso handle because the class manages parameters that are both internal and external to espresso. It is assumed that in any simulation instanse there will be only one type of a PointDipolePermanent. Therefore many relevant parameters are class specific, not instance specific.
@@ -37,9 +39,6 @@ class PointDipolePermanent(metaclass=Simulation_Object):
         dipm= self.params['dipm']
         hndl = self.add_particle(type_name='pdp_real', pos=pos, rotation=[True, True, True], dip=(dipm * ori))
 
-        # Very Important Particle. To use to bond, calculate distances, and other Very Important Things. Usually at the center of mass, and usually a real particle
-        self.vip = hndl
-
         return self
     
 class PointDipoleSuperpara(metaclass=Simulation_Object):
@@ -49,12 +48,14 @@ class PointDipoleSuperpara(metaclass=Simulation_Object):
     Requires to run a magnetization function every step. Eg. system.magnetize()
     '''
 
-    required_features=['DIPOLES', 'DIPOLE_FIELD_TRACKING']	
+    required_features=['DIPOLES', 'DIPOLE_FIELD_TRACKING', 'MAGNETIZE']	
     numInstances = 0
     simulation_type= SinglePairDict('point_dipole_superpara', 4)
     part_types = PartDictSafe({'pds_real': 62, 'pds_virt': 666})
     config = ObjectConfigParams(
-         dipm=1.
+         dipm=1.,
+         Xi_0=0.1,
+         mag_func=0
     )
 
     def __init__(self, config: ObjectConfigParams):
@@ -79,11 +80,14 @@ class PointDipoleSuperpara(metaclass=Simulation_Object):
         '''
         particl_real=self.add_particle(type_name='pds_real', pos=pos, rotation=[True, True, True], director=ori)
         
-        particl_virt=self.add_particle(type_name='pds_virt', pos=pos, rotation=[False, False, False], dip=(ori * 1e-6))
+        particl_virt=self.add_particle(type_name='pds_virt', pos=pos, rotation=[False, False, False], director=ori, dipm=0.)
         particl_virt.vs_auto_relate_to(particl_real)
+        particl_virt.propagation = espressomd.propagation.Propagation.TRANS_VS_RELATIVE | espressomd.propagation.Propagation.ROT_VS_INDEPENDENT
 
-        # Very Important Particle. To use to bond, calculate distances, and other Very Important Things. Usually at the center of mass, and usually a real particle
-        self.vip = particl_real
+        particl_virt.is_magnetizable = True
+        particl_virt.magnetize_func = self.params["mag_func"]
+        particl_virt.dipm_sat = self.params["dipm"]
+        particl_virt.mag_susc_0 = self.params["Xi_0"]
 
         return self
     

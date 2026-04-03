@@ -1,0 +1,158 @@
+from pressomancy.simulation import Elastomer, PointDipoleSuperpara
+from create_system import sim_inst, BaseTestCase
+import numpy as np
+
+class ElastomerTest(BaseTestCase):
+    box_E = [3,3,9]
+
+    part_size=1.
+
+    def tearDown(self) -> None:
+        sim_inst.reinitialize_instance()
+        self.assertEqual(len(sim_inst.sys.part),0)
+
+    def test_set_object_generic(self):
+        instance=Elastomer(config=Elastomer.config.specify(espresso_handle=sim_inst.sys))
+        sim_inst.store_objects([instance])
+        sim_inst.set_objects([instance])
+
+    def test_set_object(self):
+        mag_part = [PointDipoleSuperpara(config=PointDipoleSuperpara.config.specify(dipm=1.,
+            espresso_handle=sim_inst.sys)) for _ in range(10)]
+        sim_inst.store_objects(mag_part)
+        instance=Elastomer(config=Elastomer.config.specify(box_E=self.box_E,
+            n_parts=10, size=self.part_size,espresso_handle=sim_inst.sys,seed=sim_inst.seed,
+            associated_objects=mag_part))
+        sim_inst.store_objects([instance])
+        sim_inst.set_objects([instance])
+
+    def test_mix_elastomer(self):
+        mag_part = [PointDipoleSuperpara(config=PointDipoleSuperpara.config.specify(dipm=1.,
+            espresso_handle=sim_inst.sys)) for _ in range(10)]
+        sim_inst.store_objects(mag_part)
+        instance=Elastomer(config=Elastomer.config.specify(box_E=self.box_E,
+            n_parts=10, size=self.part_size,espresso_handle=sim_inst.sys,seed=sim_inst.seed,
+            associated_objects=mag_part))
+        sim_inst.store_objects([instance])
+        sim_inst.set_objects([instance])
+
+        sim_inst.set_steric(tuple((type_name for type_name in instance.part_types.keys() if "real" in type_name)))
+
+        sim_inst.sys.time_step = 0.01
+        instance.mix_elastomer_stuff(test=True)
+
+    def test_cure_elastomer(self):
+        from collections import defaultdict
+        mag_part = [PointDipoleSuperpara(config=PointDipoleSuperpara.config.specify(dipm=1.,
+            espresso_handle=sim_inst.sys)) for _ in range(10)]
+        sim_inst.store_objects(mag_part)
+        instance=Elastomer(config=Elastomer.config.specify(box_E=self.box_E,
+            n_parts=10, size=self.part_size,espresso_handle=sim_inst.sys,seed=sim_inst.seed,
+            associated_objects=mag_part))
+        sim_inst.store_objects([instance])
+        sim_inst.set_objects([instance])
+
+        instance.cure_elastomer()
+
+        n_bond_dict = defaultdict(list)
+        for part in sim_inst.sys.part.select(type=sim_inst.part_types["pds_real"]):
+            for bond in part.bonds:
+                n_bond_dict[part.id].append(bond[1])
+                n_bond_dict[bond[1]].append(part.id)
+
+        n_bonds_per_part_list = [len(bonds) for bonds in n_bond_dict.values()]
+        assert min(n_bonds_per_part_list) > 0, f"{n_bonds_per_part_list}"
+        dist_bonds_per_part_list = [np.linalg.norm(part.pos - sim_inst.sys.part.by_id(id).pos) for part in sim_inst.sys.part.select(type=62) for bond, id in part.bonds]
+        assert max(dist_bonds_per_part_list) <= 5.
+
+    def test_cure_bad_elastomer(self): # tests if the function to assure at least 1 neighboor is working
+        from collections import defaultdict
+        instance=Elastomer(config=Elastomer.config.specify(box_E=self.box_E,
+            n_parts=10, size=self.part_size,
+            bond_cutoff=0.9,
+            espresso_handle=sim_inst.sys,seed=sim_inst.seed))
+        sim_inst.store_objects([instance])
+        sim_inst.set_objects([instance])
+
+        instance.cure_elastomer(test_bad=True)
+
+        n_bond_dict = defaultdict(list)
+        for part in sim_inst.sys.part.select(type=sim_inst.part_types["real"]):
+            for bond in part.bonds:
+                n_bond_dict[part.id].append(bond[1])
+                n_bond_dict[bond[1]].append(part.id)
+
+        n_bonds_per_part_list = [len(bonds) for bonds in n_bond_dict.values()]
+        assert min(n_bonds_per_part_list) >= 3, f"{n_bonds_per_part_list}"
+
+    def test_substrate(self):
+        mag_part = [PointDipoleSuperpara(config=PointDipoleSuperpara.config.specify(dipm=1.,
+            espresso_handle=sim_inst.sys)) for _ in range(10)]
+        sim_inst.store_objects(mag_part)
+        instance=Elastomer(config=Elastomer.config.specify(box_E=self.box_E,
+            n_parts=10, size=self.part_size,espresso_handle=sim_inst.sys,seed=sim_inst.seed,
+            associated_objects=mag_part))
+        sim_inst.store_objects([instance])
+        sim_inst.set_objects([instance])
+
+        substrate_pos = np.asarray([[ 0.5,0.5, 0.5],
+                                    [ 1.5,0.5, 0.5],
+                                    [ 2.5,0.5, 0.5],
+                                    [ 0.5,1.5, 0.5],
+                                    [ 1.5,1.5, 0.5],
+                                    [ 2.5,1.5, 0.5],
+                                    [ 0.5,2.5, 0.5],
+                                    [ 1.5,2.5, 0.5],
+                                    [ 2.5,2.5, 0.5]])
+
+        assert set(map(tuple, np.asarray([p.pos for p in instance.substrate]))) == set(map(tuple, substrate_pos)), f"{[p.pos for p in instance.substrate]}"
+    
+    def test_remove_substrate(self):
+        mag_part = [PointDipoleSuperpara(config=PointDipoleSuperpara.config.specify(dipm=1.,
+            espresso_handle=sim_inst.sys)) for _ in range(10)]
+        sim_inst.store_objects(mag_part)
+        instance=Elastomer(config=Elastomer.config.specify(box_E=self.box_E,
+            n_parts=10, size=self.part_size,espresso_handle=sim_inst.sys,seed=sim_inst.seed,
+            associated_objects=mag_part))
+        sim_inst.store_objects([instance])
+        sim_inst.set_objects([instance])
+
+        instance.remove_substrate()
+
+        assert len(sim_inst.sys.part.select(type=sim_inst.part_types["substrate"])) == 0
+
+    def test_wall_substrate(self):
+        mag_part = [PointDipoleSuperpara(config=PointDipoleSuperpara.config.specify(dipm=1.,
+            espresso_handle=sim_inst.sys)) for _ in range(10)]
+        sim_inst.store_objects(mag_part)
+        instance=Elastomer(config=Elastomer.config.specify(box_E=self.box_E,
+            n_parts=10, size=self.part_size,espresso_handle=sim_inst.sys,seed=sim_inst.seed,
+            associated_objects=mag_part))
+        sim_inst.store_objects([instance])
+        sim_inst.set_objects([instance])
+
+        instance.remove_substrate()
+
+        instance.create_substrate(geometry="wall")
+    
+    def test_elastome_with_wall_substrate(self):
+        mag_part = [PointDipoleSuperpara(config=PointDipoleSuperpara.config.specify(dipm=1.,
+            espresso_handle=sim_inst.sys)) for _ in range(10)]
+        sim_inst.store_objects(mag_part)
+        instance=Elastomer(config=Elastomer.config.specify(box_E=self.box_E,
+            n_parts=10, size=self.part_size,espresso_handle=sim_inst.sys,seed=sim_inst.seed,
+            associated_objects=mag_part))
+        sim_inst.store_objects([instance])
+        sim_inst.set_objects([instance])
+
+        instance.remove_substrate()
+
+        instance.create_substrate(geometry="wall")
+
+        sim_inst.set_steric(tuple((type_name for type_name in instance.part_types.keys() if "real" in type_name)))
+
+        sim_inst.sys.time_step = 0.01
+
+        instance.mix_elastomer_stuff(test=True)
+
+        instance.cure_elastomer()

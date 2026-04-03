@@ -176,6 +176,8 @@ class Simulation():
         Method that checks if the object has the required features to be stored in the simulation. If the object has the required features it is stored in the self.objects list.
         '''
         if not all(api_agnostic_feature_check(feature) for feature in object.required_features):
+            print(espressomd.features())
+            print(set(object.required_features) - set(espressomd.features()))
             raise MissingFeature(f'{object.__class__.__name__} requires features: ',object.required_features)
 
     def store_objects(self, iterable_list, report=True):
@@ -224,7 +226,7 @@ class Simulation():
             If trying to place objects when more than one previous partition exists.
         Notes
         -----
-        The current implementation supports placing objects either in an empty system or in a system with exactly one previous partition. The method uses partition_cubic_volume to generate positions and orientations, and for subsequent placements, ensures no overlaps with existing objects through get_cross_lattice_nonintersecting_volumes. The method automatically adjusts the search space (by increasing the factor) if it cannot find enough non-overlapping positions in subsequent placements.
+        The current implementation supports placing objects either in an empty system or in a system with exactly one previous partition. The method uses partition_cuboid_volume to generate positions and orientations, and for subsequent placements, ensures no overlaps with existing objects through get_cross_lattice_nonintersecting_volumes. The method automatically adjusts the search space (by increasing the factor) if it cannot find enough non-overlapping positions in subsequent placements.
         """
         
         # Ensure all objects are of the same type.
@@ -235,7 +237,7 @@ class Simulation():
             # centeres, polymer_positions = partition_cubic_volume_oriented_rectangles(big_box_dim=self.sys.box_l, num_spheres=len(filaments), small_box_dim=np.array([filaments[0].sigma, filaments[0].sigma, filaments[0].size]), num_monomers=filaments[0].n_parts)
             if len(self.part_positions)== 0:
                 # First placement: generate exactly len(objects) positions.
-                centeres, positions, orientations = partition_cubic_volume(
+                centeres, positions, orientations = partition_cuboid_volume(
                     box_lengths=self.sys.box_l,
                     num_spheres=len(objects),
                     sphere_diameter=objects[0].params['size'],
@@ -248,7 +250,7 @@ class Simulation():
                 # Subsequent placements: search for positions without overlaps.
                 factor = 1
                 while True:
-                    centeres, positions, orientations = partition_cubic_volume(
+                    centeres, positions, orientations = partition_cuboid_volume(
                         box_lengths=self.sys.box_l,
                         num_spheres=len(objects) * factor,
                         sphere_diameter=objects[0].params['size'],

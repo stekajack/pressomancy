@@ -825,16 +825,16 @@ def make_centered_rand_orient_point_array(center=np.array([0,0,0]), sphere_radiu
     orientation_vectors = np.broadcast_to(orientation_vector, points.shape).copy()
     return orientation_vectors,points
 
-def partition_cubic_volume(box_lengths, num_spheres, sphere_diameter, routine_per_volume=RoutineWithArgs(), flag='rand'):
+def partition_cuboid_volume(box_lengths, num_spheres, sphere_diameter, routine_per_volume=RoutineWithArgs(), flag='rand'):
     """
-    Partitions a cubic volume into spherical regions and generates points within them.
-    This function creates a face-centered cubic (FCC) lattice of spheres within a cubic volume and optionally
+    Partitions a cuboid volume into spherical regions and generates points within them.
+    This function creates a face-centered cubic (FCC) lattice of spheres within a cuboid volume and optionally
     generates points within each sphere according to a specified routine.
     
     Parameters
     ----------
     box_lengths : array-like of shape (3,)
-        The side lengths of the cubic volume.
+        The side lengths of the cuboid volume.
     num_spheres : int
         The desired number of spherical regions to create.
     sphere_diameter : float
@@ -1419,11 +1419,6 @@ def normalize_vectors(vectors, axis=-1):
         return array_of_vectors / np.expand_dims(norms_array, axis)
     else: # if only one vector return an array of shape (dims,)Z
         return array_of_vectors / np.linalg.norm(array_of_vectors)
-    
-def str_to_bool(string):
-    if string not in ['True', 'true', '1', 'False', 'false', '0']:
-        raise TypeError(f" '{string}' is not convertible to bool")
-    return string in ['True', 'true', '1']
 
 class BondWrapper:
     def __init__(self, bond_handle):
