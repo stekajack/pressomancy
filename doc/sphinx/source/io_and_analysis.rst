@@ -79,7 +79,16 @@ explicit about what each one assumes.
   previous HDF5 file should act as the source of positions, orientations, and
   selected properties for a newly constructed simulation.
 
-In day-to-day restart work, ``LOAD_NEW`` is usually the strongest option. The
+In day-to-day restart work, ``LOAD_NEW`` is usually the strongest option.
+
+New files also carry optional metadata that complements the particle and
+connectivity layout. The writer records H5MD-style root metadata under
+``/h5md`` together with pressomancy-specific metadata under
+``/parameters/pressomancy``. In practice, that metadata serves two roles.
+First, it stores lightweight provenance for the submission script and the
+pressomancy checkout that produced the file. Second, it stores the current
+``part_types`` map so that ``LOAD_NEW`` can restore symbolic particle-type
+bookkeeping directly when that information is available. The
 connectivity tables in the HDF5 file give pressomancy enough information to
 rebuild the flat particle view directly from saved object ownership, which is
 why it offers extra functionality compared with ``LOAD``.
@@ -171,7 +180,11 @@ by timestep, then by object ownership, then by a property predicate, without
 having to manually reconstruct index arrays outside the API.
 
 The object-context helpers are what make the selector especially useful for
-pressomancy-generated data. ``select_particles_by_object`` gives you the
+pressomancy-generated data. The selector also exposes the structural metadata
+written to the HDF5 file through ``data.metadata``. Group attributes are kept
+under ``_meta["attributes"]``, which makes file-level metadata such as
+``/h5md`` creator information or ``/parameters/pressomancy/part_types``
+accessible without introducing a second analysis API. ``select_particles_by_object`` gives you the
 particle subset belonging to one saved object instance, such as one
 :class:`~pressomancy.object_classes.filament_class.Filament` or one
 :class:`~pressomancy.object_classes.quadriplex_class.Quadriplex`.
