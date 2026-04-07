@@ -457,7 +457,10 @@ class Elastomer(metaclass=Simulation_Object):
 
         substrate_list= []
         for i in range(n_substrate):
-            part_hndl = self.add_particle(type_name="substrate", pos=pos[i], type=self.part_types['substrate'], virtual=True, fix=[True,True,True])
+            if espressomd.version.major() == 5:
+                part_hndl = self.add_particle(type_name="substrate", pos=pos[i], type=self.part_types['substrate'], virtual=True, fix=[True,True,True])
+            elif espressomd.version.major() == 4:
+                part_hndl = self.add_particle(type_name="substrate", pos=pos[i], type=self.part_types['substrate'], fix=[True,True,True])
             substrate_list.append(part_hndl)
         self.substrate = substrate_list
 
