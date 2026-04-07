@@ -7,21 +7,38 @@ from pressomancy.helper_functions import RoutineWithArgs, make_centered_rand_ori
 import logging
 import warnings
 
+TELSEQ_RULES = {
+    'quartet': {
+        'block_size': 75,
+        'top': [26, 45, 49, 30],
+        'bottom': [51, 70, 74, 55],
+    },
+    'quartet_11x11': {
+        'block_size': 363,
+        'top': [122, 231, 241, 132],
+        'bottom': [243, 352, 362, 253],
+    },
+}
+
+
 def rule_maker(fold_type, choice_id, offset, n=3):
-    top = [26, 45, 49, 30]
-    bottom = [51, 70, 74, 55]
     length = 4
     choice_local = choice_id - offset
 
-    if choice_local in bottom:
-        i = bottom.index(choice_local)
-        start_on_top = False
-    elif choice_local in top:
-        i = top.index(choice_local)
-        start_on_top = True
+    for rule_params in TELSEQ_RULES.values():
+        top = rule_params['top']
+        bottom = rule_params['bottom']
+        if choice_local in bottom:
+            i = bottom.index(choice_local)
+            start_on_top = False
+            break
+        if choice_local in top:
+            i = top.index(choice_local)
+            start_on_top = True
+            break
     else:
         raise ValueError(
-            f"choice_id={choice_id} is not a valid TelSeq corner id for top={top}, bottom={bottom}"
+            f"choice_id={choice_id} (local={choice_local}) is not a valid TelSeq corner id for offset={offset}"
         )
 
     diag_pairs = []
@@ -167,19 +184,20 @@ class TelSeq(metaclass=Simulation_Object):
         '''
         for iid in range(len(self.associated_objects)):
             monomer = self.associated_objects[iid]
-            fene_r0 = self.params['bond_handle'].r_0
             candidates1 = []
             candidates1.extend(monomer.associated_objects[1].corner_particles)
             candidates1.extend(monomer.associated_objects[2].corner_particles)
             if monomer == self.associated_objects[0]:
                 start_part_id = random.choice(candidates1).id
+            alias = monomer.associated_objects[0].params['alias']
+            offset = monomer.who_am_i * TELSEQ_RULES[alias]['block_size']
             logging.debug(
-                "wrap_into_Tel step=%s monomer_id=%s start_part_id=%s",
+                "wrap_into_Tel step=%s monomer_id=%s start_part_id=%s offset=%s",
                 iid,
                 monomer.who_am_i,
                 start_part_id,
+                offset,
             )
-            offset = monomer.who_am_i * 75
             diag_pairs, across_pairs, free_end = rule_maker(
                 self.params['type'], start_part_id, offset
             )

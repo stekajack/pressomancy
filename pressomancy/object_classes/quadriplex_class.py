@@ -33,6 +33,39 @@ class Quartet(GenericRigidObj):
                     'squareA': [2, 10, 15, 23], 
                     'squareB': [11, 3,  22, 14], 
                     'squareC': [7, 9, 16, 18]}
+
+    recepie_dictA_11x11 = {
+        'assoc': {
+            1: [2, 3, 4, 5, 6, 12, 13, 14, 15, 16, 17, 23, 24, 25, 26, 27, 28, 34, 35, 36, 37, 38, 39, 45, 46, 47, 48, 49, 50],
+            110: [56, 57, 58, 59, 60, 66, 67, 68, 69, 70, 77, 78, 79, 80, 81, 88, 89, 90, 91, 92, 99, 100, 101, 102, 103, 111, 112, 113, 114],
+            120: [71, 72, 73, 74, 75, 76, 82, 83, 84, 85, 86, 87, 93, 94, 95, 96, 97, 98, 104, 105, 106, 107, 108, 109, 115, 116, 117, 118, 119],
+            11: [7, 8, 9, 10, 18, 19, 20, 21, 22, 29, 30, 31, 32, 33, 40, 41, 42, 43, 44, 51, 52, 53, 54, 55, 61, 62, 63, 64, 65],
+        },
+        'circ': [50, 60, 71, 61],
+        'squareA': [45, 114, 76, 7],
+        'squareB': [6, 56, 115, 65],
+        'squareC': [13, 100, 108, 21],
+    }
+
+    recepie_dictB_11x11 = {
+        'assoc': {
+            1: [2, 3, 4, 5, 12, 13, 14, 15, 16, 23, 24, 25, 26, 27, 34, 35, 36, 37, 38, 45, 46, 47, 48, 49, 56, 57, 58, 59, 60],
+            110: [66, 67, 68, 69, 70, 71, 77, 78, 79, 80, 81, 82, 88, 89, 90, 91, 92, 93, 99, 100, 101, 102, 103, 104, 111, 112, 113, 114, 115],
+            120: [61, 62, 63, 64, 65, 72, 73, 74, 75, 76, 83, 84, 85, 86, 87, 94, 95, 96, 97, 98, 105, 106, 107, 108, 109, 116, 117, 118, 119],
+            11: [6, 7, 8, 9, 10, 17, 18, 19, 20, 21, 22, 28, 29, 30, 31, 32, 33, 39, 40, 41, 42, 43, 44, 50, 51, 52, 53, 54, 55],
+        },
+        'circ': [60, 71, 61, 50],
+        'squareA': [5, 66, 116, 55],
+        'squareB': [56, 115, 65, 6],
+        'squareC': [13, 100, 108, 21],
+    }
+
+
+    recepie_dicts_by_alias = {
+        'quartet': (recepie_dictA, recepie_dictB),
+        'quartet_11x11': (recepie_dictA_11x11, recepie_dictB_11x11),
+    }
+
     part_types = PartDictSafe()
     config = ObjectConfigParams(
         n_parts=25,
@@ -47,7 +80,9 @@ class Quartet(GenericRigidObj):
         '''
         super().__init__(config)
         assert config['type'] in ['solid', 'brokenA', 'brokenB'], 'type must be either solid, brokenA or brokenB!!!'
-        assert config['n_parts'] ==len(self._reference_sheet[self.params['alias']]), 'n_parts must be equal to the number of parts in the reference sheet!!!'
+        assert self.params['alias'] in ['quartet', 'quartet_11x11'], 'unsupported quartet alias!!!'
+        assert config['n_parts'] == len(self._reference_sheet[self.params['alias']]), 'n_parts must be equal to the number of parts in the reference sheet!!!'
+        self.recepie_dictA, self.recepie_dictB = self.__class__.recepie_dicts_by_alias[self.params['alias']]
         if self.params['type'] in ['brokenA', 'brokenB']:
             assert self.params['bond_handle'] != None, 'broken quartets require a bond to be set!!!'
             Quartet.part_types.update({'circ': 28,
@@ -135,7 +170,7 @@ class Quartet(GenericRigidObj):
                 self.change_part_type(part,'circ')
                 part.q = -0.25
 
-            if self.params['bond_handle'] != None:
+            if self.params['bond_handle'] is not None:
                 for part1, part2 in zip(particles[np.array(self.recepie_dictB['squareA'])], particles[np.array(self.recepie_dictB['squareB'])]):
                     pass
                     # self.change_part_type(part1,'squareA')
@@ -164,12 +199,15 @@ class Quartet(GenericRigidObj):
         recepie_dict = self.recepie_dictA if self.params['type'] == 'brokenA' else self.recepie_dictB
         square_b_set = recepie_dict['squareB']
         square_a_set = recepie_dict['squareA']
-
         cation_offset = 0.5
-        cation_radius=0.2
+        cation_radius = 0.2
+        particle_spacing = 1.0
+        if self.params['alias'] == 'quartet_11x11':
+            cation_offset = 0.2
+            cation_radius = 0.08
+            particle_spacing = 0.4
 
-        # For each corner, place its associated cation just beyond the squareB site
-        # along the corner->squareB direction.
+        # For each corner, place its associated cation just beyond the squareB site along the corner->squareB direction.
         particles=self.unperturbed_particles
         for corner_idx, assoc_indices in recepie_dict['assoc'].items():
             square_b_matches = [idx for idx in assoc_indices if idx in square_b_set]
@@ -194,9 +232,9 @@ class Quartet(GenericRigidObj):
             part_hndlA=self.add_particle(type_name='squareA',pos=square_a_part.pos - cation_offset * unit_direction_a)
             part_hndlA.vs_auto_relate_to(corner_part)
 
-            part_hndlBB=self.add_particle(type_name='squareB',pos=part_hndlB.pos  - direction_a)
+            part_hndlBB=self.add_particle(type_name='squareB',pos=part_hndlB.pos - particle_spacing * unit_direction_a)
             part_hndlBB.vs_auto_relate_to(corner_part)
-            part_hndlAA=self.add_particle(type_name='squareA',pos=part_hndlA.pos - direction_b/2.)
+            part_hndlAA=self.add_particle(type_name='squareA',pos=part_hndlA.pos - particle_spacing * unit_direction_b)
             part_hndlAA.vs_auto_relate_to(corner_part)
 
             part_hndlA.add_exclusion(part_hndlB.id)

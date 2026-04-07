@@ -32,6 +32,7 @@ print("gamma_R: ", gamma_R)
 
 sheets_per_quad = 3
 part_per_filament = 2
+quartet_alias = 'quartet'  # set to 'quartet_11x11' for higher-resolution quartets
 
 sim_inst = Simulation(box_dim=box_dim)
 sim_inst.set_sys(timestep=0.001)
@@ -52,6 +53,7 @@ for fold_type in fold_types:
         quartet_triplet = []
         for quartet_type in quartet_types:
             quartet_config = Quartet.config.specify(
+                alias=quartet_alias,
                 bond_handle=bond_hndl,
                 type=quartet_type,
                 espresso_handle=sim_inst.sys,
