@@ -4,6 +4,8 @@ import numpy as np
 
 import espressomd
 assert espressomd.version.major() in (4,5)
+if espressomd.version.major() == 5:
+    from pressomancy.simulation import PointDipoleSuperpara
 
 from itertools import combinations_with_replacement
 
@@ -164,7 +166,6 @@ class ElastomerTest(BaseTestCase):
 
     
     if espressomd.version.major() == 5:
-        from pressomancy.simulation import PointDipoleSuperpara
         def test_elastomer_witt_PointDipoleSuperpara(self):
             from collections import defaultdict
             mag_part = [PointDipoleSuperpara(config=PointDipoleSuperpara.config.specify(dipm=1.,
@@ -185,7 +186,7 @@ class ElastomerTest(BaseTestCase):
             instance.cure_elastomer()
 
             n_bond_dict = defaultdict(list)
-            for part in sim_inst.sys.part.select(type=sim_inst.part_types["pdp_real"]):
+            for part in sim_inst.sys.part.select(type=sim_inst.part_types["pds_real"]):
                 for bond in part.bonds:
                     n_bond_dict[part.id].append(bond[1])
                     n_bond_dict[bond[1]].append(part.id)
