@@ -288,7 +288,7 @@ class Elastomer(metaclass=Simulation_Object):
         if max_bonds is None:
             max_bonds = len(particles)
 
-        box_lengths = self.sys.box_l
+        box_lengths = self.sys.box_l + 1e6 * ~np.array(self.sys.periodicity)
         if self.sys.periodicity[2]:
             assert all(ele == box_lengths[0] for ele in box_lengths[1:]), "method assumes cubic box for system PBC"
 
@@ -369,7 +369,7 @@ class Elastomer(metaclass=Simulation_Object):
             old_periodicity = np.copy(self.sys.periodicity)
             self.sys.periodicity = [True, True, False]
 
-        box_lengths = self.sys.box_l
+        box_lengths = self.sys.box_l + 1e6 * ~np.array(self.sys.periodicity)
         if self.sys.periodicity[2]:
             assert all(ele == box_lengths[0] for ele in box_lengths[1:]), "method assumes cubic box for system PBC"
 
@@ -380,7 +380,7 @@ class Elastomer(metaclass=Simulation_Object):
                ), "method assumes bond_k to be either a number, or an interval represented by a tuple of the form (min, max)"
         
         if r_catch is None:
-            r_catch = (box_lengths[2] - self._substrate_size) / 2
+            r_catch = (self.sys.box_l[2] - self._substrate_size) / 2
         assert r_cut > r_catch or r_cut == -1, "r_cut must be larger than any bond lenght. (default -1)"
         
         if dist in ("normal", "norm", "gaussian", "gauss"):

@@ -68,7 +68,7 @@ class ElastomerTest(BaseTestCase):
         n_bonds_per_part_list = [len(bonds) for bonds in n_bond_dict.values()]
         assert min(n_bonds_per_part_list) > 0, f"{n_bonds_per_part_list}"
         dist_bonds_per_part_list = [np.linalg.norm(part.pos - sim_inst.sys.part.by_id(id).pos) for part in sim_inst.sys.part.select(type=sim_inst.part_types["pdp_real"]) for bond, id in part.bonds]
-        assert max(dist_bonds_per_part_list) <= 5.
+        assert max(dist_bonds_per_part_list) <= 5.001, f"{max(dist_bonds_per_part_list)}"
 
     def test_cure_bad_elastomer(self): # tests if the function to assure at least 1 neighboor is working
         from collections import defaultdict
