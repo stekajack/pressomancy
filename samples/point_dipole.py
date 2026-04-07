@@ -11,7 +11,7 @@ logging.basicConfig(level=logging.INFO)
                   
 espressomd.assert_features(['WCA', 'ROTATION', 'DIPOLES', 'DP3M',
                             'VIRTUAL_SITES', 'VIRTUAL_SITES_RELATIVE',
-                            'EXTERNAL_FORCES', 'MAGNETIZE'])
+                            'EXTERNAL_FORCES'])
 
 from pressomancy.simulation import Simulation, PointDipolePermanent, PointDipoleSuperpara
 
@@ -93,10 +93,10 @@ sim_inst.sys.integrator.run(2)
 dip_assert = np.array(dip[:1], copy=True)
 dip_assert[:,2] = 0.0994051
 
-assert np.array_equal(sim_inst.sys.part.select(type=sim_inst.part_types["pds_real"]).pos, pos[:1]), f"{sim_inst.sys.part.select(type=sim_inst.part_types["pds_real"]).pos},\n{pos[:1]}"
-assert np.array_equal(sim_inst.sys.part.select(type=sim_inst.part_types["pds_virt"]).pos, pos[:1]), f"{sim_inst.sys.part.select(type=sim_inst.part_types["pds_virt"]).pos},\n{pos[:1]}"
-assert np.array_equal(sim_inst.sys.part.select(type=sim_inst.part_types["pds_real"]).dip, dip[:1]*0.), f"{sim_inst.sys.part.select(type=sim_inst.part_types["pds_real"]).dip},\n{dip[:1]*0.}"
-assert np.allclose(sim_inst.sys.part.select(type=sim_inst.part_types["pds_virt"]).dip, dip_assert), f"{sim_inst.sys.part.select(type=sim_inst.part_types["pds_virt"]).dip},\n{dip_assert}"
+assert np.array_equal(sim_inst.sys.part.select(type=sim_inst.part_types["pds_real"]).pos, pos[:1]), f"{sim_inst.sys.part.select(type=sim_inst.part_types['pds_real']).pos},\n{pos[:1]}"
+assert np.array_equal(sim_inst.sys.part.select(type=sim_inst.part_types["pds_virt"]).pos, pos[:1]), f"{sim_inst.sys.part.select(type=sim_inst.part_types['pds_virt']).pos},\n{pos[:1]}"
+assert np.array_equal(sim_inst.sys.part.select(type=sim_inst.part_types["pds_real"]).dip, dip[:1]*0.), f"{sim_inst.sys.part.select(type=sim_inst.part_types['pds_real']).dip},\n{dip[:1]*0.}"
+assert np.allclose(sim_inst.sys.part.select(type=sim_inst.part_types["pds_virt"]).dip, dip_assert), f"{sim_inst.sys.part.select(type=sim_inst.part_types['pds_virt']).dip},\n{dip_assert}"
 
 sim_inst.sys.part.clear()
 
@@ -169,13 +169,13 @@ dip_assert[:,2] = 0.12356435
 
 #NOTE FOR TEST DEBUGGING. If the problem is the dipole momento modulus, try to increase the number of iterations by 1, until it works (probably just one more will do the trick). If the values are very close, something inside espresso might have changed this value.
 
-assert np.array_equal(sim_inst.sys.part.select(type=sim_inst.part_types["pds_real"]).pos, pos), f"{sim_inst.sys.part.select(type=sim_inst.part_types["pds_real"]).pos},\n{pos}"
-assert np.array_equal(sim_inst.sys.part.select(type=sim_inst.part_types["pds_virt"]).pos, pos), f"{sim_inst.sys.part.select(type=sim_inst.part_types["pds_virt"]).pos},\n{pos}"
-assert np.array_equal(sim_inst.sys.part.select(type=sim_inst.part_types["pds_real"]).dip, dip*0.), f"{sim_inst.sys.part.select(type=sim_inst.part_types["pds_real"]).dip},\n{dip*0.}"
-assert np.allclose(sim_inst.sys.part.select(type=sim_inst.part_types["pds_virt"]).dip, dip_assert, atol=0.00005, rtol=0), f"{sim_inst.sys.part.select(type=sim_inst.part_types["pds_virt"]).dip},\n{dip_assert}"
+assert np.array_equal(sim_inst.sys.part.select(type=sim_inst.part_types["pds_real"]).pos, pos), f"{sim_inst.sys.part.select(type=sim_inst.part_types['pds_real']).pos},\n{pos}"
+assert np.array_equal(sim_inst.sys.part.select(type=sim_inst.part_types["pds_virt"]).pos, pos), f"{sim_inst.sys.part.select(type=sim_inst.part_types['pds_virt']).pos},\n{pos}"
+assert np.array_equal(sim_inst.sys.part.select(type=sim_inst.part_types["pds_real"]).dip, dip*0.), f"{sim_inst.sys.part.select(type=sim_inst.part_types['pds_real']).dip},\n{dip*0.}"
+assert np.allclose(sim_inst.sys.part.select(type=sim_inst.part_types["pds_virt"]).dip, dip_assert, atol=0.00005, rtol=0), f"{sim_inst.sys.part.select(type=sim_inst.part_types['pds_virt']).dip},\n{dip_assert}"
 
-poss_for_next_test = sim_inst.sys.part.select(type=sim_inst.part_types["pds_virt"]).pos
-dips_for_next_test = sim_inst.sys.part.select(type=sim_inst.part_types["pds_virt"]).dip
+poss_for_next_test = sim_inst.sys.part.select(type=sim_inst.part_types['pds_virt']).pos
+dips_for_next_test = sim_inst.sys.part.select(type=sim_inst.part_types['pds_virt']).dip
 
 sim_inst.sys.part.clear()
 
@@ -213,13 +213,13 @@ dip_assert[:,2] = 0.55634
 
 #NOTE FOR TEST DEBUGGING. If the problem is the dipole momento modulus, try to increase the number of iterations by 1, until it works (probably just one more will do the trick). If the values are very close, something inside espresso might have changed this value.
 
-assert np.array_equal(sim_inst.sys.part.select(type=sim_inst.part_types["pds_real"]).pos, pos), f"{sim_inst.sys.part.select(type=sim_inst.part_types["pds_real"]).pos},\n{pos}"
-assert np.array_equal(sim_inst.sys.part.select(type=sim_inst.part_types["pds_virt"]).pos, pos), f"{sim_inst.sys.part.select(type=sim_inst.part_types["pds_virt"]).pos},\n{pos}"
-assert np.array_equal(sim_inst.sys.part.select(type=sim_inst.part_types["pds_real"]).dip, dip*0.), f"{sim_inst.sys.part.select(type=sim_inst.part_types["pds_real"]).dip},\n{dip*0.}"
-assert np.allclose(sim_inst.sys.part.select(type=sim_inst.part_types["pds_virt"]).dip, dip_assert, atol=0.00005, rtol=0), f"{sim_inst.sys.part.select(type=sim_inst.part_types["pds_virt"]).dip},\n{dip_assert}"
+assert np.array_equal(sim_inst.sys.part.select(type=sim_inst.part_types["pds_real"]).pos, pos), f"{sim_inst.sys.part.select(type=sim_inst.part_types['pds_real']).pos},\n{pos}"
+assert np.array_equal(sim_inst.sys.part.select(type=sim_inst.part_types["pds_virt"]).pos, pos), f"{sim_inst.sys.part.select(type=sim_inst.part_types['pds_virt']).pos},\n{pos}"
+assert np.array_equal(sim_inst.sys.part.select(type=sim_inst.part_types["pds_real"]).dip, dip*0.), f"{sim_inst.sys.part.select(type=sim_inst.part_types['pds_real']).dip},\n{dip*0.}"
+assert np.allclose(sim_inst.sys.part.select(type=sim_inst.part_types["pds_virt"]).dip, dip_assert, atol=0.00005, rtol=0), f"{sim_inst.sys.part.select(type=sim_inst.part_types['pds_virt']).dip},\n{dip_assert}"
 
-poss_for_next_test = sim_inst.sys.part.select(type=sim_inst.part_types["pds_virt"]).pos
-dips_for_next_test = sim_inst.sys.part.select(type=sim_inst.part_types["pds_virt"]).dip
+poss_for_next_test = sim_inst.sys.part.select(type=sim_inst.part_types['pds_virt']).pos
+dips_for_next_test = sim_inst.sys.part.select(type=sim_inst.part_types['pds_virt']).dip
 
 sim_inst.sys.part.clear()
 
@@ -264,12 +264,12 @@ dip_assert[:,2] = 0.55634
 
 #NOTE FOR TEST DEBUGGING. If the problem is the dipole momento modulus, try to increase the number of iterations by 1, until it works (probably just one more will do the trick). If the values are very close, something inside espresso might have changed this value.
 
-assert np.array_equal(sim_inst.sys.part.select(type=sim_inst.part_types["pds_real"]).pos, pos), f"{sim_inst.sys.part.select(type=sim_inst.part_types["pds_real"]).pos},\n{pos}"
-assert np.array_equal(sim_inst.sys.part.select(type=sim_inst.part_types["pds_virt"]).pos, pos), f"{sim_inst.sys.part.select(type=sim_inst.part_types["pds_virt"]).pos},\n{pos}"
-assert np.array_equal(sim_inst.sys.part.select(type=sim_inst.part_types["pds_real"]).dip, dip*0.), f"{sim_inst.sys.part.select(type=sim_inst.part_types["pds_real"]).dip},\n{dip*0.}"
-assert np.allclose(sim_inst.sys.part.select(type=sim_inst.part_types["pds_virt"]).dip, dip_assert, atol=0.00005, rtol=0), f"{sim_inst.sys.part.select(type=sim_inst.part_types["pds_virt"]).dip},\n{dip_assert}"
+assert np.array_equal(sim_inst.sys.part.select(type=sim_inst.part_types["pds_real"]).pos, pos), f"{sim_inst.sys.part.select(type=sim_inst.part_types['pds_real']).pos},\n{pos}"
+assert np.array_equal(sim_inst.sys.part.select(type=sim_inst.part_types["pds_virt"]).pos, pos), f"{sim_inst.sys.part.select(type=sim_inst.part_types['pds_virt']).pos},\n{pos}"
+assert np.array_equal(sim_inst.sys.part.select(type=sim_inst.part_types["pds_real"]).dip, dip*0.), f"{sim_inst.sys.part.select(type=sim_inst.part_types['pds_real']).dip},\n{dip*0.}"
+assert np.allclose(sim_inst.sys.part.select(type=sim_inst.part_types["pds_virt"]).dip, dip_assert, atol=0.00005, rtol=0), f"{sim_inst.sys.part.select(type=sim_inst.part_types['pds_virt']).dip},\n{dip_assert}"
 
-assert np.array_equal(sim_inst.sys.part.select(type=sim_inst.part_types["pds_virt"]).pos, poss_for_next_test), f"{sim_inst.sys.part.select(type=sim_inst.part_types["pds_virt"]).pos},\n{poss_for_next_test}"
-assert np.array_equal(sim_inst.sys.part.select(type=sim_inst.part_types["pds_virt"]).dip, dips_for_next_test), f"{sim_inst.sys.part.select(type=sim_inst.part_types["pds_virt"]).dip},\n{dips_for_next_test}"
+assert np.array_equal(sim_inst.sys.part.select(type=sim_inst.part_types["pds_virt"]).pos, poss_for_next_test), f"{sim_inst.sys.part.select(type=sim_inst.part_types['pds_virt']).pos},\n{poss_for_next_test}"
+assert np.array_equal(sim_inst.sys.part.select(type=sim_inst.part_types["pds_virt"]).dip, dips_for_next_test), f"{sim_inst.sys.part.select(type=sim_inst.part_types['pds_virt']).dip},\n{dips_for_next_test}"
 
 sim_inst.sys.part.clear()

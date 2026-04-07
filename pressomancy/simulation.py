@@ -175,10 +175,10 @@ class Simulation():
         '''
         Method that checks if the object has the required features to be stored in the simulation. If the object has the required features it is stored in the self.objects list.
         '''
-        if not all(api_agnostic_feature_check(feature) for feature in object.required_features):
-            print(espressomd.features())
-            print(set(object.required_features) - set(espressomd.features()))
-            raise MissingFeature(f'{object.__class__.__name__} requires features: ',object.required_features)
+        
+        missing_features = set(object.required_features) - set(espressomd.features())
+        if missing_features:
+            raise MissingFeature(f"Missing required features: {', '.join(missing_features)}")
 
     def store_objects(self, iterable_list, report=True):
         '''

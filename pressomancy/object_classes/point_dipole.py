@@ -1,7 +1,9 @@
 from pressomancy.object_classes.object_class import Simulation_Object, ObjectConfigParams 
 from pressomancy.helper_functions import PartDictSafe, SinglePairDict
 
-import espressomd.propagation
+import espressomd
+if espressomd.version.major() == 5:
+    import espressomd.propagation
 
 class PointDipolePermanent(metaclass=Simulation_Object):
     '''
@@ -40,7 +42,7 @@ class PointDipolePermanent(metaclass=Simulation_Object):
         hndl = self.add_particle(type_name='pdp_real', pos=pos, rotation=[True, True, True], dip=(dipm * ori))
 
         return self
-    
+
 class PointDipoleSuperpara(metaclass=Simulation_Object):
     '''
     Class that contains superparamagnetic point dipole particles relevant paramaters and methods. At construction one must pass an espresso handle because the class manages parameters that are both internal and external to espresso. It is assumed that in any simulation instanse there will be only one type of a PointDipoleSuperpara. Therefore many relevant parameters are class specific, not instance specific.
@@ -53,9 +55,9 @@ class PointDipoleSuperpara(metaclass=Simulation_Object):
     simulation_type= SinglePairDict('point_dipole_superpara', 4)
     part_types = PartDictSafe({'pds_real': 62, 'pds_virt': 666})
     config = ObjectConfigParams(
-         dipm=1.,
-         Xi_0=0.1,
-         mag_func=0
+        dipm=1.,
+        Xi_0=0.1,
+        mag_func=0
     )
 
     def __init__(self, config: ObjectConfigParams):
@@ -90,4 +92,3 @@ class PointDipoleSuperpara(metaclass=Simulation_Object):
         particl_virt.mag_susc_0 = self.params["Xi_0"]
 
         return self
-    

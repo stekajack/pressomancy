@@ -144,7 +144,7 @@ class Elastomer(metaclass=Simulation_Object):
 
         return orientations, points
     
-    def mix_elastomer_stuff(self, iter_multiplier=1, test=False):
+    def mix_elastomer_stuff(self, iter_multiplier=1, test=False, time_step=0.001):
         if isinstance(self, list):
             raise ValueError("Must be used on Elastomer object type")
 
@@ -153,11 +153,10 @@ class Elastomer(metaclass=Simulation_Object):
 
         if test:
             n_iter_1 = 100
-            self.sys.time_step = 0.001
         else:
             n_iter_1 = int(1000000 * iter_multiplier)
-            self.sys.time_step = 0.001
-
+        
+        self.sys.time_step = time_step
 
         if self.substrate is None:
             raise ValueError("Substrate must be created before mix_elastomer_stuff().")
