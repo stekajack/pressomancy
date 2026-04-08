@@ -59,6 +59,7 @@ class H5DataSelector:
             Returns a dict with keys for each member, and a '_meta' key containing:
               - type: 'Group'
               - members: list of member names
+              - attributes: dict of group attributes
 
         For datasets:
             Returns a dict containing:
@@ -77,7 +78,8 @@ class H5DataSelector:
         if isinstance(obj, h5py.Group):
             tree['_meta'] = {
                 'type': 'Group',
-                'members': list(obj.keys())
+                'members': list(obj.keys()),
+                'attributes': {attr: obj.attrs[attr] for attr in obj.attrs}
             }
             for key, item in obj.items():
                 tree[key] = self._build_h5_tree(item)

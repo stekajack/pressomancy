@@ -6,6 +6,8 @@ import logging
 import espressomd.version
 import sys as sysos
 import warnings
+import subprocess
+from pathlib import Path
 
 class MissingFeature(Exception):
     pass
@@ -1449,3 +1451,71 @@ class BondWrapper:
         Returns the raw object being wrapped.
         """
         return self._bond_handle
+
+def get_repo_context(path):
+    """Return the enclosing git repository root and a provenance version string.
+
+    The version string stores the current branch and commit hash and appends ``-dirty`` when
+    the repository has uncommitted changes. If the path is not inside a git
+    repository, or if the git query fails, the version falls back to ``unknown``.
+    """
+    path = Path(path).resolve()
+    search_root = path if path.is_dir() else path.parent
+    repo_root = None
+    for candidate in (search_root, *search_root.parents):
+        if (candidate / ".git").exists():
+            repo_root = candidate
+            break
+    if repo_root is None:
+        return None, "unknown"
+    try:
+        branch = subprocess.run(
+            ["git", "-C", str(repo_root), "rev-parse", "--abbrev-ref", "HEAD"],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+        commit = subprocess.run(
+            ["git", "-C", str(repo_root), "rev-parse", "--short", "HEAD"],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+        dirty = subprocess.run(
+            ["git", "-C", str(repo_root), "status", "--porcelain"],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+    except Exception:
+        return repo_root, "unknown"
+    suffix = "-dirty" if dirty else ""
+    return repo_root, f"{branch}@{commit}{suffix}"
+
+def get_submission_creator_info():
+    """Return H5MD creator metadata for the active submission script.
+
+    The creator name is reported as ``repo_name/repo_relative_path`` when the
+    script belongs to a git repository, and as ``unknown/<script_name>``
+    otherwise. The accompanying version string follows :func:`get_repo_context`.
+    """
+    package_root = Path(__file__).resolve().parent
+    current_file = Path(__file__).resolve()
+    frame = inspect.currentframe()
+    script_path = None
+    while frame is not None:
+        filename = frame.f_code.co_filename
+        if filename:
+            candidate = Path(filename).resolve()
+            if candidate != current_file and package_root not in candidate.parents:
+                script_path = candidate
+                break
+        frame = frame.f_back
+
+    if script_path is None:
+        return "unknown/unknown", "unknown"
+    repo_root, version = get_repo_context(script_path)
+    if repo_root is None:
+        return f"unknown/{script_path.name}", "unknown"
+    relpath = script_path.relative_to(repo_root).as_posix()
+    return f"{repo_root.name}/{relpath}", version
