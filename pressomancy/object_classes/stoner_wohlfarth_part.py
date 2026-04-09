@@ -5,8 +5,8 @@ import espressomd
 if espressomd.version.major() == 5:
     import espressomd.propagation
     Propagation = espressomd.propagation.Propagation
-else:
-    raise ImportError(f"Unsupported espressomd version: {espressomd.version.major()}. This code requires espressomd version 5 or higher.")
+# else:
+#     raise ImportError(f"Unsupported espressomd version: {espressomd.version.major()}. This code requires espressomd version 5 or higher.")
 
 class SWPart(GenericPart):
 

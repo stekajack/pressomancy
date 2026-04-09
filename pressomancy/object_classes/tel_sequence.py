@@ -95,7 +95,7 @@ class TelSeq(metaclass=Simulation_Object):
     '''
     Class that contains TelSeq relevant paramaters and methods. At construction one must pass an espresso handle becaouse the class manages parameters that are both internal and external to espresso. It is assumed that in any simulation instanse there will be only one type of a TelSeq. Therefore many relevant parameters are class specific, not instance specific.
     '''
-    required_features=list()	
+    required_features=list('MORSE')	
     numInstances = 0
     simulation_type=SinglePairDict('tel_seq', 37)
     part_types = PartDictSafe({'real': 1, 'virt': 2,'to_be_magnetized':3})
