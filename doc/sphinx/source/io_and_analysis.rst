@@ -189,7 +189,7 @@ particle subset belonging to one saved object instance, such as one
 :class:`~pressomancy.object_classes.filament_class.Filament` or one
 :class:`~pressomancy.object_classes.quadriplex_class.Quadriplex`.
 :meth:`~pressomancy.analysis.data_analysis.H5DataSelector.get_connectivity_values`
-lets you enumerate object IDs, optionally filtered by a predicate.
+lets you enumerate object IDs, optionally filtered by a predicate. Note that it returns object IDs rather than raw connectivity pairs. When ``fast=True``, the predicate is assumed to be prefix-monotone over the sorted object IDs, so the selector can stop at the first failing cutoff instead of scanning every object (binary search).
 :meth:`~pressomancy.analysis.data_analysis.H5DataSelector.get_child_ids`,
 :meth:`~pressomancy.analysis.data_analysis.H5DataSelector.get_parent_ids`, and
 :meth:`~pressomancy.analysis.data_analysis.H5DataSelector.get_connectivity_map`

@@ -188,6 +188,10 @@ class IOTest(BaseTestCase):
                 self.basic_structure(data_crowder,iid,10)
                 self.poke_analysis_api(data_crowder, "Crowder", iid, quadriplex_ids, parts)
             data = H5DataSelector(sim_inst.io_dict['h5_file'], particle_group="Filament")
+            predicate_cutoff = max(part.id for part in self.filaments[1].get_owned_part()[0])
+            predicate = lambda subset: subset.timestep[-1].id.flatten()[0] <= predicate_cutoff
+            np.testing.assert_array_equal(data.get_connectivity_values("Filament", predicate=predicate), filam_ids[:2], err_msg="Predicate-filtered filament IDs do not match!")
+            np.testing.assert_array_equal(data.get_connectivity_values("Filament", predicate=predicate, fast=True), filam_ids[:2], err_msg="Fast predicate-filtered filament IDs do not match!")
             self.exceptions(data)
             self.slicing_check(data)
             GLOBAL_COUNTER=sim_inst.inscribe_part_group_to_h5(group_type=[Filament, Crowder], h5_data_path=h5_filename,mode='LOAD_NEW')

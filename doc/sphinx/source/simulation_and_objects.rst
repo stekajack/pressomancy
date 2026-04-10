@@ -38,7 +38,7 @@ leaves.
 
 The placement pipeline follows that logic directly.
 :meth:`~pressomancy.simulation.Simulation.set_objects` calls
-:func:`~pressomancy.helper_functions.partition_cubic_volume` to generate
+:func:`~pressomancy.helper_functions.partition_cuboid_volume` to generate
 candidate regions in the box. The helper starts from an FCC lattice because it
 provides a dense and regular set of trial centers. For each accepted center,
 the simulation calls the object's ``build_function`` to ask what local point

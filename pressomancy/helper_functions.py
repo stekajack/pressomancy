@@ -827,16 +827,16 @@ def make_centered_rand_orient_point_array(center=np.array([0,0,0]), sphere_radiu
     orientation_vectors = np.broadcast_to(orientation_vector, points.shape).copy()
     return orientation_vectors,points
 
-def partition_cubic_volume(box_lengths, num_spheres, sphere_diameter, routine_per_volume=RoutineWithArgs(), flag='rand'):
+def partition_cuboid_volume(box_lengths, num_spheres, sphere_diameter, routine_per_volume=RoutineWithArgs(), flag='rand'):
     """
-    Partitions a cubic volume into spherical regions and generates points within them.
-    This function creates a face-centered cubic (FCC) lattice of spheres within a cubic volume and optionally
+    Partitions a cuboid volume into spherical regions and generates points within them.
+    This function creates a face-centered cubic (FCC) lattice of spheres within a cuboid volume and optionally
     generates points within each sphere according to a specified routine.
     
     Parameters
     ----------
     box_lengths : array-like of shape (3,)
-        The side lengths of the cubic volume.
+        The side lengths of the cuboid volume.
     num_spheres : int
         The desired number of spherical regions to create.
     sphere_diameter : float
@@ -1006,40 +1006,6 @@ def partition_cubic_volume_oriented_rectangles(big_box_dim, num_spheres, small_b
         result[i] = np.column_stack((x_points, y_points, z_points))
 
     return sphere_centers[take_index], result
-
-def generate_positions(self, min_distance):
-    """
-    Generates random positions for objects in the simulation box, ensuring minimum distance between positions. Completely naive implementation
-
-    :param min_distance: float | The minimum allowed distance between objects.
-    :return: np.ndarray | Array of generated positions.
-    """
-    object_positions = []
-    while len(object_positions) < self.no_objects:
-        new_position = np.random.random(3) * self.sys.box_l
-        if all(np.linalg.norm(new_position - pos) >= min_distance for pos in self.sys.part.all().pos):
-            if all(np.linalg.norm(new_position - existing_position) >= min_distance for existing_position in object_positions):
-                object_positions.append(new_position)
-        logging.info(f'position casing progress: {len(object_positions)/self.no_objects}')
-
-    return np.array(object_positions)
-
-def generate_positions_directed_triples(no_objects, box_l, min_distance, director_list):
-    assert len(
-        director_list) == no_objects // 3, "Length of directorors must be one-third of no_objects"
-    quadriplex_positions = []
-    index = 0
-    while len(quadriplex_positions) < no_objects:
-        center = box_l/2.
-        factor = 1-min_distance/box_l
-        new_position = center + factor*box_l*(np.random.random(3) - 0.5)
-        if all(np.linalg.norm(new_position - existing_position) >= min_distance
-                for existing_position in quadriplex_positions):
-            quadriplex_positions.append(new_position)
-            quadriplex_positions.append(new_position+2.*director_list[index])
-            quadriplex_positions.append(new_position-2.*director_list[index])
-            index += 1
-    return np.array(quadriplex_positions)
 
 def get_orientation_vec(pos):
     '''
@@ -1403,7 +1369,6 @@ def remove_box_constraints_func(sys, wall_type=0, wall_constraints=None, part_ty
         for type_ in part_types:
             sys.non_bonded_inter[box_type, type_].reset()
 
-
 def check_free_cuboid(sys, cuboid_l, cuboid_l_shift=None):
     if cuboid_l_shift is None:
         cuboid_l_shift = np.zeros((3))
@@ -1412,20 +1377,6 @@ def check_free_cuboid(sys, cuboid_l, cuboid_l_shift=None):
         return True
     else:
         return np.all(np.any((pos < cuboid_l_shift) | (pos > cuboid_l_shift + cuboid_l), axis=1))
-    
-def normalize_vectors(vectors, axis=-1):
-    array_of_vectors= np.asarray(vectors)
-    if len(array_of_vectors.shape) > 1: # if multiple vectors return an array of shape (number_of_vectors, dims)
-        norms_array = np.atleast_1d(np.linalg.norm(array_of_vectors, axis=axis))
-        norms_array[norms_array==0] = 1
-        return array_of_vectors / np.expand_dims(norms_array, axis)
-    else: # if only one vector return an array of shape (dims,)Z
-        return array_of_vectors / np.linalg.norm(array_of_vectors)
-    
-def str_to_bool(string):
-    if string not in ['True', 'true', '1', 'False', 'false', '0']:
-        raise TypeError(f" '{string}' is not convertible to bool")
-    return string in ['True', 'true', '1']
 
 class BondWrapper:
     def __init__(self, bond_handle):
