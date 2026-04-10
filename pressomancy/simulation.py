@@ -43,6 +43,8 @@ class Simulation():
         part_positions (list): A list of particle positions generated for the simulation.
         volume_size (float): The size of the volume assigned to each object.
         volume_centers (list): A list of centers of the partitioned volumes.
+        author_name (str): Default author name written to newly created HDF5 files.
+        author_email (str): Default author email written to newly created HDF5 files.
 
     Methods:
         __init__(box_dim):
@@ -136,6 +138,8 @@ class Simulation():
             'registered_observables': {},
         }
         self.src_params_set=False
+        self.author_name="unknown"
+        self.author_email="unknown"
         # self.sys=espressomd.System(box_l=box_dim) is added and managed by the singleton decrator!
     
     def set_init_src(self, path, pos_ori_src_type=['real',], type_to_type_map=[], prop_to_prop_map=[], declare_types=[]):
@@ -182,6 +186,7 @@ class Simulation():
         '''
         Method that checks if the object has the required features to be stored in the simulation. If the object has the required features it is stored in the self.objects list.
         '''
+        
         if not all(api_agnostic_feature_check(feature) for feature in object.required_features):
             raise MissingFeature(f'{object.__class__.__name__} requires features: ',object.required_features)
 
@@ -231,7 +236,7 @@ class Simulation():
             If trying to place objects when more than one previous partition exists.
         Notes
         -----
-        The current implementation supports placing objects either in an empty system or in a system with exactly one previous partition. The method uses partition_cubic_volume to generate positions and orientations, and for subsequent placements, ensures no overlaps with existing objects through get_cross_lattice_nonintersecting_volumes. The method automatically adjusts the search space (by increasing the factor) if it cannot find enough non-overlapping positions in subsequent placements.
+        The current implementation supports placing objects either in an empty system or in a system with exactly one previous partition. The method uses partition_cuboid_volume to generate positions and orientations, and for subsequent placements, ensures no overlaps with existing objects through get_cross_lattice_nonintersecting_volumes. The method automatically adjusts the search space (by increasing the factor) if it cannot find enough non-overlapping positions in subsequent placements.
         """
         
         # Ensure all objects are of the same type.
@@ -242,8 +247,8 @@ class Simulation():
             # centeres, polymer_positions = partition_cubic_volume_oriented_rectangles(big_box_dim=self.sys.box_l, num_spheres=len(filaments), small_box_dim=np.array([filaments[0].sigma, filaments[0].sigma, filaments[0].size]), num_monomers=filaments[0].n_parts)
             if len(self.part_positions)== 0:
                 # First placement: generate exactly len(objects) positions.
-                centeres, positions, orientations = partition_cubic_volume(
-                    box_length=self.sys.box_l[0],
+                centeres, positions, orientations = partition_cuboid_volume(
+                    box_lengths=self.sys.box_l,
                     num_spheres=len(objects),
                     sphere_diameter=objects[0].params['size'],
                     routine_per_volume=objects[0].build_function
@@ -255,8 +260,8 @@ class Simulation():
                 # Subsequent placements: search for positions without overlaps.
                 factor = 1
                 while True:
-                    centeres, positions, orientations = partition_cubic_volume(
-                        box_length=self.sys.box_l[0],
+                    centeres, positions, orientations = partition_cuboid_volume(
+                        box_lengths=self.sys.box_l,
                         num_spheres=len(objects) * factor,
                         sphere_diameter=objects[0].params['size'],
                         routine_per_volume=objects[0].build_function
@@ -268,7 +273,7 @@ class Simulation():
                         other_lattice_centers=self.volume_centers[0],
                         other_lattice_grouped_part_pos=self.part_positions[0],
                         other_lattice_diam=self.volume_size,
-                        box_len=self.sys.box_l[0]
+                        box_lengths=self.sys.box_l
                         )
                     mask=[key for key,val in res.items() if all(val)]
                     positions=positions[mask]
@@ -324,7 +329,8 @@ class Simulation():
         logging.info(f'part types available {self.part_types.keys()} ')
         logging.info(f'WCA interactions initiated for keys: {key}')
         for key_el, key_el2 in combinations_with_replacement(key, 2):
-            self.sys.non_bonded_inter[self.part_types[key_el], self.part_types[key_el2]
+            self.sys.non_bonded_inter[
+                self.part_types[key_el], self.part_types[key_el2]
                                       ].wca.set_params(epsilon=wca_eps, sigma=sigma)
 
     def set_steric_custom(self, pairs=[(None, None),], wca_eps=[1.,], sigma=[1.,]):
@@ -604,6 +610,67 @@ class Simulation():
 
         return result
 
+    def set_author(self, name, email='unknown'):
+        """Set default author metadata for newly created HDF5 files."""
+        self.author_name = name
+        self.author_email = email
+             
+    def restore_part_types_from_metadata(self, h5_file, group_type):
+        """Restore ``part_types`` from optional HDF5 metadata or infer them from the file.
+
+        If ``/parameters/pressomancy/part_types`` is present, it is used as the
+        authoritative source. Otherwise a light fallback infers the mapping from a
+        single stored timestep together with the ownership connectivity datasets.
+        """
+        try:
+            part_types_group = h5_file["parameters/pressomancy/part_types"]
+        except KeyError:
+            part_types_group = None
+
+        if part_types_group is not None:
+            for key, value in part_types_group.attrs.items():
+                self.part_types.update({key: int(value)})
+            return
+
+        observed_numeric_types = set()
+        for grp_typ in group_type:
+            data_view = H5DataSelector(h5_file, particle_group=grp_typ.__name__)
+            observed_numeric_types.update(
+                int(val) for val in np.unique(data_view.timestep[-1].type)
+            )
+
+        object_names = set()
+        connectivity_root = h5_file.get("connectivity")
+        for particle_group in connectivity_root.values():
+            for dataset_name in particle_group.keys():
+                if not dataset_name.startswith("ParticleHandle_to_"):
+                    continue
+                object_names.add(dataset_name.removeprefix("ParticleHandle_to_"))
+
+        recovered = {}
+        unmatched = []
+        for numeric_type in sorted(observed_numeric_types):
+            matched_key = None
+            for object_name in sorted(object_names):
+                object_cls = globals().get(object_name)
+                for key, value in object_cls.part_types.items():
+                    if value == numeric_type:
+                        matched_key = key
+                        self.part_types.update({key: int(value)})
+                        break
+                if matched_key is not None:
+                    recovered[matched_key] = numeric_type
+                    break
+            if matched_key is None:
+                unmatched.append(numeric_type)
+
+        if recovered or unmatched:
+            logging.warning(
+                "Recovered part types from H5 fallback. Matched=%s Unmatched numeric types=%s",
+                recovered,
+                unmatched,
+            )
+
     def inscribe_part_group_to_h5(self, group_type=None, h5_data_path=None,mode='NEW',force_resize_to_size=None):
         """
         Inscribe one or more groups of simulation objects into an HDF5 file.
@@ -620,25 +687,36 @@ class Simulation():
             A list of `SimulationObject` subclasses. All instances of each
             class in `self.objects` will be registered and inscribed.
         h5_data_path : str
-            Path to the HDF5 file to write (mode='NEW') or append (mode='LOAD').
-        mode : {'NEW', 'LOAD'}, optional
+            Path to the HDF5 file to write or append.
+        mode : {'NEW', 'LOAD', 'LOAD_NEW', 'INIT_SRC'}, optional
             - 'NEW' : create a fresh file structure (default).
-            - 'LOAD': open existing file and resume writing.  
+            - 'LOAD': open an existing file and resume writing using the legacy path.
+            - 'LOAD_NEW': resume writing from HDF5 state and optional metadata.
+            - 'INIT_SRC': create a new file while populating particle data from a source file.
 
         Returns
         -------
         int
-            The starting global counter for writing time steps. Always 0 in
-            'NEW' mode; in 'LOAD' mode, the current number of already‑saved steps.
+            The starting global counter for writing time steps. This is 0 in
+            'NEW' and 'INIT_SRC' modes; for 'LOAD' and 'LOAD_NEW' it is the
+            current number of already-saved steps.
 
         Raises
         ------
         ValueError
-            If `mode` is not one of 'NEW' or 'LOAD'.
+            If `mode` is not one of 'NEW', 'LOAD', 'LOAD_NEW', or 'INIT_SRC'.
         ValueError
             If `group_type` is not a list.
         ValueError
-            In 'LOAD' mode, if different groups have mismatched saved step counts.
+            In load modes, if different groups have mismatched saved step counts.
+
+        Notes
+        -----
+        In 'NEW' and 'INIT_SRC' modes the method writes optional H5MD-style root
+        metadata under ``/h5md`` together with pressomancy-specific metadata under
+        ``/parameters/pressomancy``. In 'LOAD_NEW' mode this metadata is used as a
+        convenience source for restoring ``part_types`` when available, but it is
+        not required for successful resume.
         """
         if not isinstance(group_type, list):
             raise ValueError("group_type must be a list of classes.")
@@ -650,6 +728,24 @@ class Simulation():
 
         if mode in ['NEW', 'INIT_SRC']:
             self.io_dict['h5_file'] = h5py.File(h5_data_path, "w")
+            h5md_group = self.io_dict['h5_file'].require_group("h5md")
+            author_group = h5md_group.require_group("author")
+            creator_group = h5md_group.require_group("creator")
+            h5md_group.attrs["version"] = np.array([1, 0], dtype=np.int32)
+            author_group.attrs["name"] = self.author_name
+            author_group.attrs["email"] = self.author_email
+            creator_name, creator_version = get_submission_creator_info()
+            creator_group.attrs["name"] = creator_name
+            creator_group.attrs["version"] = creator_version
+            parameters_group = self.io_dict['h5_file'].require_group("parameters")
+            pressomancy_group = parameters_group.require_group("pressomancy")
+            _, pressomancy_version = get_repo_context(Path(__file__).resolve())
+            pressomancy_group.attrs["version"] = pressomancy_version
+            part_types_group = pressomancy_group.require_group("part_types")
+            for key, value in self.part_types.items():
+                if isinstance(value, (int, np.integer)):
+                    part_types_group.attrs[key] = int(value)
+            
             par_grp = self.io_dict['h5_file'].require_group(f"particles")
             for grp_typ in group_type:
                 data_grp = par_grp.require_group(grp_typ.__name__)
@@ -730,6 +826,7 @@ class Simulation():
         elif mode=='LOAD_NEW':
 
             self.io_dict['h5_file'] = h5py.File(h5_data_path, "a")
+            self.restore_part_types_from_metadata(self.io_dict['h5_file'], group_type)
             particles_group = self.io_dict['h5_file']["particles"]
             candidate_lens=[]
             for grp_typ in group_type:

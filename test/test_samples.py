@@ -17,6 +17,8 @@ class SampleScriptTest(BaseTestCase):
     def test_sample_scripts(self):
         def get_current_sim_instance(*args, **kwargs):
             """Helper function to return the latest `sim_inst`."""
+            if 'box_dim' in kwargs:
+                sim_inst.sys.box_l = kwargs['box_dim']
             return sim_inst        
         for _, module_name, _ in pkgutil.iter_modules(samples.__path__):
             Quadriplex.numInstances=0
@@ -35,5 +37,6 @@ class SampleScriptTest(BaseTestCase):
                         fp.flush()
             sim_inst.reinitialize_instance()
             sim_inst.sys.thermostat.turn_off()
+            sim_inst.sys.box_l = (100,100,100)
             self.assertEqual(len(sim_inst.objects), 0)
             self.assertEqual(len(sim_inst.sys.part), 0)

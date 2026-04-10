@@ -1,0 +1,485 @@
+import espressomd
+import numpy as np
+from collections import defaultdict
+from pressomancy.object_classes.object_class import Simulation_Object, ObjectConfigParams
+from pressomancy.helper_functions import RoutineWithArgs, PartDictSafe, SinglePairDict, add_box_constraints_func, remove_box_constraints_func, check_free_cuboid, fcc_lattice, generate_random_unit_vectors, get_neighbours
+import warnings
+import os
+import sys as sysos
+
+class Elastomer(metaclass=Simulation_Object):
+    '''
+    Class that contains elastomer relevant paramaters and methods. At construction one must pass an espresso handle becaouse the class manages parameters that are both internal and external to espresso. It is assumed that in any simulation instanse there will be only one type of a Elastomer. Therefore many relevant parameters are class specific, not instance specific.
+    '''
+    required_features=list()	
+    numInstances = 0
+    simulation_type=SinglePairDict('elastomer', 98)
+    part_types = PartDictSafe({'real':1, 'substrate': 98})
+    config = ObjectConfigParams(
+        box_E= None,
+        layer_height= None,
+        n_parts= None,
+        bond_type= "HarmonicBond",
+        bond_K_dist= "normal",
+        bond_K_lims= (0.01,0.1),
+        bond_cutoff= 5.,
+        max_bonds= 6,
+        seed= int.from_bytes(os.urandom(2), sysos.byteorder),
+        sigma= None
+        )
+    
+    _substrate_size = 1.
+
+    def __init__(self, config: ObjectConfigParams):
+        '''
+        Initialisation of a elastomer object requires the specification of particle size, number of parts and a handle to the espresso system
+        '''
+        self.sys=config['espresso_handle']
+        if config['box_E'] is None:
+            config['box_E'] = np.array(self.sys.box_l, copy=True)
+            if config['layer_height'] is None:
+                config['box_E'][2] = self.sys.box_l[2] / 4
+                config['layer_height'] = config['box_E'][2] - self._substrate_size
+            else:
+                config['box_E'][2] = self._substrate_size + config['layer_height']
+                assert config['box_E'][2] <= self.sys.box_l[2]
+        else:
+            if config['layer_height'] is None:
+                config['layer_height'] = config['box_E'][2] - self._substrate_size
+            elif config['box_E'][2] != self.sys.box_l[2]:
+                raise ValueError("box_E and layer_height are not compatible. Ensure that box_E[2] == layer_height.\nAlternatively, use only on of the parameters and hae the other be automatically chosen.")
+        assert config['layer_height'] == config['box_E'][2] - self._substrate_size
+        if config['sigma'] is None:
+            config['sigma'] = config['size'] * 0.89089872 # size / 2^(1/6)
+        if config['n_parts'] is None:
+            config['n_parts']= int( 0.3 * (config['box_E'][0] * config['box_E'][1] * config['layer_height']) /  ( 4.1887902 * (config['size']/2)**3 ) ) # 0.3 * V_box / V_sphere
+            warnings.warn('Inferred number of particles from volume of Elastomer (to get 0.3 volume fraction)')
+        self.params=config
+        self.associated_objects=self.params['associated_objects']
+        if self.associated_objects is not None:
+            self.part_types.update({nam: typ for obj in self.associated_objects for nam, typ in obj.part_types.items()})
+            assert len(self.associated_objects) == self.params["n_parts"]
+        self.substrate=None
+        self.build_function=RoutineWithArgs(
+            func=self.build_Elastomer,
+            num_monomers=self.params['n_parts'],
+            monomer_size=self.params['size']
+            )
+        self.who_am_i = Elastomer.numInstances
+        Elastomer.numInstances += 1
+        self.type_part_dict=PartDictSafe({key: [] for key in Elastomer.part_types.keys()})
+
+    def set_object(self, pos, ori):
+        '''
+        Sets the particles in espresso according to self.build_funciton. Particles created here are treated according to their class set_object functions. Indices of added particles stored in self.realz_indices.append attribute.
+
+        :param pos: np.array() | float, list of positions
+        :return: None
+
+        '''
+        pos=np.atleast_2d(pos)
+        pos_z=pos[:,2]
+        assert np.all((pos_z >= self._substrate_size + self.params['size']/2) & (pos_z <= self.params['box_E'][2] - self.params['size'] / 2)), f"particle positions are outisde of elastomer space.\n\t min({pos_z.min()}) max({pos_z.max()}). should be min({self._substrate_size+self.params['size']/2}) max({self.params['box_E'][2]-self.params['size'] / 2})"
+        assert check_free_cuboid(self.sys, self.params['box_E']), "Elastomer must be build on empty space. Adjust box_E or remove non-elastomer particles to make space."
+        assert len(pos) == self.params['n_parts'], 'there is a missmatch between the pos lenth and Elastomer n_parts'
+        if self.associated_objects is None:
+            dipm= 1.
+            logic = (self.add_particle(type_name='real',pos=pp, dip=(dipm * oo), rotation=(True, True, True)) for pp, oo in zip(pos, ori))
+        else:
+            assert self.params['n_parts'] == len(
+                self.associated_objects), " there doest seem to be enough particles stored!!! "
+            if not all(hasattr(obj, 'set_object') and callable(getattr(obj, 'set_object')) for obj in self.associated_objects):
+                raise TypeError("One or more objects do not implement a callable 'set_object'")
+            logic = (obj_el.set_object(pos_el, ori_el)
+                        for obj_el, pos_el, ori_el in zip(self.associated_objects, pos, ori))
+        for part in logic:
+            pass
+
+        self.create_substrate()
+        
+        return self
+    
+    def build_Elastomer(self, center=None, sphere_radius=1., num_monomers=1, spacing=None, flag='rand'):
+        # fuction signature is determined by the build_function attribute, and should not be changed.
+        box_lengths = np.asarray(self.sys.box_l)
+        box_lengths_tmp = np.asarray(self.params['box_E'])
+        assert (box_lengths_tmp <= box_lengths).all()
+        box_lengths = box_lengths_tmp
+
+        z_offset = self._substrate_size + self.params['size'] / 2
+        box_lengths_eff = box_lengths.copy()
+        box_lengths_eff[2] = self.params['layer_height'] - self.params['size'] / 2 # layer height minus the shpere radius, to take into account for pbc volume in fcc funciton
+        if box_lengths_eff[2] <= 0:
+            raise ValueError("box_E[2] is too small to fit elastomer above substrate clearance.")
+
+        scaling = 1.0
+        
+        # Adjust scaling until we have enough sphere centers
+        while True:
+            sphere_centers = fcc_lattice(radius=sphere_radius, volume_sides=box_lengths_eff, scaling_factor=scaling)
+            volumes_to_fill=len(sphere_centers)
+            if  volumes_to_fill>= num_monomers:
+                break
+            scaling -= 0.1
+
+        # Randomly shuffle the available centers and select the required number of centers
+        take_index = np.arange(len(sphere_centers))
+        if flag=='rand':
+            np.random.shuffle(take_index)
+        take_index = take_index[:num_monomers]
+        sphere_centers=sphere_centers[take_index]
+
+        # Center point distribution in box (x/y) and enforce bottom z clearance.
+        min_centers = np.min(sphere_centers, axis=0)
+        max_centers = np.max(sphere_centers, axis=0)
+        sphere_centers += box_lengths / 2 - (min_centers + max_centers) / 2
+        min_centers = np.min(sphere_centers, axis=0)
+        max_centers = np.max(sphere_centers, axis=0)
+        z_shift = z_offset - min_centers[2]
+        sphere_centers[:, 2] += z_shift
+        if np.max(sphere_centers[:, 2]) > box_lengths[2]:
+            warnings.warn('Elastomer lattice exceeds box_E after substrate clearance shift. This should not happen. Contact customer services.')
+
+        points=sphere_centers
+        orientations=generate_random_unit_vectors(len(sphere_centers))
+
+        return orientations, points
+    
+    def mix_elastomer_stuff(self, n_iter=100, time_step=0.001):
+        if isinstance(self, list):
+            raise ValueError("Must be used on Elastomer object type")
+
+        # add iniziatilation process, to get a nice random distribution before bonding
+        old_time_step= float(self.sys.time_step)
+    
+        self.sys.time_step = time_step
+
+        if self.substrate is None:
+            raise ValueError("Substrate must be created before mix_elastomer_stuff().")
+
+        # Add temporary wall (top and bottom only).
+        types_M = tuple(typ for key, typ in self.part_types.items() if "real" in key)
+        add_box_constraints_func(
+            sides=['top', 'bottom'],
+            top=self.params['box_E'][2],
+            bottom=self._substrate_size,
+            inter='wca',
+            types_=types_M,
+            sys=self.sys,
+        )
+
+        self.sys.thermostat.set_langevin(kT=1e-3, gamma=10, seed=self.params['seed'])
+        self.sys.integrator.run(n_iter)
+
+        # Remove temporary box particles
+        remove_box_constraints_func(sys=self.sys)
+
+        self.sys.thermostat.turn_off()
+        self.sys.time_step = old_time_step
+    
+    def cure_elastomer(self, fold_coord=True):
+        if isinstance(self, list):
+            raise ValueError("Must be used on Elastomer object type")
+
+        if fold_coord:
+            part_list= [part for typ_ in self.part_types for part in self.type_part_dict[typ_]]
+            for part in part_list:
+                pos_folded = part.pos_folded
+                part.pos = pos_folded
+
+        if self.substrate is not None:
+            # Stuck the bottom layer particles to the z=R_M plane
+            #  (restrict movement in z direction)
+            assert ( isinstance(self.substrate, espressomd.constraints.ShapeBasedConstraint) and isinstance(self.substrate.shape, espressomd.shapes.Wall) ) \
+             or ( isinstance(self.substrate, list) and all([isinstance(part, espressomd.particle_data.ParticleHandle) for part in self.substrate]) ) \
+            , "substrate must be None, an espresso wall constraint, or a list of particle handles. Use Elastomer.create_substrate to create valid substrate."         
+            n_pinned = 0
+            if self.associated_objects is None:
+                real_handles = self.type_part_dict['real']
+            else:
+                real_handles = []
+                for obj in self.associated_objects:
+                    for key, handles in obj.type_part_dict.items():
+                        if isinstance(key, str) and "real" in key:
+                            real_handles.extend(handles)
+            if self.associated_objects is None:
+                z_tmp = self._substrate_size + self.params['size'] / 2
+                for hndl in self.type_part_dict['real']:
+                    if hndl.pos[2] < (z_tmp + self.params['size'] / 4): # chose at which heights to capture Ms
+                        hndl.fix = [False, False, True]                
+                        n_pinned += 1
+            else:
+                for obj in self.associated_objects:
+                    z_tmp = self._substrate_size + obj.params['size'] / 2
+                    for key, typ in obj.part_types.items():
+                        if "real" in key:
+                            hndls = obj.type_part_dict[key]
+                            for hndl in hndls:
+                                if hndl.pos[2] < (z_tmp + obj.params['size'] / 4): # chose at which heights to capture Ms
+                                    # hndl.pos = [hndl.pos[0], hndl.pos[1], z_tmp]
+                                    hndl.fix = [False, False, True]
+                                    n_pinned += 1
+
+        # Bond particles
+        r_catch = self.params['bond_cutoff']
+        max_bonds = self.params['max_bonds']
+        bond_k = self.params['bond_K_lims']
+        dist = self.params['bond_K_dist']
+        n_bonds_if_0 = 3
+        r_catch_if_0 = r_catch
+
+        _, n_bonds_dict = self.random_harmonic_bonds(r_catch, bond_k, max_bonds, r_cut=-1, dist=dist, std_scaling=6)
+        lonely_M = []
+        for id, n_bonds in n_bonds_dict.items():
+            if n_bonds == 0:
+                lonely_M.append(id)
+        if lonely_M:
+            self.bond_to_neighbors(parts=self.sys.part.by_ids(lonely_M), n_nghb=n_bonds_if_0, bond_k=bond_k, r_cut=-1, r_catch=r_catch_if_0, dist=dist, std_scaling=6)
+
+
+    def random_harmonic_bonds(self, r_catch, bond_k=(0.001, 0.01), max_bonds=None, r_cut=-1, dist="normal", std_scaling=6):
+        """
+        Randomly generate harmonic bonds between particle pairs within elastomer
+
+        This method creates harmonic (elastic) bonds between random pairs of particles that are within 
+        a specified maximum bonding distance (`r_catch`). The spring constant `k` for each bond is sampled from a truncated normal distribution defined over the interval `bond_k`, centered at its midpoint, with standard deviation equal to `(bond_k[1] - bond_k[0]) / std_scaling`.
+
+        Parameters:
+            r_catch (float): Maximum distance allowed between two particles to form a bond.
+            bond_k (float or tuple of float, optional): Elastic constant bounds for the bonds.
+                If a single number is given, all bonds use that value. If a tuple is provided,
+                values are sampled from a truncated normal distribution between the two values.
+                Defaults to (0.001, 0.01).
+            max_bonds (int, optional): Maximum number of bonds each particle can form. 
+                Defaults to all of the allowed bonds.
+            std_scaling (float, optional): Scaling factor used to control the spread (std deviation) 
+                of the `k` distribution. Higher values yield a narrower distribution. Default is 6.
+
+        Returns:
+            tuple:
+                - total_bonds (int): Total number of harmonic bonds created.
+                - n_bonds_dict (dict): Dictionary mapping each particle type pair to the number of 
+                bonds created for that pair.
+
+        Notes:
+            - Bonds will be stores in either of the two particles bonded. There is no way to predict this.
+            - Assumes a cubic simulation box (all box dimensions must be equal).
+            - Applies periodic boundary conditions (PBC) when computing distances.
+            - Each bond is added symmetrically and uniquely per particle pair.
+            - Requires `get_neighbours` to provide a mapping of nearby particle IDs.
+        """
+        if self.substrate is not None:
+            old_periodicity = np.copy(self.sys.periodicity)
+            self.sys.periodicity = [True, True, False]
+
+        ids=[]
+        if self.associated_objects is not None:
+            for obj in self.associated_objects:
+                ids.extend([p.id for type_name, p_list in obj.type_part_dict.items() if isinstance(type_name, str) and "real" in type_name for p in p_list])
+        else:
+            ids = [p.id for p in self.type_part_dict["real"]]
+        particles = self.sys.part.by_ids(ids)
+
+        if max_bonds is None:
+            max_bonds = len(particles)
+
+        box_lengths = self.sys.box_l + 1e6 * ~np.array(self.sys.periodicity)
+        if self.sys.periodicity[2]:
+            assert all(ele == box_lengths[0] for ele in box_lengths[1:]), "method assumes cubic box for system PBC"
+
+        if isinstance(bond_k, (float, int)):
+            bond_k = [bond_k, bond_k]
+        assert (len(bond_k)==2
+                and bond_k[1]-bond_k[0]>=0
+               ), "method assumes bond_k to be either a number, or an interval represented by a tuple of the form (min, max)"
+        
+        assert r_cut > r_catch or r_cut == -1, "r_cut must be larger than any bond lenght. (default -1)"
+        
+        if dist in ("normal", "norm", "gaussian", "gauss"):
+            mean_tmp = ( bond_k[1] + bond_k[0] ) / 2
+            std_tmp = ( bond_k[1] - bond_k[0] ) / std_scaling
+
+            dist_func = np.random.normal
+            dist_kwargs = {'loc': mean_tmp, 'scale': std_tmp}
+        else:
+            raise ValueError(f"Tried to use unsupported distribution for elastomer bond strenght: '{dist}'. Supported distributions: 'normal'.")
+
+        n_bonds_dict= defaultdict(int)
+
+        pair_dict_raw = get_neighbours(particles.pos, box_lengths, cuttoff=r_catch)
+        id_map = list(particles.id)
+        pair_dict = defaultdict(list)
+        for idx, neigh in pair_dict_raw.items():
+            pair_dict[id_map[idx]] = [id_map[j] for j in neigh]
+
+        n_bonds= 0
+        for particle in particles:
+            id1 = particle.id
+
+            bonds_per_HM = n_bonds_dict[id1]
+            if bonds_per_HM >= max_bonds:
+                continue
+            
+            # remove neighbors that already have max bonds
+            pair_dict_safe = pair_dict[id1].copy()
+            for id2 in pair_dict_safe:
+                if n_bonds_dict[id2] >= max_bonds:
+                    pair_dict[id1].remove(id2)
+
+            ids2 = np.random.choice(pair_dict[id1], min(len(pair_dict[id1]), max_bonds-bonds_per_HM), replace=False)
+
+            for id2 in ids2:
+
+                assert len(self.sys.part.by_id(id2).bonds) < max_bonds, f"len{len(self.sys.part.by_id(id2).bonds)}, n_bond{n_bonds_dict[id2]}"
+
+                particle_nghb = self.sys.part.by_id(id2)
+
+                r_12 = self.sys.distance(p1=particle, p2=particle_nghb)
+
+                k_12= bond_k[0] - 1
+                while k_12<bond_k[0] or k_12>bond_k[1]:
+                    k_12 = dist_func(**dist_kwargs)
+                elastic_bond = espressomd.interactions.HarmonicBond(r_0=r_12, k=k_12, r_cut=r_cut)
+
+                self.sys.bonded_inter.add(elastic_bond)
+                self.sys.part.by_id(id1).add_bond((elastic_bond, id2))
+
+                n_bonds_dict[id1] += 1; n_bonds_dict[id2] += 1 # keep count of n bonds
+                if id1 in pair_dict[id2]:
+                    pair_dict[id2].remove(id1) # remove already bonded pairs from pair_dict
+
+                assert r_12<=r_catch
+
+            n_bonds+= n_bonds_dict[id1]
+
+        if self.substrate is not None:
+            self.sys.periodicity = old_periodicity
+
+        return sum(n_bonds_dict.values()), n_bonds_dict
+    
+    def bond_to_neighbors(self, parts, n_nghb=3, bond_k=(0.001,0.01), r_catch=None, r_cut=-1, dist="normal", std_scaling=6):
+        """bond to n nearest neighbors, with elastic bond"""
+
+        if self.substrate is not None:
+            old_periodicity = np.copy(self.sys.periodicity)
+            self.sys.periodicity = [True, True, False]
+
+        box_lengths = self.sys.box_l + 1e6 * ~np.array(self.sys.periodicity)
+        if self.sys.periodicity[2]:
+            assert all(ele == box_lengths[0] for ele in box_lengths[1:]), "method assumes cubic box for system PBC"
+
+        if isinstance(bond_k, (float, int)):
+            bond_k = [bond_k, bond_k]
+        assert (len(bond_k)==2
+                and bond_k[1]-bond_k[0]>=0
+               ), "method assumes bond_k to be either a number, or an interval represented by a tuple of the form (min, max)"
+        
+        if r_catch is None:
+            r_catch = (self.sys.box_l[2] - self._substrate_size) / 2
+        assert r_cut > r_catch or r_cut == -1, "r_cut must be larger than any bond lenght. (default -1)"
+        
+        if dist in ("normal", "norm", "gaussian", "gauss"):
+            mean_tmp = ( bond_k[1] + bond_k[0] ) / 2
+            std_tmp = ( bond_k[1] - bond_k[0] ) / std_scaling
+
+            dist_func = np.random.normal
+            dist_kwargs = {'loc': mean_tmp, 'scale': std_tmp}
+        else:
+            raise ValueError(f"Tried to use unsupported distribution for elastomer bond strenght: '{dist}'. Supported distributions: 'normal'.")
+        
+        neighbours_raw = get_neighbours(parts.pos, box_lengths, cuttoff=r_catch)
+        id_map = list(parts.id)
+        neighbours_dict = defaultdict(list)
+        for idx, neigh in neighbours_raw.items():
+            neighbours_dict[id_map[idx]] = [id_map[j] for j in neigh]
+            
+        for id1 in parts.id:
+            particle = self.sys.part.by_id(id1)
+            n_count = 0
+            for id2 in neighbours_dict[id1]:
+                if n_count == n_nghb:
+                    break
+
+                particle_nghb = self.sys.part.by_id(id2)
+
+                r_12 = self.sys.distance(p1=particle, p2=particle_nghb)
+
+                mean_tmp = ( bond_k[1] + bond_k[0] ) / 2
+                std_tmp = ( bond_k[1] - bond_k[0] ) / 6
+                k_12= bond_k[0] - 1
+                while k_12<bond_k[0] or k_12>bond_k[1]:
+                    k_12 = dist_func(**dist_kwargs)
+                elastic_bond = espressomd.interactions.HarmonicBond(r_0=r_12, k=k_12, r_cut=r_cut)
+
+                self.sys.bonded_inter.add(elastic_bond)
+                self.sys.part.by_id(id1).add_bond((elastic_bond, id2))
+
+                assert r_12<=r_catch
+
+                n_count+= 1
+
+            assert n_count == n_nghb
+        
+        if self.substrate is not None:
+            self.sys.periodicity = old_periodicity
+
+    def create_substrate(self, geometry: str = 'part'):
+        if self.substrate is None:
+            if geometry == 'wall':
+                self.create_substrate_wall()
+            else:
+                self.create_substrate_part()
+        else:
+            warnings.warn("Substrate already set. Will ignore this call.")
+
+    def remove_substrate(self, geometry: str = 'part'):
+        if self.substrate is not None:
+            if geometry == 'wall':
+                self.remove_substrate_wall()
+            else:
+                self.remove_substrate_part()
+        else:
+            warnings.warn("Substrate not yet set. Will ignore this call.")
+
+    def create_substrate_part(self):
+        substrate_radius = self._substrate_size / 2.
+        n_substrate_x = int(np.ceil(self.params['box_E'][0]))
+        n_substrate_y = int(np.ceil(self.params['box_E'][1]))
+        n_substrate= n_substrate_x * n_substrate_y
+        pos_x, pos_y = np.meshgrid( np.linspace(substrate_radius, self.params['box_E'][0]-substrate_radius, n_substrate_x),
+                                    np.linspace(substrate_radius, self.params['box_E'][1]-substrate_radius, n_substrate_y) )
+        pos = np.column_stack((pos_x.ravel(), pos_y.ravel(), np.zeros(n_substrate) + substrate_radius))
+
+        substrate_list= []
+        for i in range(n_substrate):
+            if espressomd.version.major() == 5:
+                part_hndl = self.add_particle(type_name="substrate", pos=pos[i], type=self.part_types['substrate'], virtual=True, fix=[True,True,True])
+            elif espressomd.version.major() == 4:
+                part_hndl = self.add_particle(type_name="substrate", pos=pos[i], type=self.part_types['substrate'], fix=[True,True,True])
+            substrate_list.append(part_hndl)
+        self.substrate = substrate_list
+
+        substrate_sigma_half = substrate_radius * 0.89089871814 # radius / 2^(1/6)
+        for key, typ in self.part_types.items():
+            if "real" in key:
+                sigma = self.params['size'] * 0.445449359 + substrate_sigma_half # size/2 /2^(1/6) + substrate_sigma_half
+                self.sys.non_bonded_inter[self.part_types['substrate'], typ].wca.set_params(epsilon=1e6, sigma=sigma)
+        
+    def remove_substrate_part(self):
+        for part in self.substrate:
+            part.remove()
+            self.type_part_dict['substrate'].remove(part)
+        self.substrate = None
+
+        for key, typ in self.part_types.items():
+            if "real" in key:
+                self.sys.non_bonded_inter[self.part_types['substrate'], typ].wca.deactivate()
+
+    def create_substrate_wall(self):
+        types_M = tuple(typ for key, typ in self.part_types.items() if "real" in key)
+        wall_constraints = add_box_constraints_func(bottom=self._substrate_size, wall_type=self.part_types['substrate'], inter='wca', types_=types_M, sys=self.sys)
+        self.substrate = wall_constraints[0]
+        
+    def remove_substrate_wall(self):
+        remove_box_constraints_func(wall_type=self.part_types['substrate'], sys=self.sys)
+        self.substrate = None

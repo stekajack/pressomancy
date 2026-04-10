@@ -7,8 +7,11 @@ from pressomancy.analysis import H5DataSelector, H5ObservableSelector
 import h5py
 import tempfile
 import os
+from pathlib import Path
 from pressomancy.helper_functions import MissingFeature
 import logging
+from unittest.mock import patch
+import pressomancy.simulation as simulation_module
 
 class IOTest(BaseTestCase):
 
@@ -226,6 +229,11 @@ class IOTest(BaseTestCase):
             self.assertFalse(np.allclose(filament_step.astype(float), filament_time), "Stored time should no longer mirror stored step.")
             data = H5DataSelector(sim_inst.io_dict['h5_file'], particle_group="Filament")
             self.cover_selector_exception_paths(data)
+            predicate_cutoff = max(part.id for part in self.filaments[1].get_owned_part()[0])
+            predicate = lambda subset: subset.timestep[-1].id.flatten()[0] <= predicate_cutoff
+            np.testing.assert_array_equal(data.get_connectivity_values("Filament", predicate=predicate), filam_ids[:2], err_msg="Predicate-filtered filament IDs do not match!")
+            np.testing.assert_array_equal(data.get_connectivity_values("Filament", predicate=predicate, fast=True), filam_ids[:2], err_msg="Fast predicate-filtered filament IDs do not match!")
+            self.exceptions(data)
             self.slicing_check(data)
             GLOBAL_COUNTER=sim_inst.inscribe_part_group_to_h5(group_type=[Filament, Crowder], h5_data_path=h5_filename,mode='LOAD_NEW')
             self.assertEqual(GLOBAL_COUNTER, 2)
@@ -483,6 +491,83 @@ class IOTest(BaseTestCase):
                 h5_file["observables/magnetic_dipole_moment/step"].resize((1,))
                 with self.assertRaises(ValueError):
                     H5ObservableSelector(h5_file, observable_name="magnetic_dipole_moment")
+
+    def test_h5md_optional_metadata_and_load_new_recovery(self):
+        with tempfile.TemporaryDirectory() as tmpdirname:
+            h5_filename = os.path.join(tmpdirname, "testfile.h5")
+            with patch.object(simulation_module, "get_submission_creator_info", return_value=("UPLOAD_VIEW/suspensions/mcp_suspension_pressomancy.py", "main@abc1234-dirty")), patch.object(simulation_module, "get_repo_context", return_value=(Path("/home/stekajack/pressomancy"), "main@def5678-dirty")):
+                GLOBAL_COUNTER = sim_inst.inscribe_part_group_to_h5(group_type=[Filament, Crowder], h5_data_path=h5_filename)
+            sim_inst.sys.integrator.run(1)
+            sim_inst.write_part_group_to_h5(time_step=GLOBAL_COUNTER)
+
+            h5_handle = sim_inst.io_dict['h5_file']
+            self.assertIn("h5md", h5_handle)
+            np.testing.assert_array_equal(h5_handle["h5md"].attrs["version"], np.array([1, 0], dtype=np.int32))
+            self.assertEqual(h5_handle["h5md/author"].attrs["name"], "unknown")
+            self.assertEqual(h5_handle["h5md/creator"].attrs["name"], "UPLOAD_VIEW/suspensions/mcp_suspension_pressomancy.py")
+            self.assertEqual(h5_handle["h5md/creator"].attrs["version"], "main@abc1234-dirty")
+            self.assertEqual(h5_handle["parameters/pressomancy"].attrs["version"], "main@def5678-dirty")
+            self.assertEqual(h5_handle["parameters/pressomancy/part_types"].attrs["real"], 1)
+
+            data = H5DataSelector(h5_handle, particle_group="Filament")
+            np.testing.assert_array_equal(data.metadata["h5md"]["_meta"]["attributes"]["version"], np.array([1, 0], dtype=np.int32))
+            self.assertEqual(data.metadata["h5md"]["creator"]["_meta"]["attributes"]["name"], "UPLOAD_VIEW/suspensions/mcp_suspension_pressomancy.py")
+            self.assertEqual(data.metadata["parameters"]["pressomancy"]["_meta"]["attributes"]["version"], "main@def5678-dirty")
+            self.assertEqual(data.metadata["parameters"]["pressomancy"]["part_types"]["_meta"]["attributes"]["real"], 1)
+
+            original_part_types = {key: value for key, value in sim_inst.part_types.items() if isinstance(value, int)}
+            sim_inst.part_types.clear()
+            sim_inst.inscribe_part_group_to_h5(group_type=[Filament, Crowder], h5_data_path=h5_filename,mode='LOAD_NEW')
+            for key, value in original_part_types.items():
+                self.assertEqual(dict.get(sim_inst.part_types, key), value)
+            sim_inst.io_dict['h5_file'].close()
+
+        with tempfile.TemporaryDirectory() as tmpdirname:
+            h5_filename = os.path.join(tmpdirname, "testfile_legacy.h5")
+            GLOBAL_COUNTER = sim_inst.inscribe_part_group_to_h5(group_type=[Filament, Crowder], h5_data_path=h5_filename)
+            sim_inst.sys.integrator.run(1)
+            sim_inst.write_part_group_to_h5(time_step=GLOBAL_COUNTER)
+            h5_handle = sim_inst.io_dict['h5_file']
+            del h5_handle["parameters/pressomancy/part_types"]
+            h5_handle["particles/Filament/type/value"][-1, 0, 0] = 999
+            h5_handle.flush()
+            h5_handle.close()
+
+            sim_inst.part_types.clear()
+            with self.assertLogs(level="WARNING") as log_context:
+                sim_inst.inscribe_part_group_to_h5(group_type=[Filament, Crowder], h5_data_path=h5_filename, mode='LOAD_NEW')
+            self.assertEqual(dict.get(sim_inst.part_types, "real"), 1)
+            self.assertTrue(any("Unmatched numeric types=[999]" in entry for entry in log_context.output))
+            sim_inst.io_dict['h5_file'].close()
+
+        with tempfile.TemporaryDirectory() as tmpdirname:
+            h5_filename = os.path.join(tmpdirname, "testfile_author.h5")
+            sim_inst.set_author("Alice", "alice@example.com")
+            with patch.object(simulation_module, "get_submission_creator_info", return_value=("unknown/mcp_suspension_pressomancy.py", "unknown")), patch.object(simulation_module, "get_repo_context", return_value=(None, "unknown")):
+                sim_inst.inscribe_part_group_to_h5(group_type=[Filament, Crowder], h5_data_path=h5_filename)
+            h5_handle = sim_inst.io_dict['h5_file']
+            self.assertEqual(h5_handle["h5md/author"].attrs["name"], "Alice")
+            self.assertEqual(h5_handle["h5md/author"].attrs["email"], "alice@example.com")
+            self.assertEqual(h5_handle["h5md/creator"].attrs["name"], "unknown/mcp_suspension_pressomancy.py")
+            self.assertEqual(h5_handle["parameters/pressomancy"].attrs["version"], "unknown")
+            h5_handle.close()
+
+        with tempfile.TemporaryDirectory() as tmpdirname:
+            h5_filename = os.path.join(tmpdirname, "testfile_src.h5")
+            dest_filename = os.path.join(tmpdirname, "testfile_src_shrunk.h5")
+            with patch.object(simulation_module, "get_submission_creator_info", return_value=("UPLOAD_VIEW/suspensions/mcp_suspension_pressomancy.py", "main@abc1234-dirty")), patch.object(simulation_module, "get_repo_context", return_value=(Path("/home/stekajack/pressomancy"), "main@def5678-dirty")):
+                GLOBAL_COUNTER = sim_inst.inscribe_part_group_to_h5(group_type=[Filament, Crowder], h5_data_path=h5_filename)
+            sim_inst.sys.integrator.run(1)
+            sim_inst.write_part_group_to_h5(time_step=GLOBAL_COUNTER)
+            sim_inst.io_dict['h5_file'].flush()
+            sim_inst.io_dict['h5_file'].close()
+            sim_inst.mk_src_file(h5_filename, dest_filename, time_step=0)
+
+            with h5py.File(dest_filename, "r") as h5_file:
+                self.assertEqual(h5_file["h5md/creator"].attrs["name"], "UPLOAD_VIEW/suspensions/mcp_suspension_pressomancy.py")
+                self.assertEqual(h5_file["h5md/creator"].attrs["version"], "main@abc1234-dirty")
+                self.assertEqual(h5_file["parameters/pressomancy"].attrs["version"], "main@def5678-dirty")
+                self.assertEqual(h5_file["parameters/pressomancy/part_types"].attrs["real"], 1)
 
     def test_obsolete_IO(self):
         with tempfile.TemporaryDirectory() as tmpdirname:
