@@ -100,6 +100,7 @@ class Elastomer(metaclass=Simulation_Object):
         return self
     
     def build_Elastomer(self, center=None, sphere_radius=1., num_monomers=1, spacing=None, flag='rand'):
+        # fuction signature is determined by the build_function attribute, and should not be changed.
         box_lengths = np.asarray(self.sys.box_l)
         box_lengths_tmp = np.asarray(self.params['box_E'])
         assert (box_lengths_tmp <= box_lengths).all()
@@ -144,18 +145,13 @@ class Elastomer(metaclass=Simulation_Object):
 
         return orientations, points
     
-    def mix_elastomer_stuff(self, iter_multiplier=1, test=False, time_step=0.001):
+    def mix_elastomer_stuff(self, n_iter=100, time_step=0.001):
         if isinstance(self, list):
             raise ValueError("Must be used on Elastomer object type")
 
         # add iniziatilation process, to get a nice random distribution before bonding
         old_time_step= float(self.sys.time_step)
-
-        if test:
-            n_iter_1 = 100
-        else:
-            n_iter_1 = int(1000000 * iter_multiplier)
-        
+    
         self.sys.time_step = time_step
 
         if self.substrate is None:
@@ -173,7 +169,7 @@ class Elastomer(metaclass=Simulation_Object):
         )
 
         self.sys.thermostat.set_langevin(kT=1e-3, gamma=10, seed=self.params['seed'])
-        self.sys.integrator.run(n_iter_1)
+        self.sys.integrator.run(n_iter)
 
         # Remove temporary box particles
         remove_box_constraints_func(sys=self.sys)
@@ -181,7 +177,7 @@ class Elastomer(metaclass=Simulation_Object):
         self.sys.thermostat.turn_off()
         self.sys.time_step = old_time_step
     
-    def cure_elastomer(self, fold_coord=True, test_bad=False):
+    def cure_elastomer(self, fold_coord=True):
         if isinstance(self, list):
             raise ValueError("Must be used on Elastomer object type")
 
@@ -230,16 +226,15 @@ class Elastomer(metaclass=Simulation_Object):
         bond_k = self.params['bond_K_lims']
         dist = self.params['bond_K_dist']
         n_bonds_if_0 = 3
-        r_catch_if_0 = r_catch if not test_bad else None
+        r_catch_if_0 = r_catch
 
-        if self.params['bond_type'] == "HarmonicBond":
-            _, n_bonds_dict = self.random_harmonic_bonds(r_catch, bond_k, max_bonds, r_cut=-1, dist=dist, std_scaling=6)
-            lonely_M = []
-            for id, n_bonds in n_bonds_dict.items():
-                if n_bonds == 0:
-                    lonely_M.append(id)
-            if lonely_M:
-                self.bond_to_neighbors(parts=self.sys.part.by_ids(lonely_M), n_nghb=n_bonds_if_0, bond_k=bond_k, r_cut=-1, r_catch=r_catch_if_0, dist=dist, std_scaling=6)
+        _, n_bonds_dict = self.random_harmonic_bonds(r_catch, bond_k, max_bonds, r_cut=-1, dist=dist, std_scaling=6)
+        lonely_M = []
+        for id, n_bonds in n_bonds_dict.items():
+            if n_bonds == 0:
+                lonely_M.append(id)
+        if lonely_M:
+            self.bond_to_neighbors(parts=self.sys.part.by_ids(lonely_M), n_nghb=n_bonds_if_0, bond_k=bond_k, r_cut=-1, r_catch=r_catch_if_0, dist=dist, std_scaling=6)
 
 
     def random_harmonic_bonds(self, r_catch, bond_k=(0.001, 0.01), max_bonds=None, r_cut=-1, dist="normal", std_scaling=6):

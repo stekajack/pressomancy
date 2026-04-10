@@ -193,18 +193,25 @@ class H5DataSelector:
     
     def get_connectivity_values(self, object_name, predicate=None, fast=False):
         """
-        Return the raw connectivity pairs for a given object, using the
-        ParticleHandle_to_<object_name> dataset.
+        Return the object IDs present in the ParticleHandle_to_<object_name>
+        connectivity dataset, optionally filtered by a predicate evaluated on
+        per-object H5DataSelector subsets.
 
         Parameters
         ----------
         object_name : str
             Name of the connected object type (e.g. "Filament").
+        predicate : callable, optional
+            Function that accepts a per-object subset and returns whether that
+            object ID should be kept.
+        fast : bool, optional
+            If True, assume the predicate is prefix-monotone over the sorted
+            object IDs and use a divide-and-conquer search for the cutoff.
 
         Returns
         -------
-        ndarray of shape (N, 2)
-            Array of [particle_id, object_index] pairs.
+        ndarray of shape (N,)
+            Array of object IDs.
         """
         ds_path = f"connectivity/{self.particle_group}/ParticleHandle_to_{object_name}"
         obj_ids=self.h5_file[ds_path][:,-1]
@@ -265,36 +272,6 @@ class H5DataSelector:
             particle_indices=particle_indices[mask]
             subset=H5DataSelector(self.h5_file, self.particle_group, ts_slice=self.ts_slice, pt_slice=particle_indices.tolist())
         return subset
-    
-    def select_particles_by_predicate(self, object_name, predicate):
-        """
-        Select particles linked to a connectivity object by applying a predicate,
-        without pre-filtering by a connectivity value.
-
-        Args:
-            object_name (str): Name of the connectivity object (e.g., "Filament").
-            predicate (callable): Function taking an H5DataSelector and returning a boolean mask.
-
-        Returns:
-            H5DataSelector: Selector with particle slice set to the indices passing the predicate.
-        """
-        ds_name = f"connectivity/{self.particle_group}/ParticleHandle_to_{object_name}"
-
-        # Take ALL particles represented by rows of the connectivity dataset (row index == particle index).
-        n_rows = self.h5_file[ds_name].shape[0]
-        particle_indices = np.arange(n_rows, dtype=int)
-
-        # Build subset over all those particles, then apply predicate.
-        subset = H5DataSelector(self.h5_file, self.particle_group,
-                                ts_slice=self.ts_slice, pt_slice=particle_indices.tolist())
-        mask = np.asarray(predicate(subset)).flatten()
-
-        # Keep only the particle indices where the predicate is True.
-        selected = particle_indices[mask]
-
-        return H5DataSelector(self.h5_file, self.particle_group,
-                            ts_slice=self.ts_slice, pt_slice=selected.tolist())
-
 
     def get_connectivity_map(self, parent_key, child_key):
         """

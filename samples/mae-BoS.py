@@ -7,7 +7,6 @@ elif espressomd.version.major()==4:
 else:
     raise ImportError(f"Unsupported ESPResSo version: {espressomd.version}. Please use version 4 or 5.")
 import logging
-logging.basicConfig(level=logging.INFO)
                   
 espressomd.assert_features(['WCA', 'ROTATION', 'DIPOLES', 'DP3M',
                             'VIRTUAL_SITES', 'VIRTUAL_SITES_RELATIVE',
@@ -94,7 +93,7 @@ print("total",energy["total"])
 print("bonded",energy["bonded"])
 print("non_bonded",energy["non_bonded"])
 
-elastomer.mix_elastomer_stuff(test=True)
+elastomer.mix_elastomer_stuff()
 elastomer.cure_elastomer()
 
 #### Run the sample with external H ####
