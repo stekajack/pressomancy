@@ -1,12 +1,7 @@
 G-quadruplex Assembly
 =====================
 
-This tutorial is where the general ideas from the user guide are pushed into a
-realistic object hierarchy. It is not a separate conceptual layer. It is a
-worked example that shows why pressomancy builds from top-level objects,
-propagates construction downward, and keeps ownership and connectivity in the
-IO output rather than only particle coordinates. On the current branch, the
-core build path is
+This tutorial is a worked example that explains why pressomancy builds from top-level objects, propagates construction downward, and keeps ownership and connectivity in the IO output rather than only particle coordinates. The core build path is
 :class:`~pressomancy.object_classes.quadriplex_class.Quartet` ->
 :class:`~pressomancy.object_classes.quadriplex_class.Quadriplex` ->
 :class:`~pressomancy.object_classes.filament_class.Filament` or
@@ -15,13 +10,12 @@ core build path is
 The simulation never places quartets directly into the global box. It places a
 top-level object and lets that object recursively build the lower levels
 beneath it. The two sample workflows on ``main`` make that design concrete: a
-poly-G4 filament built from solid quartets, and a folded telomeric sequence
-built from broken quartets with additional top-level fold logic.
+G4 Multimer and a folded telomeric sequence.
 
 What Gets Built
 ---------------
 
-In ``samples/poly_BRACO.py``, quartets are the rigid building blocks. Three
+In ``samples/poly_BRACO.py``, :class:`~pressomancy.object_classes.quadriplex_class.Quartet` are the rigid building blocks. Three
 quartets are grouped into one
 :class:`~pressomancy.object_classes.quadriplex_class.Quadriplex`, and several
 quadriplexes are grouped into one
@@ -33,34 +27,25 @@ and each quadriplex places and bonds its quartet children.
 
 In ``samples/folded_tel_sequence.py``, the lower part of the hierarchy stays
 recognizable, but the top-level container changes.
-:class:`~pressomancy.object_classes.tel_sequence.TelSeq` replaces the plain
-filament and adds fold-specific post-placement logic. Quartets and
-quadriplexes are still built in the same general top-down style, but the final
-local couplings depend on the chosen telomeric fold type.
+:class:`~pressomancy.object_classes.tel_sequence.TelSeq` creates a telomeric
+sequence with fold-specific post-placement logic. Quartets and quadriplexes
+are still built in the same general top-down style, but the final local
+couplings depend on the chosen telomeric fold type.
 
-Solid Quartets
---------------
+G4 Multimers
+-------------
 
-The solid workflow begins by constructing quartets in ``type='solid'`` mode,
-storing them, and grouping them three at a time into quadriplexes. This is the
-first point where hierarchy really matters.
-:class:`~pressomancy.object_classes.quadriplex_class.Quadriplex` expects
-exactly three associated quartets. Its
-:meth:`~pressomancy.object_classes.quadriplex_class.Quadriplex.set_object`
-method then places those quartets at ``pos``, ``pos + r_0 * ori``, and
-``pos - r_0 * ori`` before applying the selected bonding mode.
+The workflow begins by creating a configuration for a :class:`~pressomancy.object_classes.quadriplex_class.Quartet`, where we specify that the quartets should be created in ``type='solid'`` mode. This configuration is then used to initialize a list of quartets, which are subsequently stored in :class:`~pressomancy.simulation.Simulation`. Storing objects is important because it is the mechanism by which the main simulation object, in a sense the mastermind object in pressomancy, keeps track of all objects, types, and a host of details that help you avoid conflicts and bugs.
 
-Once quadriplexes have been prepared, they are grouped into filaments. The
-:class:`~pressomancy.object_classes.filament_class.Filament` configuration
-uses ``n_parts`` and ``spacing`` to define the local chain geometry that its
-``build_function`` should generate when the simulation assigns a top-level
-volume. At that point, one call to ``set_objects(filaments)`` is enough to
-materialize the whole poly-G4 assembly recursively.
+Quartet objects are then grouped three at a time in an iterable. We do this because we want to use them to make :class:`~pressomancy.object_classes.quadriplex_class.Quadriplex` objects, which expect exactly three associated quartets. This is where hierarchy really matters. Once again, we create a configuration for quadriplexes, where we specify the bonding mode and pass the bond handle, created beforehand, that will be used during object creation to bond the quartets together. Note how configurations are always object-specific in pressomancy. In fact, simulation-object configurations in pressomancy are part of the object definition and are strict and checked. We also specify the size of the quadriplex, which is important for later placement. The size parameter tells pressomancy how much space it needs to reserve to ensure that, once an object is placed, there are no possible overlaps with other objects in the simulation box. The quadriplexes are then initialized and stored in the simulation object.
 
-That is the key modeling shift. The script does not manually calculate global
-quartet coordinates or micromanage each quadriplex placement. It prepares the
-hierarchy, registers it with the simulation, and lets the top-level object
-class drive construction downward.
+This becomes a repeatable process whenever you build a hierarchy of objects in pressomancy: create a configuration, initialize the objects with that configuration, and store them in the simulation class. Since we want to create G4 multimers, which are essentially polymers with a particular type of monomer, we use :class:`~pressomancy.object_classes.filament_class.Filament` as the top-level object in the hierarchy. As before, we need to group quadriplexes into filaments. The grouping is again done with an iterable, and the filament configuration is created with the appropriate size, spacing, and number of parts. You can always see which parameters are required to configure a simulation object in pressomancy, because they are explicitly stated in the class definition. The filament size is calculated from the size of the quadriplexes and the spacing between them, as the diameter of a circumscribed sphere around a G4 multimer. The filament objects are then initialized and stored in the simulation. With this, the top-down hierarchy of objects needed to make a G4 multimer is defined and configured, and the simulation is aware of all the objects and their relationships.
+
+Next, we call ``sim.set_objects(filaments)`` to place the filaments in the simulation box. This is a crucial step because it assigns spatial context to the filaments and their children. The :class:`~pressomancy.object_classes.filament_class.Filament` configuration uses ``n_parts`` and ``spacing`` to define the local chain geometry that its ``build_function`` should generate when the simulation assigns a top-level volume. At that point, one call to ``set_objects(filaments)`` is enough to materialize the whole G4 multimer suspension recursively.
+
+That is the key modeling shift. The script does not manually calculate global quartet coordinates or micromanage each quadriplex placement. It prepares the hierarchy, registers it with the simulation, and lets the top-level object class drive construction downward.
+
+Finally, the last step is to call :meth:`~pressomancy.object_classes.filament_class.Filament.bond_quadriplexes` to place the bonds that were passed in the quadriplex configuration. This is a common pattern in pressomancy: placement and bonding are often separate steps, especially when the bonding depends on the spatial arrangement of the objects.
 
 .. code-block:: python
 
