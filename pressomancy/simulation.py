@@ -1099,7 +1099,7 @@ class Simulation():
                         if prop_src == "dip" and prop_loc == "director":
                             # Normalize dipole to unit vector for director.
                             val = getattr(src, prop_src)
-                            norm = np.linalg.norm(val,axis=1,keepdims=True)
+                            norm = np.linalg.norm(val)
                             val /= norm
                             setattr(local, prop_loc, val)
                         else:
