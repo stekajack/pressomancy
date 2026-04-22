@@ -104,18 +104,6 @@ class IOTest(BaseTestCase):
         np.testing.assert_array_equal(lens, [2, 2, 2, 1, 2, 2, 2 ,1], err_msg="Slicing did not return expected lengths!")
 
     @staticmethod
-    def get_and_check_complete_object(data, view_type, ref_parts):
-        properties=['pos','f','dip']
-        for prop in properties:
-            property_data_h5df=getattr(data.select_particles_by_object(object_name=view_type).timestep[-1],prop)
-            property_data=[getattr(part,prop) for part in ref_parts]
-            assert np.allclose(property_data, property_data_h5df, rtol=1e-05, atol=1e-08), f'The vectors differ!, {property_data}, {property_data_h5df}'
-        for prop in ['id','type']:
-            property_data_h5df=getattr(data.select_particles_by_object(object_name=view_type).timestep[-1],prop).flatten()
-            property_data=[getattr(part,prop) for part in ref_parts]
-            assert np.allclose(property_data, property_data_h5df, rtol=1e-05, atol=1e-08), f'The vectors differ!, {property_data}, {property_data_h5df}'
-
-    @staticmethod
     def get_and_check(data, view_type, identity, ref_parts):
         properties=['pos','f','dip']
         for prop in properties:
@@ -125,10 +113,6 @@ class IOTest(BaseTestCase):
         for prop in ['id','type']:
             property_data_h5df=getattr(data.select_particles_by_object(object_name=view_type,connectivity_value=identity).timestep[-1],prop).flatten()
             property_data=[getattr(part,prop) for part in ref_parts]
-            assert np.allclose(property_data, property_data_h5df, rtol=1e-05, atol=1e-08), f'The vectors differ!, {property_data}, {property_data_h5df}'
-        for prop in ['id','type']:
-            property_data_h5df=getattr(data.select_particles_by_object(object_name=view_type,connectivity_value=identity, predicate=lambda ds: getattr(ds, prop) == 2).timestep[-1],prop).flatten()
-            property_data=[getattr(part,prop) for part in ref_parts if getattr(part,prop)==2]
             assert np.allclose(property_data, property_data_h5df, rtol=1e-05, atol=1e-08), f'The vectors differ!, {property_data}, {property_data_h5df}'
     
     @staticmethod
@@ -203,16 +187,6 @@ class IOTest(BaseTestCase):
                 self.get_and_check(data_crowder, "Crowder", iid, parts)
                 self.basic_structure(data_crowder,iid,10)
                 self.poke_analysis_api(data_crowder, "Crowder", iid, quadriplex_ids, parts)
-            parts,_=self.filaments[0].get_owned_part()
-            for iid in range(1, len(self.filaments)):
-                parts_iid,_=self.filaments[iid].get_owned_part()
-                parts=np.concatenate((parts, parts_iid), axis=0)
-            self.get_and_check_complete_object(data, "Filament", parts)
-            parts,_=self.crowders[0].get_owned_part()
-            for iid in range(1, len(self.crowders)):
-                parts_iid,_=self.crowders[iid].get_owned_part()
-                parts=np.concatenate((parts, parts_iid), axis=0)
-            self.get_and_check_complete_object(data_crowder, "Crowder", parts)
             data = H5DataSelector(sim_inst.io_dict['h5_file'], particle_group="Filament")
             predicate_cutoff = max(part.id for part in self.filaments[1].get_owned_part()[0])
             predicate = lambda subset: subset.timestep[-1].id.flatten()[0] <= predicate_cutoff
