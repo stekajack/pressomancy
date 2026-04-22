@@ -193,18 +193,25 @@ class H5DataSelector:
     
     def get_connectivity_values(self, object_name, predicate=None, fast=False):
         """
-        Return the raw connectivity pairs for a given object, using the
-        ParticleHandle_to_<object_name> dataset.
+        Return the object IDs present in the ParticleHandle_to_<object_name>
+        connectivity dataset, optionally filtered by a predicate evaluated on
+        per-object H5DataSelector subsets.
 
         Parameters
         ----------
         object_name : str
             Name of the connected object type (e.g. "Filament").
+        predicate : callable, optional
+            Function that accepts a per-object subset and returns whether that
+            object ID should be kept.
+        fast : bool, optional
+            If True, assume the predicate is prefix-monotone over the sorted
+            object IDs and use a divide-and-conquer search for the cutoff.
 
         Returns
         -------
-        ndarray of shape (N, 2)
-            Array of [particle_id, object_index] pairs.
+        ndarray of shape (N,)
+            Array of object IDs.
         """
         ds_path = f"connectivity/{self.particle_group}/ParticleHandle_to_{object_name}"
         obj_ids=self.h5_file[ds_path][:,-1]

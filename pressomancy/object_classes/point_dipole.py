@@ -4,6 +4,7 @@ from pressomancy.helper_functions import PartDictSafe, SinglePairDict
 import espressomd
 if espressomd.version.major() == 5:
     import espressomd.propagation
+    Propagation = espressomd.propagation.Propagation
 
 class PointDipolePermanent(metaclass=Simulation_Object):
     '''
@@ -84,7 +85,8 @@ class PointDipoleSuperpara(metaclass=Simulation_Object):
         
         particl_virt=self.add_particle(type_name='pds_virt', pos=pos, rotation=[False, False, False], director=ori, dipm=0.)
         particl_virt.vs_auto_relate_to(particl_real)
-        particl_virt.propagation = espressomd.propagation.Propagation.TRANS_VS_RELATIVE | espressomd.propagation.Propagation.ROT_VS_INDEPENDENT
+        if espressomd.version.major() == 5:
+            particl_virt.propagation = Propagation.TRANS_VS_RELATIVE | Propagation.ROT_VS_INDEPENDENT
 
         particl_virt.is_magnetizable = True
         particl_virt.magnetize_func = self.params["mag_func"]
