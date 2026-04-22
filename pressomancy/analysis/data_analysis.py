@@ -288,7 +288,8 @@ class H5DataSelector:
             # apply a predicate funtion to the subset
             mask=predicate(subset)
             # Handle 2D mask (timesteps × particles)
-            if mask.ndim > 1:
+            assert mask.ndim > 1 and mask.shape[-1] == 1
+            if mask.ndim > 2:
                 # Ensure all timesteps agree
                 if not np.all(mask == mask[0]):
                     raise NotImplementedError("Predicate selects different particles per timestep. Not supported.")
