@@ -8,11 +8,13 @@ from unittest import mock
 from pressomancy.object_classes import Quadriplex
 from pressomancy.helper_functions import MissingFeature
 
-
 class SampleScriptTest(BaseTestCase):
+    
     def tearDown(self) -> None:
-        sim_inst.reinitialize_instance()
+        self.cleanup()
         sim_inst.sys.thermostat.turn_off()
+        self.assertEqual(len(sim_inst.objects), 0)
+        self.assertEqual(len(sim_inst.sys.part), 0)
 
     def test_sample_scripts(self):
         def get_current_sim_instance(*args, **kwargs):
@@ -20,14 +22,8 @@ class SampleScriptTest(BaseTestCase):
             if 'box_dim' in kwargs:
                 sim_inst.sys.box_l = kwargs['box_dim']
             return sim_inst
-        def start_current_sim_instance(sim_inst):
-            sim_inst.reinitialize_instance()
-            sim_inst.sys.thermostat.turn_off()
-            sim_inst.sys.box_l = (100,100,100)
-            self.assertEqual(len(sim_inst.objects), 0)
-            self.assertEqual(len(sim_inst.sys.part), 0)
         for _, module_name, _ in pkgutil.iter_modules(samples.__path__):
-            start_current_sim_instance(sim_inst)
+            self.cleanup()
             Quadriplex.numInstances=0
             with self.subTest(script=module_name):
                 with mock.patch("pressomancy.simulation.Simulation", side_effect=get_current_sim_instance):

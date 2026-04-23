@@ -19,7 +19,7 @@ class ElastomerTest(BaseTestCase):
             )
 
     def tearDown(self) -> None:
-        sim_inst.reinitialize_instance()
+        self.cleanup()
         self.assertEqual(len(sim_inst.sys.part),0)
 
     def test_cure_elastomer(self):

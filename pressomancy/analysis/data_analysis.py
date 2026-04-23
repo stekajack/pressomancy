@@ -189,7 +189,8 @@ class H5DataSelector:
         """
         ds_path = f"particles/{self.particle_group}/{prop}/value"
         ds = self.h5_file[ds_path]
-        return ds[self.ts_slice, self.pt_slice, :]
+        time_selected = ds[self.ts_slice, :, :]
+        return time_selected[:, self.pt_slice, :] if time_selected.ndim == 3 else time_selected[self.pt_slice, :]
     
     def get_connectivity_values(self, object_name, predicate=None, fast=False):
         """
@@ -214,19 +215,26 @@ class H5DataSelector:
             Array of object IDs.
         """
         ds_path = f"connectivity/{self.particle_group}/ParticleHandle_to_{object_name}"
-        obj_ids=self.h5_file[ds_path][:,-1]
+        ds_father_path = f"connectivity/{self.particle_group}/ParticleHandle_to_{self.particle_group}"
+        obj_connectivity = self.h5_file[ds_path][:]
+        obj_ids = obj_connectivity[:,-1]
+        father_particle_handles = self.h5_file[ds_father_path][:,0]
         ids=np.unique(obj_ids)
         ret_ids=[]
+
+        def subset_for_object_id(object_id):
+            object_particle_handles = obj_connectivity[obj_ids == object_id, 0]
+            filter_mask = np.isin(father_particle_handles, object_particle_handles)
+            particle_indices = np.flatnonzero(filter_mask).tolist()
+            return H5DataSelector(self.h5_file, self.particle_group, ts_slice=self.ts_slice, pt_slice=particle_indices)
+
         def divide_and_conquer():
             nonlocal obj_ids, ids, predicate
             left=0
             right=len(ids)
             while left<right:
                 mid = (left+right) // 2
-                filter_mask = obj_ids==ids[mid]
-                particle_indices = np.flatnonzero(filter_mask)
-                particle_indices = particle_indices.tolist()
-                subset = H5DataSelector(self.h5_file, self.particle_group, ts_slice=self.ts_slice, pt_slice=particle_indices)
+                subset = subset_for_object_id(ids[mid])
                 if predicate(subset):
                     left=mid+1
                 else:
@@ -238,10 +246,7 @@ class H5DataSelector:
                 ret_ids=ids[:up_from_me]
             else:
                 for i in ids:
-                    filter_mask = obj_ids==i
-                    particle_indices = np.flatnonzero(filter_mask)
-                    particle_indices = particle_indices.tolist()
-                    subset = H5DataSelector(self.h5_file, self.particle_group, ts_slice=self.ts_slice, pt_slice=particle_indices)
+                    subset = subset_for_object_id(i)
                     if predicate(subset):
                         ret_ids.append(i)
                 ret_ids=np.array(ret_ids)
@@ -250,15 +255,15 @@ class H5DataSelector:
             ret_ids=ids
         return ret_ids
     
-    def select_particles_by_object(self, object_name, connectivity_value=None,predicate=None):
+    def select_particles_by_object(self, object_name, connectivity_value, predicate=None):
         """
         Select a subset of particles based on a connectivity dataset. The indices are sorted and stored as a list (for correct slicing behavior).
         A predicate can be aplied to further specify the selection criteria.
 
         Args:
             object_name (str): Name of the connectivity object (e.g., "Filament").
-            connectivity_value ([int, float or None], optional): The value to match in the connectivity map. Defaults to all values: None.
-            predicate (callable): Function taking an H5DataSelector and returning a boolean mask.
+            connectivity_value (int or float): The value to match in the connectivity map.
+            predicate (callable): Function taking an H5DataSelector and returning a particle mask.
 
         Returns:
             H5DataSelector: A new selector with the particle slice set to the selected indices.
@@ -267,17 +272,10 @@ class H5DataSelector:
         ds_name = f"connectivity/{self.particle_group}/ParticleHandle_to_{object_name}"
         # Get the correct indices from the connectivity of the 'father' object. This is where the particle slices are applied to
         ds_father_name = f"connectivity/{self.particle_group}/ParticleHandle_to_{self.particle_group}"
-
-        if connectivity_value is None:
-             # Get all ids from object
-            object_particle_indices = self.h5_file[ds_name][:,0]
-        else:
-            # Get only ids from object with connectivity value
-            connectivity_map = self.h5_file[ds_name][:,1]
-            connectivity_value=np.atleast_1d(connectivity_value)
-            filter_mask = np.isin(connectivity_map, connectivity_value)
-            object_particle_indices = np.ravel(self.h5_file[ds_name][:,0][filter_mask])
-        
+        connectivity_map = self.h5_file[ds_name][:,1]
+        connectivity_value=np.atleast_1d(connectivity_value)
+        filter_mask = np.isin(connectivity_map, connectivity_value)
+        object_particle_indices = np.ravel(self.h5_file[ds_name][:,0][filter_mask])
         # Get the correct indices for the selected particles from the parent's particle list
         father_particles_indices = self.h5_file[ds_father_name][:,0]
         filter_mask = np.isin(father_particles_indices, object_particle_indices)
@@ -285,16 +283,26 @@ class H5DataSelector:
         subset=H5DataSelector(self.h5_file, self.particle_group, ts_slice=self.ts_slice, pt_slice=particle_indices.tolist())
 
         if predicate is not None:
-            # apply a predicate funtion to the subset
-            mask=predicate(subset)
-            # Handle 2D mask (timesteps × particles)
-            assert mask.ndim > 1 and mask.shape[-1] == 1
-            if mask.ndim > 2:
-                # Ensure all timesteps agree
-                if not np.all(mask == mask[0]):
-                    raise NotImplementedError("Predicate selects different particles per timestep. Not supported.")
-                mask = mask[0]  # collapse to 1D
-            mask=mask.flatten()
+            n_particles = len(subset.particles)
+            n_timesteps = len(subset.timestep)
+            mask = np.asarray(predicate(subset))
+            while mask.ndim > 1 and mask.shape[-1] == 1:
+                mask = np.squeeze(mask, axis=-1)
+            if mask.ndim == 1:
+                assert n_timesteps == 1 and mask.shape == (n_particles,), (
+                    f"Predicate mask shape {mask.shape} does not match the selected particle shape "
+                    f"({n_particles},) for a single timestep selector."
+                )
+            elif mask.ndim == 2:
+                assert mask.shape == (n_timesteps, n_particles), (
+                    f"Predicate mask shape {mask.shape} does not match the selected timestep/particle shape "
+                    f"({n_timesteps}, {n_particles})."
+                )
+                mask = np.all(mask, axis=0)
+            else:
+                raise AssertionError(
+                    "Predicate mask must match the current selector shape after removing the trailing singleton property axis."
+                )
             particle_indices=particle_indices[mask]
             subset=H5DataSelector(self.h5_file, self.particle_group, ts_slice=self.ts_slice, pt_slice=particle_indices.tolist())
         return subset

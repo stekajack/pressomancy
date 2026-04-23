@@ -18,7 +18,7 @@ class QuadriplexTest(BaseTestCase):
         sim_inst.store_objects([self.instance,])
         
     def tearDown(self) -> None:
-        sim_inst.reinitialize_instance()
+        self.cleanup()
         self.assertEqual(len(sim_inst.sys.part),0)
 
     def test_set_object(self):
