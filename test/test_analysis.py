@@ -103,5 +103,12 @@ class H5DataSelectorTest(BaseTestCase):
             np.testing.assert_array_equal(ids, pdp_ids, err_msg="PointDipolePermanent connectivity IDs do not match Espresso-owned object ids!")
             for time_slice in [None, -1, 0, slice(0, 2, 1)]:
                 self.get_and_check_complete_object(dataview, "PointDipolePermanent", pdp_ids, pdp_snapshots, [61], time_slice=time_slice)
+            selection = dataview.select_particles_by_object(
+                object_name="PointDipolePermanent",
+                connectivity_value=pdp_ids,
+                predicate=lambda subset: subset.timestep[-1].type == sim_inst.part_types["pdp_real"],
+            )
+            np.testing.assert_equal(len(selection.timestep), len(dataview.timestep), err_msg="Predicate selection changed timestep context!")
+            np.testing.assert_allclose(selection.id.squeeze(axis=-1), [[part.id for part in snap] for snap in pdp_snapshots])
             pdp_ids = np.array([obj.who_am_i for obj in self.elastomer.associated_objects], dtype=int)
             self.get_and_check_connectivity_predicate(dataview, "PointDipolePermanent", sim_inst.part_types["pdp_real"], pdp_ids)
