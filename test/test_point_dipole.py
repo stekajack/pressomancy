@@ -9,7 +9,7 @@ class PointDipoleTest(BaseTestCase):
         dipm=1.2, size=2., espresso_handle=sim_inst.sys)
 
     def tearDown(self) -> None:
-        sim_inst.reinitialize_instance()
+        self.cleanup()
         self.assertEqual(len(sim_inst.sys.part),0)
     
     def setUp(self) -> None:

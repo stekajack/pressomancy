@@ -6,7 +6,7 @@ from pressomancy.simulation import MulticorePart
 
 class MulticorePartTest(BaseTestCase):
     def tearDown(self) -> None:
-        sim_inst.reinitialize_instance()
+        self.cleanup()
         self.assertEqual(len(sim_inst.sys.part), 0)
 
     def test_add_dipole_moments_to_virtuals_infinite(self):
