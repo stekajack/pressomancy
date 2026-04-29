@@ -11,7 +11,7 @@ class FilamentTest(BaseTestCase):
     sph_rad=0.5*sph_diam
 
     def tearDown(self) -> None:
-        sim_inst.reinitialize_instance()
+        self.cleanup()
         self.assertEqual(len(sim_inst.sys.part),0)
 
     def test_set_object_generic(self):

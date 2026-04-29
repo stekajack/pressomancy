@@ -33,7 +33,6 @@ class IOTest(BaseTestCase):
 
 
     def setUp(self) -> None:
-        sim_inst.set_sys()
         quartet_configuration = Quartet.config.specify(espresso_handle=sim_inst.sys)
         quartets = [Quartet(config=quartet_configuration) for x in range(self.no_obj)]
         sim_inst.store_objects(quartets)
@@ -60,7 +59,7 @@ class IOTest(BaseTestCase):
         sim_inst.set_objects(self.crowders)
         
     def tearDown(self) -> None:
-        sim_inst.reinitialize_instance()
+        self.cleanup()
         self.assertEqual(len(sim_inst.sys.part),0)
 
     @staticmethod
