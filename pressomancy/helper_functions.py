@@ -112,12 +112,22 @@ class ManagedSimulation:
         Recreates the singleton instance without affecting the shared ESPResSo system object.
 
         This method resets the decorated class instance while preserving the ESPResSo system object.
-        It clears particles, interactions, and thermostat settings in the system, ensuring a clean state.
+        It releases registered simulation objects and clears particles,
+        interactions, and thermostat settings in the system, ensuring a clean state.
         """
         if self.instance is not None:
+            for obj in self.instance.objects:
+                obj.delete_owned_parts()
+            self.instance.objects = []
+            self.instance.no_objects = 0
+            self.instance.part_types.clear()
+            self.instance.part_positions = []
+            self.instance.volume_centers = []
+            self.instance.volume_size = None
+            self.instance.partitioned = None
             self.instance = self.aClass(*self.init_args, **self.init_kwargs)
             self.instance.sys = self._espressomd_system
-            self.instance.sys.part.clear()
+            # self.instance.sys.part.clear()
             self.instance.sys.non_bonded_inter.reset()
             self.instance.sys.bonded_inter.clear()
             self.instance.sys.constraints.clear()

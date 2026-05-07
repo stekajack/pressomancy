@@ -1,8 +1,6 @@
 import numpy as np
-
 from create_system import sim_inst, BaseTestCase
 from pressomancy.simulation import MulticorePart
-
 
 class MulticorePartTest(BaseTestCase):
     def tearDown(self) -> None:

@@ -225,11 +225,10 @@ The first step is to declare the source mapping with
        prop_to_prop_map=[("dip", "director")],
    )
 
-In this workflow, positions and orientations are special.
-:meth:`~pressomancy.simulation.Simulation.get_pos_ori_from_src` is called
-implicitly when you place objects through
-:meth:`~pressomancy.simulation.Simulation.set_objects` with ``mode='INIT_SRC'``.
-That means the normal placement step is replaced by source-backed placement,
+In this workflow, positions and orientations are special. When you place
+objects through :meth:`~pressomancy.simulation.Simulation.set_objects` with
+``mode='INIT_SRC'``, the normal placement step is replaced by source-backed
+placement,
 and the top-level objects, for example
 :class:`~pressomancy.object_classes.filament_class.Filament` instances, are
 created directly at the positions and orientations read from the HDF5 file.

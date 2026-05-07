@@ -37,7 +37,6 @@ quartet_alias = 'quartet'  # set to 'quartet_11x11' for higher-resolution quarte
 sim_inst = Simulation(box_dim=box_dim)
 sim_inst.set_sys(timestep=0.001)
 logging.info(f'box_dim: {sim_inst.sys.box_l}')
-bond_hndl=BondWrapper(espressomd.interactions.FeneBond(k=10., r_0=1., d_r_max=1.5))
 bond_quad = BondWrapper(espressomd.interactions.FeneBond(k=10., r_0=2., d_r_max=2*1.5))
 quartets = []
 quadriplex = []
@@ -54,7 +53,6 @@ for fold_type in fold_types:
         for quartet_type in quartet_types:
             quartet_config = Quartet.config.specify(
                 alias=quartet_alias,
-                bond_handle=bond_hndl,
                 type=quartet_type,
                 espresso_handle=sim_inst.sys,
             )
@@ -114,10 +112,14 @@ for quartet in quartets:
 
 angle_harmonic = espressomd.interactions.AngleHarmonic(bend=10.0, phi0=np.pi)
 sim_inst.sys.bonded_inter.add(angle_harmonic)
+dihedral = espressomd.interactions.Dihedral(bend=10, mult=1, phase=np.pi/2.)
+sim_inst.sys.bonded_inter.add(dihedral)
+angle_another = espressomd.interactions.AngleHarmonic(bend=10.0, phi0=np.pi/2.)
+sim_inst.sys.bonded_inter.add(angle_another)
 for quadriplex in quadriplex:
     quadriplex.add_bending_potential(angle_harmonic)
-    quadriplex.add_dihedrals()
-    quadriplex.add_extra_bendings()
+    quadriplex.add_dihedrals(dihedral)
+    quadriplex.add_extra_bendings(angle_another)
 
 sim_inst.set_steric_custom(
     pairs=[ ('real', 'real'),

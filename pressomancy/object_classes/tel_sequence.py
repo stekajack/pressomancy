@@ -2,7 +2,7 @@ import espressomd
 import numpy as np
 import random
 from pressomancy.object_classes.quadriplex_class import *
-from pressomancy.object_classes.object_class import Simulation_Object, ObjectConfigParams 
+from pressomancy.object_classes.object_class import Simulation_Object, ObjectConfigParams
 from pressomancy.helper_functions import RoutineWithArgs, make_centered_rand_orient_point_array, PartDictSafe, SinglePairDict, BondWrapper, get_orientation_vec, get_perpendicular, align_vectors
 import logging
 import warnings
@@ -95,7 +95,7 @@ class TelSeq(metaclass=Simulation_Object):
     '''
     Class that contains TelSeq relevant paramaters and methods. At construction one must pass an espresso handle becaouse the class manages parameters that are both internal and external to espresso. It is assumed that in any simulation instanse there will be only one type of a TelSeq. Therefore many relevant parameters are class specific, not instance specific.
     '''
-    required_features=list('MORSE')	
+    required_features=['MORSE',]
     numInstances = 0
     simulation_type=SinglePairDict('tel_seq', 37)
     part_types = PartDictSafe({'real': 1, 'virt': 2,'to_be_magnetized':3})
@@ -124,7 +124,7 @@ class TelSeq(metaclass=Simulation_Object):
             self.params['associated_objects']= [Quadriplex(config=elem) for elem in quadriplex_config_list]
         self.associated_objects=self.params['associated_objects']
 
-        self.build_function=RoutineWithArgs(func=make_centered_rand_orient_point_array,num_monomers=self.params['n_parts'],spacing=config['spacing'])  
+        self.build_function=RoutineWithArgs(func=make_centered_rand_orient_point_array,num_monomers=self.params['n_parts'],spacing=config['spacing'])
         self.who_am_i = TelSeq.numInstances
         TelSeq.numInstances += 1
         self.orientor = np.empty(shape=3, dtype=float)
@@ -134,9 +134,9 @@ class TelSeq(metaclass=Simulation_Object):
         chain_dir = np.asarray(chain_dir, dtype=float)
         chain_dir /= np.linalg.norm(chain_dir)
 
-        z_axis = np.array([0.0, 0.0, 1.0])
         x_axis = np.array([1.0, 0.0, 0.0])
         y_axis = np.array([0.0, 1.0, 0.0])
+        z_axis = np.array([0.0, 0.0, 1.0])
 
         best_phi = 0.0
         best_score = -np.inf
@@ -147,7 +147,7 @@ class TelSeq(metaclass=Simulation_Object):
             x_world = rotation_matrix @ x_axis
             y_world = rotation_matrix @ y_axis
             score = max(np.abs(np.dot(x_world, chain_dir)), np.abs(np.dot(y_world, chain_dir)))
-            if score > best_score + 1e-12:
+            if score > best_score + 1e-08:
                 best_score = score
                 best_phi = phi
         return best_phi

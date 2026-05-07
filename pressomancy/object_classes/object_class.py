@@ -117,9 +117,14 @@ class Simulation_Object(type):
             )
         super().__init__(name, bases, class_dict)
         # Assign class-level __iter__, __eq__, and __hash__ to make them work consistently
-        cls.__iter__ = Simulation_Object._cusiter
-        cls.__eq__ = Simulation_Object._eq
-        cls.__hash__ = Simulation_Object._hash
+        if "__iter__" not in class_dict:
+            cls.__iter__ = Simulation_Object._cusiter
+        if "__eq__" not in class_dict:
+            cls.__eq__ = Simulation_Object._eq
+        if "__hash__" not in class_dict:
+            cls.__hash__ = Simulation_Object._hash
+        if "__del__" not in class_dict:
+            cls.__del__ = Simulation_Object._del
         required_attributes = {
             "required_features": list,
             "numInstances": int,
@@ -221,6 +226,20 @@ class Simulation_Object(type):
         return hash((self.__class__, getattr(self, "who_am_i", None)))
 
     @staticmethod
+    def _del(self):
+        """
+        Best-effort owned-particle and live-instance cleanup.
+
+        The simulation lifecycle explicitly releases stored objects. When Python
+        destroys the object, delete owned particles and decrement the counters
+        that were incremented along its class hierarchy.
+        """
+        self.delete_owned_parts()
+        for cls in self.__class__.mro():
+            if hasattr(cls, "numInstances") and cls.numInstances > 0:
+                cls.numInstances -= 1
+
+    @staticmethod
     def _cusiter(self):
         """
         Returns an iterator for the object, enabling it to be used in loops.
@@ -258,6 +277,7 @@ class Simulation_Object(type):
         for key,elem in self.type_part_dict.items():
             for prt in elem:
                 prt.remove()
+            elem.clear()
 
     def get_owned_part(self):
         """

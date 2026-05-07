@@ -1,572 +1,456 @@
 import numpy as np
 import espressomd
 from create_system import sim_inst , BaseTestCase
-from pressomancy.simulation import Filament, Quartet, Quadriplex, Crowder
+from pressomancy.simulation import Filament, Quartet, Quadriplex, Crowder, Elastomer, PointDipolePermanent
 from pressomancy.helper_functions import BondWrapper
 from pressomancy.analysis import H5DataSelector, H5ObservableSelector
 import h5py
 import tempfile
 import os
-from pathlib import Path
 from pressomancy.helper_functions import MissingFeature
 import logging
+import shutil
 from unittest.mock import patch
 import pressomancy.simulation as simulation_module
+import warnings
 
-class IOTest(BaseTestCase):
+class cestica():
+    pass
 
-    N_avog = 6.02214076e23
-    sigma = 1.
-    rho_si = 0.6*N_avog
-    no_obj=30
-    N = int(no_obj/3)
-    vol = N/rho_si
-    box_l = pow(vol, 1/3)
-    _box_l = box_l/0.4e-09
-    box_dim = _box_l*np.ones(3)
-    _rho = N/pow(_box_l, 3)
+def capture_particle_snapshot(parts, custom_prop=None):
+    snap=[]
+    for part in parts:
+        new=cestica()
+        for prop, _ in sim_inst.io_dict["properties"]:
+            setattr(new, prop, getattr(part, prop))
+        if custom_prop is not None:
+            setattr(new, custom_prop, getattr(part, custom_prop))
+        snap.append(new)
+    return snap
 
-    sheets_per_quad = 3
-    part_per_filament = 2
-    no_crowders=10
-    part_per_ligand=2
+def check_prop_dim(dataview, ref_parts, prop_shape, time_slice=-1, expected_types=None):
+    prop, shape = prop_shape
+    property_data_h5df=getattr(dataview,prop)
+    property_data=[]
+    time_part_slice=np.atleast_2d(ref_parts if time_slice is None else ref_parts[time_slice])
+    for snap in time_part_slice:
+        if expected_types is not None:
+            property_data.append([getattr(part,prop) for part in snap if part.type in expected_types])
+        else:
+            property_data.append([getattr(part,prop) for part in snap])
+    if shape == 1:
+        property_data_h5df=np.squeeze(property_data_h5df, axis=-1)
+    assert np.allclose(property_data, property_data_h5df, rtol=1e-05, atol=1e-08), f'The vectors differ!, {property_data}, {property_data_h5df}'
 
+def get_and_check_complete_object(dataview, object_grp_name, identity, ref_parts, expected_types, time_slice):
 
-    def setUp(self) -> None:
-        quartet_configuration = Quartet.config.specify(espresso_handle=sim_inst.sys)
-        quartets = [Quartet(config=quartet_configuration) for x in range(self.no_obj)]
-        sim_inst.store_objects(quartets)
+    selection_source = dataview if time_slice is None else dataview.timestep[time_slice]
+    selection=selection_source.select_particles_by_object(object_name=object_grp_name, connectivity_value=identity)
+    for prop,shape in sim_inst.io_dict['properties']:
+        check_prop_dim(selection, ref_parts, (prop, shape), time_slice=time_slice, expected_types=expected_types)
+    for predicate_type in expected_types:
+        selection=selection_source.select_particles_by_object(object_name=object_grp_name, connectivity_value=identity,predicate=lambda p:p.type==predicate_type)
+        for prop,shape in sim_inst.io_dict['properties']:
+            check_prop_dim(selection, ref_parts, (prop, shape), time_slice=time_slice, expected_types=[predicate_type])
 
-        bond_quad = BondWrapper(espressomd.interactions.FeneBond(k=10., r_0=2., d_r_max=2*1.5))
-        grouped_quartets = [quartets[i:i+self.sheets_per_quad]
-                            for i in range(0, len(quartets), self.sheets_per_quad)]
-        quadriplex_configuration_list = [Quadriplex.config.specify(size=6., espresso_handle=sim_inst.sys, bond_handle=bond_quad, associated_objects=elem) for elem in grouped_quartets]
+class CommonH5DataSelectorTests:
 
-        quadriplex = [Quadriplex(config=configuration) for configuration in quadriplex_configuration_list]
-        sim_inst.store_objects(quadriplex)
+    runner_script="repo/project/script.py"
+    runner_script_repo ="main@abc1234-dirty"
+    library_vers= "main@def5678"
+    lib_path="/some/path/"
+    author="dungeonwitch"
+    email='dungeonwitch@dungeon.com'
 
-        bond_pass = BondWrapper(espressomd.interactions.FeneBond(k=10., r_0=2., d_r_max=2*1.5))
-        grouped_quadriplexes = [quadriplex[i:i+self.part_per_filament:]
-                                for i in range(0, len(quadriplex), self.part_per_filament)]
-        filament_configuration_list = [Filament.config.specify(sigma=6,size=6*self.part_per_filament, n_parts=self.part_per_filament, espresso_handle=sim_inst.sys, bond_handle=bond_pass, associated_objects=elem) for elem in grouped_quadriplexes]
-        self.filaments = [Filament(config=configuration) for configuration in filament_configuration_list]
-        sim_inst.store_objects(self.filaments)
-        sim_inst.set_objects(self.filaments)
-        crowder_configuration=Crowder.config.specify(sigma=1., size=1., espresso_handle=sim_inst.sys)
-        self.crowders = [Crowder(config=crowder_configuration)
-                    for x in range(self.no_crowders)]
-        sim_inst.store_objects(self.crowders)
-        sim_inst.set_objects(self.crowders)
-        
-    def tearDown(self) -> None:
-        self.cleanup()
-        self.assertEqual(len(sim_inst.sys.part),0)
+    @classmethod
+    def setUpClass(cls):
+        sim_inst.set_author(cls.author, cls.email)
+        super().setUpClass()
+        sim_inst.sys.box_l = cls.box_dim
+        cls.tmpdir = tempfile.TemporaryDirectory()
+        cls.h5_filename = os.path.join(cls.tmpdir.name, "testfile.h5")
+        cls.written_steps = [10, 20, 30, 40]
+        cls.written_times = []
+        cls.build_fixture()
+        cls.part_snapshots = {group_type.__name__: [] for group_type in cls.group_types}
+        if hasattr(cls, "observable_name"):
+            cls.observable_value = np.zeros(3, dtype=np.float64)
+            cls.observable_values = []
+        with patch.object(simulation_module, "get_submission_creator_info", return_value=(cls.runner_script, cls.runner_script_repo)), patch.object(simulation_module, "get_repo_context", return_value=(cls.lib_path, cls.library_vers)):
+            sim_inst.inscribe_part_group_to_h5(group_type=cls.group_types, h5_data_path=cls.h5_filename)
+            if hasattr(cls, "observable_name"):
+                sim_inst.inscribe_observable_group_to_h5(
+                    observable_defs=[(cls.observable_name, 3, np.float64, cls.observable_value)],
+                    h5_data_path=cls.h5_filename,
+                    mode='NEW',
+                )
+        for frame_index, GLOBAL_COUNTER in enumerate(cls.written_steps):
+            sim_inst.sys.integrator.run(1)
+            if hasattr(cls, "observable_name"):
+                cls.observable_value[:] = np.array([GLOBAL_COUNTER, frame_index + 1, -GLOBAL_COUNTER], dtype=np.float64)
+                cls.observable_values.append(cls.observable_value.copy())
+            sim_inst.write_registered_to_h5(time_step=GLOBAL_COUNTER)
+            cls.written_times.append(sim_inst.sys.time)
+            for group_type in cls.group_types:
+                parts = []
+                for obj in sim_inst.objects:
+                    if isinstance(obj, group_type):
+                        owned_parts, _ = obj.get_owned_part()
+                        parts.extend(owned_parts)
+                cls.part_snapshots[group_type.__name__].append(capture_particle_snapshot(parts))
+        cls.reset_io_state()
 
-    @staticmethod
-    def basic_structure(data,step, part_no):
-        np.testing.assert_equal(len(data.timestep), step+1, err_msg="Timestep length does not match!")
-        np.testing.assert_equal(len(data.particles), part_no, err_msg="Particle count does not match!")
-        times=[x for x in data.timestep]
-        parts=[x for x in data.particles]
-        np.testing.assert_equal(len(times), step+1, err_msg="Timestep length does not match!")
-        np.testing.assert_equal(len(parts), part_no, err_msg="Particle count does not match!")
-    
-    @staticmethod
-    def slicing_check(data):
-        lens=[]
-        all_ts = [x for x in data.timestep]
-        slice_sel = data.timestep[0:2]
-        lens.append(len(slice_sel.timestep))
-        all_ts2 = [x for x in slice_sel.timestep]
-        list_sel = data.timestep[[0, 1]]  
-        lens.append(len(list_sel.timestep))        
-        all_ts3 = [x for x in list_sel.timestep]
-        tuple_sel = data.timestep[(0, 1)]    
-        lens.append(len(tuple_sel.timestep))
-        all_ts4 = [x for x in tuple_sel.timestep]
-        int_sel = data.timestep[-1]     
-        lens.append(len(int_sel.timestep))             
-        all_ts5 = [x for x in int_sel.timestep]
-        all_ts = [x for x in data.particles]
-        slice_sel = data.particles[0:2]   
-        lens.append(len(slice_sel.particles))           
-        all_ts2 = [x for x in slice_sel.particles]
-        list_sel = data.particles[[0, 1]]    
-        lens.append(len(list_sel.particles))      
-        all_ts3 = [x for x in list_sel.particles]
-        tuple_sel = data.particles[(0, 1)] 
-        lens.append(len(tuple_sel.particles))
-        all_ts4 = [x for x in tuple_sel.particles]
-        int_sel = data.particles[-1]  
-        lens.append(len(int_sel.particles))            
-        all_ts5 = [x for x in int_sel.particles]
-        np.testing.assert_array_equal(lens, [2, 2, 2, 1, 2, 2, 2 ,1], err_msg="Slicing did not return expected lengths!")
+    @classmethod
+    def tearDownClass(cls):
+        if hasattr(cls, "tmpdir"):
+            cls.tmpdir.cleanup()
+            cls.tmpdir = None
+        cls.reset_io_state()
+        BaseTestCase.cleanup()
+        assert len(sim_inst.sys.part) == 0
+        super().tearDownClass()
 
-    @staticmethod
-    def assert_step_time(h5_file, group_name, prop, expected_step, expected_time):
-        step_value = h5_file[f"particles/{group_name}/{prop}/step"][-1]
-        time_dataset = h5_file[f"particles/{group_name}/{prop}/time"]
-        time_value = time_dataset[-1]
-        np.testing.assert_equal(step_value, expected_step, err_msg=f"Stored step for {group_name}/{prop} does not match!")
-        np.testing.assert_allclose(time_value, expected_time, err_msg=f"Stored time for {group_name}/{prop} does not match!")
-
-    @staticmethod
-    def assert_box_metadata(h5_file, group_name, expected_edges, expected_boundary=("periodic", "periodic", "periodic")):
-        box_group = h5_file[f"particles/{group_name}/box"]
-        expected_edges = np.array(expected_edges, dtype=float, copy=True)
-        np.testing.assert_equal(int(box_group.attrs["dimension"]), len(expected_edges), err_msg=f"Box dimension for {group_name} does not match!")
-        boundary = tuple(
-            item.decode("ascii") if isinstance(item, bytes) else str(item)
-            for item in np.atleast_1d(box_group.attrs["boundary"]).tolist()
-        )
-        np.testing.assert_equal(boundary, expected_boundary, err_msg=f"Box boundary for {group_name} does not match!")
-        np.testing.assert_allclose(box_group["edges"][:], expected_edges, err_msg=f"Box edges for {group_name} do not match!")
+    def tearDown(self):
+        self.reset_io_state()
+        super().tearDown()
 
     @staticmethod
-    def assert_box_reader(data, expected_edges, expected_boundary=("periodic", "periodic", "periodic")):
-        box = data.get_box()
+    def reset_io_state():
+        h5_file = sim_inst.io_dict.get("h5_file")
+        if h5_file is not None:
+            h5_file.flush()
+            h5_file.close()
+        sim_inst.io_dict["h5_file"] = None
+        sim_inst.io_dict["flat_part_view"].clear()
+        sim_inst.io_dict["registered_observables"] = {}
+        sim_inst.io_dict["registered_group_type"] = None
+
+    @staticmethod
+    def check_box_data(dataview, expected_edges, expected_boundary=("periodic", "periodic", "periodic")):
+        box = dataview.get_box()
         expected_edges = np.array(expected_edges, dtype=float, copy=True)
         np.testing.assert_equal(box["dimension"], len(expected_edges), err_msg="Box dimension from selector does not match!")
         np.testing.assert_equal(box["boundary"], expected_boundary, err_msg="Box boundary from selector does not match!")
         np.testing.assert_allclose(box["edges"], expected_edges, err_msg="Box edges from selector do not match!")
 
-    @staticmethod
-    def get_and_check(data, view_type, identity, ref_parts):
-        properties=['pos','f','dip']
-        for prop in properties:
-            property_data_h5df=getattr(data.select_particles_by_object(object_name=view_type,connectivity_value=identity).timestep[-1],prop)
-            property_data=[getattr(part,prop) for part in ref_parts]
-            assert np.allclose(property_data, property_data_h5df, rtol=1e-05, atol=1e-08), f'The vectors differ!, {property_data}, {property_data_h5df}'
-        for prop in ['id','type']:
-            property_data_h5df=getattr(data.select_particles_by_object(object_name=view_type,connectivity_value=identity).timestep[-1],prop).flatten()
-            property_data=[getattr(part,prop) for part in ref_parts]
-            assert np.allclose(property_data, property_data_h5df, rtol=1e-05, atol=1e-08), f'The vectors differ!, {property_data}, {property_data_h5df}'
-    
-    @staticmethod
-    def poke_analysis_api(data, view_type, identity, control_ids, ref_parts):
-        filament_ids=np.array(list(data.get_connectivity_values(view_type)),dtype=int)
-        np.testing.assert_array_equal(control_ids, filament_ids, err_msg=f"{view_type} IDs do not match!")
-        filam = data.select_particles_by_object(object_name=view_type,connectivity_value=identity)
-        property_data=[getattr(part,"id") for part in ref_parts]
-        np.testing.assert_array_equal(filam.timestep[-1].id.flatten(), property_data, err_msg="Particle IDs do not match!")
-            
-    @staticmethod
-    def get_child_poke(data, parent_ids, child_ids):
-        quad_ids=[]
-        for ide in parent_ids:
-            quad_ids.extend(data.get_child_ids("Filament", "Quadriplex", parent_id=ide)) 
-        np.testing.assert_array_equal(child_ids, quad_ids, err_msg="Quadiplex IDs do not match!")
+    def check_version_signing(self, dataview):
+        np.testing.assert_array_equal(dataview.metadata["h5md"]["_meta"]["attributes"]["version"], np.array([1, 0], dtype=np.int32))
+        self.assertEqual(dataview.metadata["h5md"]["creator"]["_meta"]["attributes"]["name"], self.runner_script)
+        self.assertEqual(dataview.metadata["h5md"]["creator"]["_meta"]["attributes"]["version"], self.runner_script_repo)
+        self.assertEqual(dataview.metadata["parameters"]["pressomancy"]["_meta"]["attributes"]["version"], self.library_vers)
+        expected_part_types = {
+            key: int(value)
+            for key, value in sim_inst.part_types.items()
+            if isinstance(value, (int, np.integer))
+        }
+        observed_part_types = {
+            key: int(value)
+            for key, value in dataview.metadata["parameters"]["pressomancy"]["part_types"]["_meta"]["attributes"].items()
+        }
+        self.assertEqual(observed_part_types, expected_part_types)
+        self.assertEqual(dataview.metadata["h5md"]["author"]["_meta"]["attributes"]["name"], self.author)
+        self.assertEqual(dataview.metadata["h5md"]["author"]["_meta"]["attributes"]["email"], self.email)
 
     @staticmethod
-    def get_parent_poke(data, parent_ids, child_ids):
-        filam_ids=[]
-        for ide in child_ids:
-            filam_ids.extend(data.get_parent_ids("Filament", "Quadriplex", child_id=ide)) 
-        # there are two childs per parent here so we subsample by 2
-        np.testing.assert_array_equal(parent_ids, [filam_ids[i] for i in range(0,len(filam_ids),IOTest.part_per_ligand)], err_msg="Parent IDs do not match!")
+    def get_and_check_connectivity_predicate(dataview, object_grp_name, particle_type, control_ids):
+        selected_ids = np.array(
+            dataview.get_connectivity_values(
+                object_grp_name,
+                predicate=lambda subset: np.all(subset.timestep[-1].type == particle_type),
+            ),
+            dtype=int,
+        )
+        np.testing.assert_array_equal(control_ids, selected_ids, err_msg=f"{object_grp_name} predicate-filtered IDs do not match!")
 
-    @staticmethod
-    def cover_selector_exception_paths(data):
-        """Trigger selector misuse branches for coverage without asserting strict failure."""
-        tests = [
-            # (callable, expected exception)
-            (lambda: H5DataSelector(sim_inst.io_dict['h5_file'], particle_group="DangerNoodle"), ValueError),
-            (lambda: data.particles[-1], TypeError),
-            (lambda: data[-1], TypeError),
-            (lambda: iter(data), TypeError),
-            (lambda: len(data), TypeError),
-            (lambda: (
-                H5DataSelector(sim_inst.io_dict['h5_file'], particle_group="Crowder")
-                    .get_child_ids("Crowder", "Quadriplex", parent_id=0)
-            ), KeyError),
+    def check_expected_metadata(self, dataview, h5_file, particle_group=None):
+
+        def metadata_node(metadata, path):
+            node = metadata
+            for key in path.split("/"):
+                node = node[key]
+            return node
+
+        metadata = dataview.metadata
+        particle_group = next(iter(h5_file["particles"])) if particle_group is None else particle_group
+        self.assertEqual(metadata["_meta"]["type"], "Group")
+        self.assertEqual(set(metadata["_meta"]["members"]), set(h5_file.keys()))
+        for group_name in ("h5md", "parameters", "particles", "connectivity"):
+            self.assertIn(group_name, h5_file)
+            self.assertIn(group_name, metadata)
+        if hasattr(self, "observable_name"):
+            self.assertIn("observables", h5_file)
+            self.assertIn("observables", metadata)
+
+        group_paths = [
+            "h5md",
+            "parameters/pressomancy",
+            f"particles/{particle_group}",
+            f"connectivity/{particle_group}",
         ]
+        if hasattr(self, "observable_name"):
+            group_paths.append(f"observables/{self.observable_name}")
+        dataset_paths = [f"particles/{particle_group}/id/value",
+                         f"particles/{particle_group}/pos/value",
+                         f"particles/{particle_group}/box/edges",
+                         *(f"connectivity/{particle_group}/{dataset_name}" for dataset_name in h5_file[f"connectivity/{particle_group}"]),]
+        if hasattr(self, "observable_name"):
+                dataset_paths.extend([f"observables/{self.observable_name}/step", f"observables/{self.observable_name}/time", f"observables/{self.observable_name}/value"])
 
-        for fn, exc in tests:
-            try:
-                fn()
-            except exc as e:
-                print(f"{exc.__name__}: {e}")
+        for group_path in group_paths:
+            h5_group = h5_file[group_path]
+            meta_node = metadata_node(metadata, group_path)
+            self.assertEqual(meta_node["_meta"]["type"], "Group")
+            self.assertEqual(set(meta_node["_meta"]["members"]), set(h5_group.keys()))
+            actual_attrs = {key: h5_group.attrs[key] for key in h5_group.attrs}
+            observed_attrs = meta_node["_meta"]["attributes"]
+            self.assertEqual(set(observed_attrs), set(actual_attrs))
+            for key, value in actual_attrs.items():
+                np.testing.assert_equal(observed_attrs[key], value)
 
-    def test_IO_h5md(self):
-        filam_ids=[filam.who_am_i for filam in self.filaments]
-        quadriplex=[filam.associated_objects for filam in self.filaments]
-        quadriplex_ids=[]
-        for quads in quadriplex:
-            for el in quads:
-                quadriplex_ids.append(el.who_am_i)
-                
-        with tempfile.TemporaryDirectory() as tmpdirname:
-            # Build a temporary filename inside the directory
-            h5_filename = os.path.join(tmpdirname, "testfile.h5")
-            GLOBAL_COUNTER=sim_inst.inscribe_part_group_to_h5(group_type=[Filament, Crowder], h5_data_path=h5_filename)
-            for iid in range(2):
-                frame_step = GLOBAL_COUNTER + 10 * (iid + 1)
-                sim_inst.sys.integrator.run(1)
-                sim_inst.write_part_group_to_h5(time_step=frame_step)
-                data = H5DataSelector(sim_inst.io_dict['h5_file'], particle_group="Filament")
-                data_crowder = H5DataSelector(sim_inst.io_dict['h5_file'], particle_group="Crowder")
-                parts,_=self.filaments[iid].get_owned_part()
-                self.basic_structure(data,iid,750)
-                self.get_and_check(data, "Filament", iid, parts)
-                self.poke_analysis_api(data, "Filament", iid, filam_ids, parts)
-                self.get_child_poke(data, filam_ids, quadriplex_ids)
-                self.get_parent_poke(data, filam_ids, quadriplex_ids)
-                parts,_=self.crowders[iid].get_owned_part()
-                self.get_and_check(data_crowder, "Crowder", iid, parts)
-                self.basic_structure(data_crowder,iid,10)
-                self.poke_analysis_api(data_crowder, "Crowder", iid, quadriplex_ids, parts)
-                self.assert_step_time(sim_inst.io_dict['h5_file'], "Filament", "id", frame_step, sim_inst.sys.time)
-                self.assert_step_time(sim_inst.io_dict['h5_file'], "Crowder", "id", frame_step, sim_inst.sys.time)
-                self.assert_box_metadata(sim_inst.io_dict['h5_file'], "Filament", sim_inst.sys.box_l)
-                self.assert_box_metadata(sim_inst.io_dict['h5_file'], "Crowder", sim_inst.sys.box_l)
-                self.assert_box_reader(data, sim_inst.sys.box_l)
-                self.assert_box_reader(data_crowder, sim_inst.sys.box_l)
-            filament_time = sim_inst.io_dict['h5_file']["particles/Filament/id/time"][:]
-            filament_step = sim_inst.io_dict['h5_file']["particles/Filament/id/step"][:]
-            np.testing.assert_array_equal(filament_step, [10, 20], err_msg="Stored frame counters are incorrect!")
-            self.assertTrue(np.all(np.diff(filament_time) > 0.0), "Stored physical times must increase monotonically.")
-            self.assertFalse(np.allclose(filament_step.astype(float), filament_time), "Stored time should no longer mirror stored step.")
-            data = H5DataSelector(sim_inst.io_dict['h5_file'], particle_group="Filament")
-            self.cover_selector_exception_paths(data)
-            predicate_cutoff = max(part.id for part in self.filaments[1].get_owned_part()[0])
-            predicate = lambda subset: subset.timestep[-1].id.flatten()[0] <= predicate_cutoff
-            np.testing.assert_array_equal(data.get_connectivity_values("Filament", predicate=predicate), filam_ids[:2], err_msg="Predicate-filtered filament IDs do not match!")
-            np.testing.assert_array_equal(data.get_connectivity_values("Filament", predicate=predicate, fast=True), filam_ids[:2], err_msg="Fast predicate-filtered filament IDs do not match!")
-            self.exceptions(data)
-            self.slicing_check(data)
-            GLOBAL_COUNTER=sim_inst.inscribe_part_group_to_h5(group_type=[Filament, Crowder], h5_data_path=h5_filename,mode='LOAD_NEW')
-            self.assertEqual(GLOBAL_COUNTER, 2)
-            data = H5DataSelector(sim_inst.io_dict['h5_file'], particle_group="Filament")
-            data_crowder = H5DataSelector(sim_inst.io_dict['h5_file'], particle_group="Crowder")
-            self.assert_box_reader(data, sim_inst.sys.box_l)
-            self.assert_box_reader(data_crowder, sim_inst.sys.box_l)
-            GLOBAL_COUNTER=sim_inst.inscribe_part_group_to_h5(group_type=[Filament, Crowder], h5_data_path=h5_filename,mode='LOAD')
-            self.assertEqual(GLOBAL_COUNTER, 2)
-            data = H5DataSelector(sim_inst.io_dict['h5_file'], particle_group="Filament")
-            data_crowder = H5DataSelector(sim_inst.io_dict['h5_file'], particle_group="Crowder")
-            self.assert_box_reader(data, sim_inst.sys.box_l)
-            self.assert_box_reader(data_crowder, sim_inst.sys.box_l)
+        for dataset_path in dataset_paths:
+            h5_dataset = h5_file[dataset_path]
+            meta_node = metadata_node(metadata, dataset_path)
+            self.assertEqual(meta_node["type"], "Dataset")
+            self.assertEqual(meta_node["shape"], h5_dataset.shape)
+            self.assertEqual(meta_node["dtype"], str(h5_dataset.dtype))
+            actual_attrs = {key: h5_dataset.attrs[key] for key in h5_dataset.attrs}
+            observed_attrs = meta_node["attributes"]
+            self.assertEqual(set(observed_attrs), set(actual_attrs))
+            for key, value in actual_attrs.items():
+                np.testing.assert_equal(observed_attrs[key], value)
 
-    def test_IO_h5md_legacy_files_without_box(self):
-        with tempfile.TemporaryDirectory() as tmpdirname:
-            h5_filename = os.path.join(tmpdirname, "legacy_no_box.h5")
-            sim_inst.inscribe_part_group_to_h5(group_type=[Filament, Crowder], h5_data_path=h5_filename)
+    def test_observables(self):
+        if not hasattr(self, "observable_name"):
+            return
+        with h5py.File(self.h5_filename, "r") as h5_file:
+            selector = H5ObservableSelector(h5_file, observable_name=self.observable_name)
+            np.testing.assert_equal(len(selector.timestep), len(self.written_steps), err_msg="Observable selector length is incorrect!")
+            np.testing.assert_array_equal(selector.step, self.written_steps, err_msg="Observable frame counters are incorrect!")
+            np.testing.assert_allclose(selector.time, self.written_times, err_msg="Observable times do not match fixture write times.")
+            np.testing.assert_allclose(selector.value, np.array(self.observable_values), err_msg="Observable values do not match fixture payloads.")
+            sliced = selector.timestep[0:2]
+            np.testing.assert_equal(len(sliced.timestep), 2, err_msg="Observable timestep slicing did not preserve frame count.")
+            np.testing.assert_array_equal(sliced.step, self.written_steps[0:2], err_msg="Observable timestep slicing did not preserve steps.")
+            np.testing.assert_allclose(sliced.time, self.written_times[0:2], err_msg="Observable timestep slicing did not preserve times.")
+            np.testing.assert_allclose(sliced.value, np.array(self.observable_values[0:2]), err_msg="Observable timestep slicing did not preserve values.")
+            frames = [frame for frame in selector.timestep]
+            np.testing.assert_equal(len(frames), len(self.written_steps), err_msg="Observable timestep iteration did not yield every frame.")
+            np.testing.assert_array_equal([frame.step for frame in frames], self.written_steps, err_msg="Observable timestep iteration did not preserve steps.")
 
-            for frame_step in (10, 20):
-                sim_inst.sys.integrator.run(1)
-                sim_inst.write_part_group_to_h5(time_step=frame_step)
-
-            sim_inst.io_dict['h5_file'].flush()
-            sim_inst.io_dict['h5_file'].close()
-            sim_inst.io_dict['h5_file'] = None
-
-            with h5py.File(h5_filename, "a") as h5_file:
-                del h5_file["particles/Filament/box"]
-                del h5_file["particles/Crowder/box"]
-
-            with h5py.File(h5_filename, "r") as h5_file:
-                filament_selector = H5DataSelector(h5_file, particle_group="Filament")
-                crowder_selector = H5DataSelector(h5_file, particle_group="Crowder")
-                with self.assertRaises(KeyError):
-                    filament_selector.get_box()
-                with self.assertRaises(KeyError):
-                    crowder_selector.get_box()
-
-            sim_inst.io_dict['flat_part_view'].clear()
-            GLOBAL_COUNTER = sim_inst.inscribe_part_group_to_h5(
-                group_type=[Filament, Crowder],
-                h5_data_path=h5_filename,
-                mode='LOAD_NEW',
-            )
-            self.assertEqual(GLOBAL_COUNTER, 2)
-
-            sim_inst.sys.integrator.run(1)
-            sim_inst.write_part_group_to_h5(time_step=30)
-            sim_inst.io_dict['h5_file'].flush()
-
-            with h5py.File(h5_filename, "r") as h5_file:
-                np.testing.assert_array_equal(
-                    h5_file["particles/Filament/id/step"][:],
-                    [10, 20, 30],
-                    err_msg="Legacy file append after LOAD_NEW did not preserve step history.",
+    def test_metadata(self):
+        with h5py.File(self.h5_filename, "r") as h5_file:
+            for group_type in self.group_types:
+                particle_group = group_type.__name__
+                expected_particles = 0
+                for obj in sim_inst.objects:
+                    if isinstance(obj, group_type):
+                        parts, _ = obj.get_owned_part()
+                        expected_particles += len(parts)
+                dataview = H5DataSelector(h5_file, particle_group=particle_group)
+                self.check_box_data(dataview, self.box_dim)
+                self.check_version_signing(dataview)
+                self.check_expected_metadata(dataview, h5_file, particle_group=particle_group)
+                expected_timesteps = len(self.written_steps)
+                np.testing.assert_equal(
+                    dataview.common_dims,
+                    (expected_timesteps, expected_particles),
+                    err_msg=f"{particle_group} selector common dimensions do not match!",
                 )
-                np.testing.assert_array_equal(
-                    h5_file["particles/Crowder/id/step"][:],
-                    [10, 20, 30],
-                    err_msg="Legacy crowder file append after LOAD_NEW did not preserve step history.",
+                np.testing.assert_equal(len(dataview.timestep), expected_timesteps, err_msg=f"{particle_group} timestep length does not match!")
+                np.testing.assert_equal(len(dataview.particles), expected_particles, err_msg=f"{particle_group} particle count does not match!")
+
+    def test_trigger_exceptions_smoke(self):
+        with h5py.File(self.h5_filename, "r") as h5_file:
+            dataview = H5DataSelector(
+                h5_file, particle_group=self.group_types[0].__name__
                 )
+            tests = [
+                (lambda: H5DataSelector(h5_file, particle_group="DangerNoodle"), ValueError),
+                (lambda: dataview[-1], TypeError),
+                (lambda: iter(dataview), TypeError),
+                (lambda: len(dataview), TypeError),
+            ]
+            if hasattr(self, "observable_name"):
+                observable_selector = H5ObservableSelector(h5_file, observable_name=self.observable_name)
+                tests.extend([
+                    (lambda: H5ObservableSelector(h5_file, observable_name="missing_observable"), ValueError),
+                    (lambda: observable_selector[0], TypeError),
+                    (lambda: iter(observable_selector), TypeError),
+                    (lambda: len(observable_selector), TypeError),
+                ])
+            for fn, exc in tests:
+                with self.assertRaises(exc):
+                    fn()
 
-            sim_inst.io_dict['flat_part_view'].clear()
-            GLOBAL_COUNTER = sim_inst.inscribe_part_group_to_h5(
-                group_type=[Filament, Crowder],
-                h5_data_path=h5_filename,
-                mode='LOAD',
-            )
-            self.assertEqual(GLOBAL_COUNTER, 3)
-
-    def test_mk_src_file_keeps_selected_frame_and_box_data(self):
+    def test_mk_src_file(self):
         with tempfile.TemporaryDirectory() as tmpdirname:
-            src_filename = os.path.join(tmpdirname, "src.h5")
             dst_filename = os.path.join(tmpdirname, "dst.h5")
-            sim_inst.inscribe_part_group_to_h5(group_type=[Filament], h5_data_path=src_filename)
-
-            written_steps = []
-            written_times = []
-            for frame_step in (7, 13):
-                sim_inst.write_part_group_to_h5(time_step=frame_step)
-                written_steps.append(frame_step)
-                written_times.append(sim_inst.sys.time)
-                sim_inst.sys.integrator.run(1)
-
-            sim_inst.mk_src_file(src_filename, dst_filename, prop_dim=[("v", 3)], time_step=1)
+            sim_inst.mk_src_file(self.h5_filename, dst_filename)
 
             with h5py.File(dst_filename, "r") as h5_file:
-                pos_step = h5_file["particles/Filament/pos/step"][:]
-                pos_time = h5_file["particles/Filament/pos/time"][:]
-                v_step = h5_file["particles/Filament/v/step"][:]
-                v_time = h5_file["particles/Filament/v/time"][:]
+                for group_type in self.group_types:
+                    particle_group = group_type.__name__
+                    dataview = H5DataSelector(h5_file, particle_group=particle_group)
+                    self.check_box_data(dataview, self.box_dim)
+                    self.check_version_signing(dataview)
+                    self.check_expected_metadata(dataview, h5_file, particle_group=particle_group)
+                    np.testing.assert_array_equal(dataview.step, np.array([self.written_steps[-1]], dtype=np.int32))
+                    check_prop_dim(dataview, [self.part_snapshots[particle_group][-1]], ("pos", 3), time_slice=0)
 
-                np.testing.assert_array_equal(pos_step, [written_steps[1]], err_msg="mk_src_file did not keep the selected frame step.")
-                np.testing.assert_allclose(pos_time, [written_times[1]], err_msg="mk_src_file did not keep the selected frame time.")
-                np.testing.assert_array_equal(v_step, [written_steps[1]], err_msg="New property dataset did not inherit the kept frame step.")
-                np.testing.assert_allclose(v_time, [written_times[1]], err_msg="New property dataset did not inherit the kept frame time.")
-                self.assert_box_metadata(h5_file, "Filament", sim_inst.sys.box_l)
-
-                selector = H5DataSelector(h5_file, particle_group="Filament")
-                np.testing.assert_equal(len(selector.timestep), 1, err_msg="mk_src_file output should contain exactly one kept frame.")
-                self.assert_box_reader(selector, sim_inst.sys.box_l)
-
-    def test_write_registered_to_h5_keeps_streams_in_sync(self):
+    def test_load_modes(self):
         with tempfile.TemporaryDirectory() as tmpdirname:
-            h5_filename = os.path.join(tmpdirname, "mixed_streams.h5")
-            magnetic_dipole_moment = np.zeros(3, dtype=np.float64)
-            sim_inst.inscribe_part_group_to_h5(group_type=[Filament], h5_data_path=h5_filename)
-            sim_inst.inscribe_observable_group_to_h5(
-                observable_defs=[("magnetic_dipole_moment", 3, np.float64, magnetic_dipole_moment)],
-                h5_data_path=h5_filename,
-                mode='NEW',
-            )
+            for mode in ("LOAD_NEW", "LOAD"):
+                h5_filename = os.path.join(tmpdirname, f"{mode}.h5")
+                shutil.copy2(self.h5_filename, h5_filename)
+                saved_part_types = dict(sim_inst.part_types)
+                try:
+                    if mode == "LOAD_NEW":
+                        sim_inst.part_types.clear()
+                    GLOBAL_COUNTER = sim_inst.inscribe_part_group_to_h5(
+                        group_type=self.group_types,
+                        h5_data_path=h5_filename,
+                        mode=mode,
+                    )
+                    self.assertEqual(GLOBAL_COUNTER, len(self.written_steps))
+                    if mode == "LOAD_NEW":
+                        self.assertEqual(dict(sim_inst.part_types), saved_part_types)
+                    for group_type in self.group_types:
+                        group_name = group_type.__name__
+                        expected_ids = []
+                        for obj in sim_inst.objects:
+                            if isinstance(obj, group_type):
+                                parts, _ = obj.get_owned_part()
+                                expected_ids.extend(part.id for part in parts)
+                        reconstructed_ids = [part.id for part in sim_inst.io_dict['flat_part_view'][group_name]]
+                        np.testing.assert_array_equal(
+                            reconstructed_ids,
+                            expected_ids,
+                            err_msg=f"{mode} flat_part_view for {group_name} does not match live object order.",
+                        )
+                    if hasattr(self, "observable_name"):
+                        observable_counter = sim_inst.inscribe_observable_group_to_h5(
+                            observable_defs=[(self.observable_name, self.observable_value.shape, self.observable_value.dtype, self.observable_value)],
+                            h5_data_path=h5_filename,
+                            mode=mode,
+                        )
+                        self.assertEqual(observable_counter, len(self.written_steps))
+                        registered = sim_inst.io_dict['registered_observables']
+                        self.assertIn(self.observable_name, registered)
+                        self.assertEqual(registered[self.observable_name]['shape'], self.observable_value.shape)
+                        self.assertEqual(registered[self.observable_name]['dtype'], self.observable_value.dtype)
+                        self.assertIs(registered[self.observable_name]['value'], self.observable_value)
+                        selector = H5ObservableSelector(sim_inst.io_dict['h5_file'], observable_name=self.observable_name)
+                        np.testing.assert_array_equal(selector.step, self.written_steps)
+                        np.testing.assert_allclose(selector.time, self.written_times)
+                        np.testing.assert_allclose(selector.value, np.array(self.observable_values))
+                finally:
+                    sim_inst.part_types.clear()
+                    sim_inst.part_types.update(saved_part_types)
+                    self.reset_io_state()
 
-            written_steps = []
-            written_times = []
-            written_values = []
-            for frame_step, value in ((3, np.array([1.0, 2.0, 3.0])), (7, np.array([4.0, 5.0, 6.0]))):
-                sim_inst.sys.integrator.run(1)
-                magnetic_dipole_moment[:] = value
-                sim_inst.write_registered_to_h5(time_step=frame_step)
-                written_steps.append(frame_step)
-                written_times.append(sim_inst.sys.time)
-                written_values.append(value.copy())
-
-            with h5py.File(h5_filename, "r") as h5_file:
-                particle_step = h5_file["particles/Filament/id/step"][:]
-                particle_time = h5_file["particles/Filament/id/time"][:]
-                obs_group = h5_file["observables/magnetic_dipole_moment"]
-                np.testing.assert_array_equal(particle_step, written_steps, err_msg="Particle frames do not match the unified write steps.")
-                np.testing.assert_array_equal(obs_group["step"][:], written_steps, err_msg="Observable frames do not match the unified write steps.")
-                np.testing.assert_allclose(particle_time, written_times, err_msg="Particle times do not match the unified write times.")
-                np.testing.assert_allclose(obs_group["time"][:], written_times, err_msg="Observable times do not match the unified write times.")
-                np.testing.assert_allclose(obs_group["value"][:], np.array(written_values), err_msg="Observable values do not match unified writes.")
-
-            magnetic_dipole_moment[:] = np.array([7.0, 8.0, 9.0])
-            sim_inst.write_observable_group_to_h5(time_step=11)
-            sim_inst.io_dict['h5_file'].flush()
-            sim_inst.io_dict['h5_file'].close()
-            sim_inst.io_dict['h5_file'] = None
-            sim_inst.io_dict['flat_part_view'].clear()
-
-            particle_counter = sim_inst.inscribe_part_group_to_h5(
-                group_type=[Filament],
-                h5_data_path=h5_filename,
-                mode='LOAD_NEW',
-                force_resize_to_size=2,
-            )
-            observable_counter = sim_inst.inscribe_observable_group_to_h5(
-                observable_defs=[("magnetic_dipole_moment", 3, np.float64, magnetic_dipole_moment)],
-                h5_data_path=h5_filename,
-                mode='LOAD_NEW',
-                force_resize_to_size=2,
-            )
-            self.assertEqual(particle_counter, 2)
-            self.assertEqual(observable_counter, 2)
-
-            with h5py.File(h5_filename, "r") as h5_file:
-                np.testing.assert_array_equal(h5_file["particles/Filament/id/step"][:], written_steps, err_msg="Particle stream should remain at the checkpointed counter.")
-                np.testing.assert_array_equal(h5_file["observables/magnetic_dipole_moment/step"][:], written_steps, err_msg="Observable stream should be truncated back to the checkpointed counter.")
-
-    def test_observables_h5md(self):
+    def test_load_modes_force_resize(self):
         with tempfile.TemporaryDirectory() as tmpdirname:
-            h5_filename = os.path.join(tmpdirname, "testfile.h5")
-            magnetic_dipole_moment = np.zeros(3, dtype=np.float64)
-            sim_inst.inscribe_part_group_to_h5(group_type=[Filament], h5_data_path=h5_filename)
-            observable_counter = sim_inst.inscribe_observable_group_to_h5(
-                observable_defs=[("magnetic_dipole_moment", 3, np.float64, magnetic_dipole_moment)],
-                h5_data_path=h5_filename,
-                mode='NEW',
-            )
-            self.assertEqual(observable_counter, 0)
+            for mode in ("LOAD_NEW", "LOAD"):
+                h5_filename = os.path.join(tmpdirname, f"{mode}_resized.h5")
+                shutil.copy2(self.h5_filename, h5_filename)
+                GLOBAL_COUNTER = sim_inst.inscribe_part_group_to_h5(
+                    group_type=self.group_types,
+                    h5_data_path=h5_filename,
+                    mode=mode,
+                    force_resize_to_size=2,
+                )
+                self.assertEqual(GLOBAL_COUNTER, 2)
+                for group_type in self.group_types:
+                    particle_group = group_type.__name__
+                    dataview = H5DataSelector(sim_inst.io_dict['h5_file'], particle_group=particle_group)
+                    np.testing.assert_array_equal(dataview.step,
+                                                  self.written_steps[:2])
+                    np.testing.assert_allclose(dataview.time,
+                                               self.written_times[:2])
+                    np.testing.assert_equal(dataview.common_dims, (2, len(self.part_snapshots[particle_group][0])))
 
-            written_steps = []
-            written_times = []
-            written_values = []
-            for frame_step, value in ((3, np.array([1.0, 2.0, 3.0])), (7, np.array([4.0, 5.0, 6.0]))):
-                sim_inst.sys.integrator.run(1)
-                magnetic_dipole_moment[:] = value
-                sim_inst.write_observable_group_to_h5(time_step=frame_step)
-                written_steps.append(frame_step)
-                written_times.append(sim_inst.sys.time)
-                written_values.append(value.copy())
+                if hasattr(self, "observable_name"):
+                    observable_counter = sim_inst.inscribe_observable_group_to_h5(
+                        observable_defs=[(self.observable_name, self.observable_value.shape, self.observable_value.dtype, self.observable_value)],
+                        h5_data_path=h5_filename,
+                        mode=mode,
+                        force_resize_to_size=2,
+                    )
+                    selector = H5ObservableSelector(sim_inst.io_dict['h5_file'], observable_name=self.observable_name)
+                    self.assertEqual(observable_counter, 2)
+                    np.testing.assert_array_equal(selector.step, self.written_steps[:2])
+                    np.testing.assert_allclose(selector.time, self.written_times[:2])
+                    np.testing.assert_allclose(selector.value,
+                    np.array(self.observable_values[:2]))
+                self.reset_io_state()
 
-            with h5py.File(h5_filename, "r") as h5_file:
-                obs_group = h5_file["observables/magnetic_dipole_moment"]
-                np.testing.assert_array_equal(obs_group["step"][:], written_steps, err_msg="Observable steps do not match appended data.")
-                np.testing.assert_allclose(obs_group["time"][:], written_times, err_msg="Observable times do not match appended data.")
-                np.testing.assert_allclose(obs_group["value"][:], np.array(written_values), err_msg="Observable values do not match appended data.")
+    def test_select_particles_by_object(self):
+        with h5py.File(self.h5_filename, "r") as h5_file:
+            for group_type in self.group_types:
+                object_name = group_type.__name__
+                dataview = H5DataSelector(h5_file, particle_group=object_name)
+                np.testing.assert_equal(len(dataview.timestep), len(self.written_steps), err_msg=f"{object_name} stored frame count does not match fixture writes.")
+                self.assertEqual(dataview.timestep[-1].step, self.written_steps[-1])
+                self.assertEqual(dataview.timestep[-1].time, self.written_times[-1])
+                objects = [obj for obj in sim_inst.objects if isinstance(obj, group_type)]
+                connectivity_value = np.array([obj.who_am_i for obj in objects], dtype=int)
+                expected_types = sorted({
+                    int(part.type)
+                    for obj in objects
+                    for part in obj.get_owned_part()[0]
+                })
+                ids = dataview.get_connectivity_values(object_name)
+                np.testing.assert_array_equal(ids, connectivity_value, err_msg=f"{object_name} connectivity IDs do not match fixture object ids!")
+                connected_objects = sim_inst._collect_instances_recursively(objects)
+                connected_object_names = sorted({obj.__class__.__name__ for obj in connected_objects})
+                for connected_object_name in connected_object_names:
+                    connected_class_objects = [obj for obj in connected_objects if obj.__class__.__name__ == connected_object_name]
+                    for predicate_type in expected_types:
+                        control_ids = [obj.who_am_i for obj in connected_class_objects if all(part.type == predicate_type for part in obj.get_owned_part()[0])]
+                        self.get_and_check_connectivity_predicate(dataview, connected_object_name, predicate_type, control_ids)
+                for time_slice in [None, -1, 0, slice(0, 2, 1)]:
+                    get_and_check_complete_object(dataview, object_name, connectivity_value, self.part_snapshots[object_name], expected_types, time_slice=time_slice)
+                for predicate_type in expected_types:
+                    selection = dataview.select_particles_by_object(
+                        object_name=object_name,
+                        connectivity_value=connectivity_value,
+                        predicate=lambda subset, predicate_type=predicate_type: subset.timestep[-1].type == predicate_type,
+                    )
+                    np.testing.assert_equal(len(selection.timestep), len(dataview.timestep), err_msg="Predicate selection changed timestep context!")
+                    expected_ids = [[part.id for part in snap if part.type == predicate_type] for snap in self.part_snapshots[object_name]]
+                    np.testing.assert_allclose(selection.id.squeeze(axis=-1), expected_ids)
 
-            observable_counter = sim_inst.inscribe_observable_group_to_h5(
-                observable_defs=[("magnetic_dipole_moment", 3, np.float64, magnetic_dipole_moment)],
-                h5_data_path=h5_filename,
-                mode='LOAD_NEW',
-            )
-            self.assertEqual(observable_counter, 2)
+    def test_object_relations(self):
+        with h5py.File(self.h5_filename, "r") as h5_file:
+            for group_type in self.group_types:
+                particle_group = group_type.__name__
+                dataview = H5DataSelector(h5_file, particle_group=particle_group)
+                parents = sim_inst._collect_instances_recursively(
+                    [obj for obj in sim_inst.objects if isinstance(obj, group_type)]
+                    )
 
-            observable_counter = sim_inst.inscribe_observable_group_to_h5(
-                observable_defs=[("magnetic_dipole_moment", 3, np.float64, magnetic_dipole_moment)],
-                h5_data_path=h5_filename,
-                mode='LOAD_NEW',
-                force_resize_to_size=1,
-            )
-            self.assertEqual(observable_counter, 1)
-
-            with h5py.File(h5_filename, "r") as h5_file:
-                obs_group = h5_file["observables/magnetic_dipole_moment"]
-                np.testing.assert_array_equal(obs_group["step"][:], [written_steps[0]], err_msg="Observable resize did not preserve the leading frame step.")
-                np.testing.assert_allclose(obs_group["time"][:], [written_times[0]], err_msg="Observable resize did not preserve the leading frame time.")
-                np.testing.assert_allclose(obs_group["value"][:], np.array([written_values[0]]), err_msg="Observable resize did not preserve the leading frame value.")
-
-    def test_observable_selector_h5md(self):
-        with tempfile.TemporaryDirectory() as tmpdirname:
-            h5_filename = os.path.join(tmpdirname, "observable_selector.h5")
-            magnetic_dipole_moment = np.zeros(3, dtype=np.float64)
-            observable_counter = sim_inst.inscribe_observable_group_to_h5(
-                observable_defs=[("magnetic_dipole_moment", 3, np.float64, magnetic_dipole_moment)],
-                h5_data_path=h5_filename,
-                mode='NEW',
-            )
-            self.assertEqual(observable_counter, 0)
-
-            written_steps = []
-            written_times = []
-            written_values = []
-            for frame_step, value in ((3, np.array([1.0, 2.0, 3.0])), (7, np.array([4.0, 5.0, 6.0]))):
-                sim_inst.sys.integrator.run(1)
-                magnetic_dipole_moment[:] = value
-                sim_inst.write_observable_group_to_h5(time_step=frame_step)
-                written_steps.append(frame_step)
-                written_times.append(sim_inst.sys.time)
-                written_values.append(value.copy())
-
-            with h5py.File(h5_filename, "r") as h5_file:
-                selector = H5ObservableSelector(h5_file, observable_name="magnetic_dipole_moment")
-                np.testing.assert_array_equal(selector.step, written_steps, err_msg="Observable selector did not return the stored step values.")
-                np.testing.assert_allclose(selector.time, written_times, err_msg="Observable selector did not return the stored times.")
-                np.testing.assert_allclose(selector.value, np.array(written_values), err_msg="Observable selector did not return the stored values.")
-                sliced = selector.timestep[0:2]
-                np.testing.assert_equal(len(sliced.timestep), 2, err_msg="Observable timestep slicing did not preserve the expected frame count.")
-                np.testing.assert_array_equal(sliced.step, written_steps, err_msg="Observable timestep slicing did not preserve the expected steps.")
-                frames = [frame for frame in selector.timestep]
-                np.testing.assert_equal(len(frames), 2, err_msg="Observable timestep iteration did not yield the expected number of frame selectors.")
-                np.testing.assert_array_equal(frames[0].step, written_steps[0], err_msg="Observable timestep iteration did not keep the expected stored step for the first frame.")
-                np.testing.assert_allclose(frames[0].time, written_times[0], err_msg="Observable timestep iteration did not keep the expected stored time for the first frame.")
-                np.testing.assert_allclose(frames[0].value, written_values[0], err_msg="Observable timestep iteration did not keep the expected stored value for the first frame.")
-                with self.assertRaises(TypeError):
-                    selector[0]
-
-            with h5py.File(h5_filename, "r") as h5_file:
-                with self.assertRaises(ValueError):
-                    H5ObservableSelector(h5_file, observable_name="missing_observable")
-
-            with h5py.File(h5_filename, "a") as h5_file:
-                h5_file["observables/magnetic_dipole_moment/step"].resize((1,))
-                with self.assertRaises(ValueError):
-                    H5ObservableSelector(h5_file, observable_name="magnetic_dipole_moment")
-
-    def test_h5md_optional_metadata_and_load_new_recovery(self):
-        with tempfile.TemporaryDirectory() as tmpdirname:
-            h5_filename = os.path.join(tmpdirname, "testfile.h5")
-            with patch.object(simulation_module, "get_submission_creator_info", return_value=("UPLOAD_VIEW/suspensions/mcp_suspension_pressomancy.py", "main@abc1234-dirty")), patch.object(simulation_module, "get_repo_context", return_value=(Path("/home/stekajack/pressomancy"), "main@def5678-dirty")):
-                GLOBAL_COUNTER = sim_inst.inscribe_part_group_to_h5(group_type=[Filament, Crowder], h5_data_path=h5_filename)
-            sim_inst.sys.integrator.run(1)
-            sim_inst.write_part_group_to_h5(time_step=GLOBAL_COUNTER)
-
-            h5_handle = sim_inst.io_dict['h5_file']
-            self.assertIn("h5md", h5_handle)
-            np.testing.assert_array_equal(h5_handle["h5md"].attrs["version"], np.array([1, 0], dtype=np.int32))
-            self.assertEqual(h5_handle["h5md/author"].attrs["name"], "unknown")
-            self.assertEqual(h5_handle["h5md/creator"].attrs["name"], "UPLOAD_VIEW/suspensions/mcp_suspension_pressomancy.py")
-            self.assertEqual(h5_handle["h5md/creator"].attrs["version"], "main@abc1234-dirty")
-            self.assertEqual(h5_handle["parameters/pressomancy"].attrs["version"], "main@def5678-dirty")
-            self.assertEqual(h5_handle["parameters/pressomancy/part_types"].attrs["real"], 1)
-
-            data = H5DataSelector(h5_handle, particle_group="Filament")
-            np.testing.assert_array_equal(data.metadata["h5md"]["_meta"]["attributes"]["version"], np.array([1, 0], dtype=np.int32))
-            self.assertEqual(data.metadata["h5md"]["creator"]["_meta"]["attributes"]["name"], "UPLOAD_VIEW/suspensions/mcp_suspension_pressomancy.py")
-            self.assertEqual(data.metadata["parameters"]["pressomancy"]["_meta"]["attributes"]["version"], "main@def5678-dirty")
-            self.assertEqual(data.metadata["parameters"]["pressomancy"]["part_types"]["_meta"]["attributes"]["real"], 1)
-
-            original_part_types = {key: value for key, value in sim_inst.part_types.items() if isinstance(value, int)}
-            sim_inst.part_types.clear()
-            sim_inst.inscribe_part_group_to_h5(group_type=[Filament, Crowder], h5_data_path=h5_filename,mode='LOAD_NEW')
-            for key, value in original_part_types.items():
-                self.assertEqual(dict.get(sim_inst.part_types, key), value)
-            sim_inst.io_dict['h5_file'].close()
-
-        with tempfile.TemporaryDirectory() as tmpdirname:
-            h5_filename = os.path.join(tmpdirname, "testfile_legacy.h5")
-            GLOBAL_COUNTER = sim_inst.inscribe_part_group_to_h5(group_type=[Filament, Crowder], h5_data_path=h5_filename)
-            sim_inst.sys.integrator.run(1)
-            sim_inst.write_part_group_to_h5(time_step=GLOBAL_COUNTER)
-            h5_handle = sim_inst.io_dict['h5_file']
-            del h5_handle["parameters/pressomancy/part_types"]
-            h5_handle["particles/Filament/type/value"][-1, 0, 0] = 999
-            h5_handle.flush()
-            h5_handle.close()
-
-            sim_inst.part_types.clear()
-            with self.assertLogs(level="WARNING") as log_context:
-                sim_inst.inscribe_part_group_to_h5(group_type=[Filament, Crowder], h5_data_path=h5_filename, mode='LOAD_NEW')
-            self.assertEqual(dict.get(sim_inst.part_types, "real"), 1)
-            self.assertTrue(any("Unmatched numeric types=[999]" in entry for entry in log_context.output))
-            sim_inst.io_dict['h5_file'].close()
-
-        with tempfile.TemporaryDirectory() as tmpdirname:
-            h5_filename = os.path.join(tmpdirname, "testfile_author.h5")
-            sim_inst.set_author("Alice", "alice@example.com")
-            with patch.object(simulation_module, "get_submission_creator_info", return_value=("unknown/mcp_suspension_pressomancy.py", "unknown")), patch.object(simulation_module, "get_repo_context", return_value=(None, "unknown")):
-                sim_inst.inscribe_part_group_to_h5(group_type=[Filament, Crowder], h5_data_path=h5_filename)
-            h5_handle = sim_inst.io_dict['h5_file']
-            self.assertEqual(h5_handle["h5md/author"].attrs["name"], "Alice")
-            self.assertEqual(h5_handle["h5md/author"].attrs["email"], "alice@example.com")
-            self.assertEqual(h5_handle["h5md/creator"].attrs["name"], "unknown/mcp_suspension_pressomancy.py")
-            self.assertEqual(h5_handle["parameters/pressomancy"].attrs["version"], "unknown")
-            h5_handle.close()
-
-        with tempfile.TemporaryDirectory() as tmpdirname:
-            h5_filename = os.path.join(tmpdirname, "testfile_src.h5")
-            dest_filename = os.path.join(tmpdirname, "testfile_src_shrunk.h5")
-            with patch.object(simulation_module, "get_submission_creator_info", return_value=("UPLOAD_VIEW/suspensions/mcp_suspension_pressomancy.py", "main@abc1234-dirty")), patch.object(simulation_module, "get_repo_context", return_value=(Path("/home/stekajack/pressomancy"), "main@def5678-dirty")):
-                GLOBAL_COUNTER = sim_inst.inscribe_part_group_to_h5(group_type=[Filament, Crowder], h5_data_path=h5_filename)
-            sim_inst.sys.integrator.run(1)
-            sim_inst.write_part_group_to_h5(time_step=GLOBAL_COUNTER)
-            sim_inst.io_dict['h5_file'].flush()
-            sim_inst.io_dict['h5_file'].close()
-            sim_inst.mk_src_file(h5_filename, dest_filename, time_step=0)
-
-            with h5py.File(dest_filename, "r") as h5_file:
-                self.assertEqual(h5_file["h5md/creator"].attrs["name"], "UPLOAD_VIEW/suspensions/mcp_suspension_pressomancy.py")
-                self.assertEqual(h5_file["h5md/creator"].attrs["version"], "main@abc1234-dirty")
-                self.assertEqual(h5_file["parameters/pressomancy"].attrs["version"], "main@def5678-dirty")
-                self.assertEqual(h5_file["parameters/pressomancy/part_types"].attrs["real"], 1)
+                for parent in parents:
+                    if not getattr(parent, "associated_objects", None):
+                        continue
+                    parent_key = parent.__class__.__name__
+                    child_key = parent.associated_objects[0].__class__.__name__
+                    child_ids = [child.who_am_i for child in parent.associated_objects]
+                    np.testing.assert_array_equal(
+                        dataview.get_child_ids(parent_key, child_key, parent.who_am_i),
+                        child_ids,
+                        err_msg=f"{parent_key}_to_{child_key} child IDs do not match for parent {parent.who_am_i}!",
+                    )
+                    for child in parent.associated_objects:
+                        expected_parent_ids = [
+                            obj.who_am_i
+                            for obj in sim_inst.objects
+                            if child in (getattr(obj, "associated_objects", None) or [])
+                        ]
+                        np.testing.assert_array_equal(
+                            dataview.get_parent_ids(parent_key, child_key, child.who_am_i),
+                            expected_parent_ids,
+                            err_msg=f"{parent_key}_to_{child_key} parent IDs do not match for child {child.who_am_i}!",
+                        )
 
     def test_obsolete_IO(self):
         with tempfile.TemporaryDirectory() as tmpdirname:
@@ -579,3 +463,89 @@ class IOTest(BaseTestCase):
                     os.path.join(tmpdirname, "testfile.p.gz"))
             except MissingFeature as excp:
                 logging.warning(f"Skipping depreciated IO pipeline tests because it requires a feature that is not available.  Caught exception {excp}")
+
+class ElastomerFixture(CommonH5DataSelectorTests, BaseTestCase):
+    box_dim = [5,5,20]
+    layer_height = 4
+    n_part = 20
+    observable_name = "magnetic_dipole_moment"
+
+    @classmethod
+    def build_fixture(cls):
+        sim_inst.sys.box_l = cls.box_dim
+        conf_point_dipole = PointDipolePermanent.config.specify(dipm=1., espresso_handle=sim_inst.sys)
+        point_dipoles = [PointDipolePermanent(config=conf_point_dipole) for _ in range(cls.n_part)]
+        config_E = Elastomer.config.specify(
+            layer_height=cls.layer_height, n_parts=cls.n_part, associated_objects=point_dipoles, espresso_handle=sim_inst.sys, seed=sim_inst.seed)
+        elastomer=Elastomer(config=config_E)
+        sim_inst.store_objects([elastomer])
+        sim_inst.set_objects([elastomer])
+        cls.group_types = [Elastomer, PointDipolePermanent]
+
+class FilamentFixture(CommonH5DataSelectorTests, BaseTestCase):
+
+    N_avog = 6.02214076e23
+    sigma = 1.
+    rho_si = 0.6*N_avog
+    no_obj=30
+    N = no_obj/3
+    vol = N/rho_si
+    box_l = pow(vol, 1/3)
+    _box_l = box_l/0.4e-09
+    box_dim = _box_l*np.ones(3)
+    _rho = N/pow(_box_l, 3)
+
+    sheets_per_quad = 3
+    part_per_filament = 2
+    no_crowders=10
+    part_per_ligand=2
+
+    @classmethod
+    def build_fixture(cls):
+        quartet_configuration = Quartet.config.specify(espresso_handle=sim_inst.sys)
+        quartets = [Quartet(config=quartet_configuration) for _ in range(cls.no_obj)]
+        sim_inst.store_objects(quartets)
+
+        bond_quad = BondWrapper(espressomd.interactions.FeneBond(k=10., r_0=2., d_r_max=2*1.5))
+        grouped_quartets = [quartets[i:i+cls.sheets_per_quad]
+                            for i in range(0, len(quartets), cls.sheets_per_quad)]
+        quadriplex_configuration_list = [
+            Quadriplex.config.specify(size=6., espresso_handle=sim_inst.sys, bond_handle=bond_quad, associated_objects=elem)
+            for elem in grouped_quartets
+        ]
+
+        quadriplexes = [Quadriplex(config=configuration) for configuration in quadriplex_configuration_list]
+        sim_inst.store_objects(quadriplexes)
+        bond_pass = BondWrapper(espressomd.interactions.FeneBond(k=10., r_0=2., d_r_max=2*1.5))
+        grouped_quadriplexes = [quadriplexes[i:i+cls.part_per_filament:]
+                                for i in range(0, len(quadriplexes), cls.part_per_filament)]
+        filament_configuration_list = [
+            Filament.config.specify(sigma=6, size=6*cls.part_per_filament, n_parts=cls.part_per_filament, espresso_handle=sim_inst.sys, bond_handle=bond_pass, associated_objects=elem)
+            for elem in grouped_quadriplexes
+        ]
+        filaments = [Filament(config=configuration) for configuration in filament_configuration_list]
+        sim_inst.store_objects(filaments)
+        sim_inst.set_objects(filaments)
+
+        crowder_configuration=Crowder.config.specify(sigma=1., size=1., espresso_handle=sim_inst.sys)
+        crowders = [Crowder(config=crowder_configuration) for _ in range(cls.no_crowders)]
+        sim_inst.store_objects(crowders)
+        sim_inst.set_objects(crowders)
+
+        cls.group_types = [Filament, Crowder]
+
+    def test_crowder_missing_relation_smoke(self):
+        with h5py.File(self.h5_filename, "r") as h5_file:
+            crowder = next(obj for obj in sim_inst.objects if isinstance(obj, Crowder))
+            with warnings.catch_warnings(record=True) as caught:
+                warnings.simplefilter("always")
+                missing_children = H5DataSelector(
+                    h5_file,
+                    particle_group="Crowder",
+                ).get_child_ids(
+                    "Crowder",
+                    "Quadriplex",
+                    crowder.who_am_i,
+                )
+            self.assertIsNone(missing_children)
+            self.assertGreaterEqual(len(caught), 1)

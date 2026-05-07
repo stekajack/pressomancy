@@ -60,7 +60,6 @@ class Quartet(GenericRigidObj):
         'squareC': [13, 100, 108, 21],
     }
 
-
     recepie_dicts_by_alias = {
         'quartet': (recepie_dictA, recepie_dictB),
         'quartet_11x11': (recepie_dictA_11x11, recepie_dictB_11x11),
@@ -70,8 +69,7 @@ class Quartet(GenericRigidObj):
     config = ObjectConfigParams(
         n_parts=25,
         alias='quartet',
-        type='solid', 
-        bond_handle=BondWrapper(espressomd.interactions.FeneBond(k=0, r_0=0, d_r_max=0))
+        type='solid',
     )
 
     def __init__(self,config: ObjectConfigParams):
@@ -84,7 +82,6 @@ class Quartet(GenericRigidObj):
         assert config['n_parts'] == len(self._reference_sheet[self.params['alias']]), 'n_parts must be equal to the number of parts in the reference sheet!!!'
         self.recepie_dictA, self.recepie_dictB = self.__class__.recepie_dicts_by_alias[self.params['alias']]
         if self.params['type'] in ['brokenA', 'brokenB']:
-            assert self.params['bond_handle'] != None, 'broken quartets require a bond to be set!!!'
             Quartet.part_types.update({'circ': 28,
                   'squareA': 24, 'squareB': 25, 'cation': 27})
         self.who_am_i = Quartet.numInstances
@@ -127,7 +124,6 @@ class Quartet(GenericRigidObj):
             self.change_part_type(particles[0],'cation')
             particles[0].q = 1
 
-            
             particles = np.array(particles)
             for part in self.corner_particles:
                 self.change_part_type(part,'real')
@@ -137,18 +133,6 @@ class Quartet(GenericRigidObj):
             for part in particles[np.array(self.recepie_dictA['circ'])]:
                 self.change_part_type(part,'circ')
                 part.q = -0.25
-
-            if self.params['bond_handle'] != None:
-                for part1, part2 in zip(particles[np.array(self.recepie_dictA['squareA'])], particles[np.array(self.recepie_dictA['squareB'])]):
-                    pass
-                    # self.change_part_type(part1,'squareA')
-                    # self.change_part_type(part2,'squareB')
-            else:
-                for part in particles[np.array(self.recepie_dictA['squareA'])]:
-                    self.change_part_type(part,'squareA')
-
-                for part in particles[np.array(self.recepie_dictA['squareB'])]:
-                    self.change_part_type(part,'squareB')
 
             for key, values in self.recepie_dictA['assoc'].items():
                 np.vectorize(lambda real, virts: virts.vs_auto_relate_to(real))(
@@ -169,18 +153,6 @@ class Quartet(GenericRigidObj):
             for part in particles[np.array(self.recepie_dictB['circ'])]:
                 self.change_part_type(part,'circ')
                 part.q = -0.25
-
-            if self.params['bond_handle'] is not None:
-                for part1, part2 in zip(particles[np.array(self.recepie_dictB['squareA'])], particles[np.array(self.recepie_dictB['squareB'])]):
-                    pass
-                    # self.change_part_type(part1,'squareA')
-                    # self.change_part_type(part2,'squareB')
-            else:
-                for part in particles[np.array(self.recepie_dictB['squareA'])]:
-                    self.change_part_type(part,'squareA')
-
-                for part in particles[np.array(self.recepie_dictB['squareB'])]:
-                    self.change_part_type(part,'squareB')
 
             for key, values in self.recepie_dictB['assoc'].items():
                 np.vectorize(lambda real, virts: virts.vs_auto_relate_to(real))(
@@ -257,7 +229,7 @@ class Quadriplex(metaclass=Simulation_Object):
         n_parts=3,
         size=6.,
         bonding_mode='ftf',
-        bond_handle=BondWrapper(espressomd.interactions.FeneBond(k=0, r_0=0, d_r_max=0)),
+        bond_handle=BondWrapper(espressomd.interactions.FeneBond(k=10., r_0=2., d_r_max=2*1.5)),
     )
 
     def __init__(self, config: ObjectConfigParams):
@@ -288,21 +260,21 @@ class Quadriplex(metaclass=Simulation_Object):
 
         '''
         if self.has_been_set:
-            raise RuntimeError(f'object {self.__class__.__name__} wiht id {self.who_am_i} was attempted to be set but it already exists!!!')
+            raise RuntimeError(f'object {self.__class__.__name__} with id {self.who_am_i} was attempted to be set but it already exists!!!')
         assert self.params['n_parts'] == 3, "a quadriplex can only be created from 3 quartets!!! "
         assert all([x.simulation_type==self.associated_objects[0].simulation_type for x in self.associated_objects[1:]]), 'all objects must have the same simulation type!'
         type_str=self.associated_objects[0].simulation_type.key
 
         p_central = self.associated_objects[0].set_object(
             pos, ori, triplet=self.who_am_i)
-        p_top = self.associated_objects[1].set_object(pos+self.params['bond_handle'].r_0*ori,
-                                                       ori, triplet=self.who_am_i)
-        p_bottom = self.associated_objects[2].set_object(pos-self.params['bond_handle'].r_0*ori,
-                                                          ori, triplet=self.who_am_i)
+        p_top = self.associated_objects[1].set_object(
+            pos+self.params['bond_handle'].r_0*ori, ori, triplet=self.who_am_i)
+        p_bottom = self.associated_objects[2].set_object(
+            pos-self.params['bond_handle'].r_0*ori, ori, triplet=self.who_am_i)
         if self.params['bonding_mode'] == 'ctc':
-            self.bond_quartets_center_to_center()
+            self._bond_quartets_center_to_center()
         if self.params['bonding_mode'] == 'ftf':
-            self.bond_quartets_corner_to_corner()
+            self._bond_quartets_corner_to_corner()
         self.has_been_set=True
         return self
          
@@ -317,7 +289,7 @@ class Quadriplex(metaclass=Simulation_Object):
         part_hndl_b.vs_auto_relate_to(triples[2].type_part_dict['real'][0])
         part_hndl_a.add_exclusion(part_hndl_b.id)        
  
-    def bond_quartets_center_to_center(self):
+    def _bond_quartets_center_to_center(self):
         assert len(
             self.associated_objects) == 3, "a quadriplex can only be created from 3 quartets!!! "
         assert self.params['bonding_mode'] == 'ctc', 'this method is only valid for center to center bonding!!!'
@@ -325,7 +297,7 @@ class Quadriplex(metaclass=Simulation_Object):
 
         self.bond_owned_part_pair(self.associated_objects[0].type_part_dict['real'][0], self.associated_objects[2].type_part_dict['real'][0])
 
-    def bond_quartets_corner_to_corner(self):
+    def _bond_quartets_corner_to_corner(self):
         assert len(
             self.associated_objects) == 3, "a quadriplex can only be created from 3 quartets!!! "
         assert self.params['bonding_mode'] == 'ftf', 'this method is only valid for corner to corner bonding!!!'
@@ -356,8 +328,6 @@ class Quadriplex(metaclass=Simulation_Object):
             self.bond_owned_part_pair(candidate1[p1_id], candidate3[p2_id])
 
     def add_bending_potential(self, bending_potential_handle):
-        assert len(
-            self.associated_objects) == 3, "a quadriplex can only be created from 3 quartets!!! "
         self.bending_potential_handle=bending_potential_handle
         logging.info(f'adding bending potential to {self.__class__.__name__} with id {self.who_am_i}')
         if self.params['bonding_mode'] == 'ctc':
@@ -450,6 +420,13 @@ class Quadriplex(metaclass=Simulation_Object):
             return min(tied_corners, key=lambda part: part.id)
         return candidate_corners[closest_indices[0]]
 
+    def _require_broken_quartets_with_patches(self, method_name):
+        for quartet in self.associated_objects:
+            if quartet.params['type'] not in ['brokenA', 'brokenB']:
+                raise RuntimeError(f'{method_name} requires quadriplex made from broken quartets.')
+            if 'squareA' not in quartet.part_types or 'squareB' not in quartet.part_types:
+                raise RuntimeError(f'{method_name} requires squareA and squareB patch particle types to be declared on each quartet.')
+
     def _add_dihedrals_between(self, q_src, q_dst, dihedral_handle, target_phase=np.pi/2.):
         src_patch_map = self._build_corner_patch_map(q_src)
         dst_patch_map = self._build_corner_patch_map(q_dst)
@@ -507,21 +484,17 @@ class Quadriplex(metaclass=Simulation_Object):
             else:
                 dst_patches[dst_key].add_bond((dihedral_handle, dst_corner, src_corner, src_patches[src_key]))
         
-    def add_dihedrals(self):
-        assert len(
-            self.associated_objects) == 3, "a quadriplex can only be created from 3 quartets!!! "
+    def add_dihedrals(self, dihedral_potential_handle):
+        self._require_broken_quartets_with_patches('add_dihedrals')
         center_quartet = self.associated_objects[0]
         top_quartet = self.associated_objects[1]
         bottom_quartet = self.associated_objects[2]
 
-        dihedral = espressomd.interactions.Dihedral(bend=10, mult=1, phase=np.pi/2.)
-        self.sys.bonded_inter.add(dihedral)
-        self._add_dihedrals_between(top_quartet, center_quartet, dihedral, target_phase=np.pi/2.)
-        self._add_dihedrals_between(center_quartet, bottom_quartet, dihedral, target_phase=np.pi/2.)
+        self._add_dihedrals_between(top_quartet, center_quartet, dihedral_potential_handle, target_phase=np.pi/2.)
+        self._add_dihedrals_between(center_quartet, bottom_quartet, dihedral_potential_handle, target_phase=np.pi/2.)
 
-    def add_extra_bendings(self):
-        angle_another = espressomd.interactions.AngleHarmonic(bend=10.0, phi0=np.pi/2.)
-        self.sys.bonded_inter.add(angle_another)
+    def add_extra_bendings(self, bending_potential_handle):
+        self._require_broken_quartets_with_patches('add_extra_bendings')
         center_quartet = self.associated_objects[0]
         top_quartet = self.associated_objects[1]
         bottom_quartet = self.associated_objects[2]
@@ -533,20 +506,20 @@ class Quadriplex(metaclass=Simulation_Object):
         for ref_corner in top_quartet.corner_particles:
             closest_corner = self._nearest_corner(ref_corner, center_quartet.corner_particles)
             ref_patches = top_patch_map[ref_corner.id]
-            ref_corner.add_bond((angle_another, ref_patches['squareB'], closest_corner))
-            ref_corner.add_bond((angle_another, ref_patches['squareA'], closest_corner))
+            ref_corner.add_bond((bending_potential_handle, ref_patches['squareB'], closest_corner))
+            ref_corner.add_bond((bending_potential_handle, ref_patches['squareA'], closest_corner))
 
         for ref_corner in center_quartet.corner_particles:
             closest_corner = self._nearest_corner(ref_corner, bottom_quartet.corner_particles)
             ref_patches = center_patch_map[ref_corner.id]
-            ref_corner.add_bond((angle_another, ref_patches['squareB'], closest_corner))
-            ref_corner.add_bond((angle_another, ref_patches['squareA'], closest_corner))
+            ref_corner.add_bond((bending_potential_handle, ref_patches['squareB'], closest_corner))
+            ref_corner.add_bond((bending_potential_handle, ref_patches['squareA'], closest_corner))
 
         for ref_corner in bottom_quartet.corner_particles:
             closest_corner = self._nearest_corner(ref_corner, center_quartet.corner_particles)
             ref_patches = bottom_patch_map[ref_corner.id]
-            ref_corner.add_bond((angle_another, ref_patches['squareB'], closest_corner))
-            ref_corner.add_bond((angle_another, ref_patches['squareA'], closest_corner))
+            ref_corner.add_bond((bending_potential_handle, ref_patches['squareB'], closest_corner))
+            ref_corner.add_bond((bending_potential_handle, ref_patches['squareA'], closest_corner))
 
 
     

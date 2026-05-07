@@ -53,7 +53,10 @@ sim_inst.sys.integrator.run(2)
 assert np.array_equal(sim_inst.sys.part.all().pos, pos), f"{sim_inst.sys.part.all().pos},\n{pos}"
 assert np.array_equal(sim_inst.sys.part.all().dip, dip), f"{sim_inst.sys.part.all().dip},\n{dip}"
 
-sim_inst.sys.part.clear()
+sim_inst.reinitialize_instance()
+sim_inst.sys.box_l = box_l
+sim_inst.seed = 1
+sim_inst.set_sys(timestep=0.1)
 
 if HAS_SUPERPARA_FEATURES:
     config_pds = PointDipoleSuperpara.config.specify(
@@ -94,4 +97,4 @@ if HAS_SUPERPARA_FEATURES:
     poss_for_next_test = sim_inst.sys.part.select(type=sim_inst.part_types['pds_virt']).pos
     dips_for_next_test = sim_inst.sys.part.select(type=sim_inst.part_types['pds_virt']).dip
 
-    sim_inst.sys.part.clear()
+    sim_inst.reinitialize_instance()

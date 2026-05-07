@@ -9,6 +9,7 @@ class PointDipoleTest(BaseTestCase):
         dipm=1.2, size=2., espresso_handle=sim_inst.sys)
 
     def tearDown(self) -> None:
+        self.mag_part=None
         self.cleanup()
         self.assertEqual(len(sim_inst.sys.part),0)
     
@@ -29,7 +30,8 @@ if all(api_agnostic_feature_check(feature) for feature in PointDipoleSuperpara.r
             dipm=1., Xi_0=0.1, size=0.5, espresso_handle=sim_inst.sys)
 
         def tearDown(self) -> None:
-            sim_inst.reinitialize_instance()
+            self.mag_part=None
+            self.cleanup()
             self.assertEqual(len(sim_inst.sys.part),0)
         
         def setUp(self) -> None:
