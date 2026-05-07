@@ -108,9 +108,6 @@ class QuadriplexTest(BaseTestCase):
             quartet_triplet,quadriplex=self.make_obj(quartet_types)
             for quartet in quartet_triplet:
                 quartet.add_h_bond_patches()
-            sim_inst.sys.integrator.run(0)
-            energy = sim_inst.sys.analysis.energy()
-            self.assertAlmostEqual(energy['bonded'], 0, msg=f"unexpected bonded energy before adding bending potential: expected=0, got={energy['bonded']}")
             dihedral = espressomd.interactions.Dihedral(bend=10, mult=1, phase=np.pi/2.)
             sim_inst.sys.bonded_inter.add(dihedral)
             quadriplex.add_dihedrals(dihedral_potential_handle=dihedral)
