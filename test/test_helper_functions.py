@@ -1,9 +1,49 @@
-import numpy as np
-
-from pressomancy.simulation import partition_cuboid_volume, get_neighbours, get_neighbours_cross_lattice
 from create_system import BaseTestCase
+import numpy as np
+from pressomancy.helper_functions import get_perpendicular, partition_cuboid_volume, get_neighbours, get_neighbours_cross_lattice
+
+class HelperFunctionsTest(BaseTestCase):
+
+    box_len=np.array([2.5, 2.5, 2.5])
+    num_vol_all=14
+    num_vol_side=5
+
+    sph_diam=1
+    sph_rad=0.5*sph_diam
+
+    def test_get_perpendicular_random_path_returns_unit_perpendicular(self):
+        vec = np.array([0.3, -0.4, 0.5])
+        unit_vec = vec / np.linalg.norm(vec)
+        results = []
+        for _ in range(8):
+            perp = get_perpendicular(vec, phi=None)
+            results.append(perp)
+            self.assertTrue(np.isclose(np.linalg.norm(perp), 1.0))
+            self.assertTrue(np.isclose(np.dot(perp, unit_vec), 0.0, atol=1e-10))
+        # With uniform random phi, at least one sample should differ from the first.
+        self.assertTrue(any(not np.allclose(results[0], sample) for sample in results[1:]))
+
+    def test_get_perpendicular_fixed_phi_is_deterministic(self):
+        vec = np.array([0.2, 0.6, -0.3])
+        perp_1 = get_perpendicular(vec, phi=np.pi / 3.0)
+        perp_2 = get_perpendicular(vec, phi=np.pi / 3.0)
+        unit_vec = vec / np.linalg.norm(vec)
+        self.assertTrue(np.allclose(perp_1, perp_2))
+        self.assertTrue(np.isclose(np.linalg.norm(perp_1), 1.0))
+        self.assertTrue(np.isclose(np.dot(perp_1, unit_vec), 0.0, atol=1e-10))
+
+    def test_get_perpendicular_phi_zero_matches_expected_base_projection(self):
+        vec_z = np.array([0.0, 0.0, 1.0])
+        perp_z = get_perpendicular(vec_z, phi=0.0)
+        self.assertTrue(np.allclose(perp_z, np.array([1.0, 0.0, 0.0])))
+
+        vec_x = np.array([1.0, 0.0, 0.0])
+        perp_x = get_perpendicular(vec_x, phi=0.0)
+        self.assertTrue(np.allclose(perp_x, np.array([0.0, 1.0, 0.0])))
+
 
 class PartitioningTest(BaseTestCase):
+
     box_len=np.array([2.5, 2.5, 2.5])
     num_vol_all=14
     num_vol_side=5
@@ -21,14 +61,14 @@ class PartitioningTest(BaseTestCase):
         self.assertEqual(neigh_sets,control_sets,'the get_neighbour method failed to reproduce correct neighbour pairs for a single face of an fcc lattice')
 
     def test_get_neighbours_cross_lattice(self):
-        
+
         control={0: [0, 2, 5, 6], 1: [1, 2, 5, 7], 2: [0, 1, 2, 3, 4, 5, 6, 7, 8], 3: [2, 3, 6, 8], 4: [2, 4, 7, 8]}
         sphere_centers_long, _,_=partition_cuboid_volume(np.ones(3) * self.box_len,self.num_vol_all,self.sph_diam,flag='norand')
 
         sphere_centers_short, _,_=partition_cuboid_volume(np.ones(3) * self.box_len,self.num_vol_side,self.sph_diam,flag='norand')
 
         neigh=get_neighbours_cross_lattice(sphere_centers_short,sphere_centers_long,np.ones(3) * self.box_len,cuttoff=self.sph_diam)
-        self.assertEqual(neigh,control,'the get_neighbour method failed to reproduce correct neighbour pairs for a single face of an fcc lattice')  
+        self.assertEqual(neigh,control,'the get_neighbour method failed to reproduce correct neighbour pairs for a single face of an fcc lattice')
 
     def test_get_neighbours_rectangular(self):
         box = self.rect_box
@@ -120,7 +160,7 @@ class PartitioningTest(BaseTestCase):
 
         expected = {0: [0, 1], 1: [2]}
         self.assertEqual(neigh, expected)
-        
+
 # control={0: [0, 1, 2, 3, 5, 6, 9],
         #      1: [ 0,  1,  2,  4,  5,  7, 10],
         #      2: [ 0,  1,  2,  3,  4,  5,  6,  7,  8, 11],

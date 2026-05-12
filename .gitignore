@@ -5,4 +5,4 @@ tests.ipynb
 technical_description.txt
 .coverage
 doc/sphinx/build
-venv/
+AGENT.md

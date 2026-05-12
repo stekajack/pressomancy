@@ -1,1 +1,1 @@
-from pressomancy.analysis.data_analysis import H5DataSelector
+from pressomancy.analysis.data_analysis import H5DataSelector, H5ObservableSelector

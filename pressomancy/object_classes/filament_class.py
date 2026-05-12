@@ -132,7 +132,6 @@ class Filament(metaclass=Simulation_Object):
         self.__class__.part_types.update({'to_be_magnetized': 3})
         if self.associated_objects!=None:
             assert all([type_name in x.part_types.keys() for x in self.associated_objects]), 'type key must exist in the part_types of all associated monomers!'
-            warnings.warn('add_anchors should be used with caution for generic objects')
             for obj in self.associated_objects:
                 handles.extend(obj.type_part_dict[type_name])
         else:
@@ -155,16 +154,6 @@ class Filament(metaclass=Simulation_Object):
         for x in handles:
             x.dip = Filament.dip_magnitude*x.director
 
-    def center_filament(self):
-        list_parts =self.type_part_dict['real']
-        ref_index = int(self.params['n_parts']*0.5)
-        ref_pos = list_parts[ref_index].pos
-        shift = ref_pos
-        for elem in list_parts:
-            elem.pos = elem.pos-shift
-        self.sys.integrator.run(steps=0)
-        logging.info('center_filament() moved parts')
-
     def bond_center_to_center(self, type_name):
         
         if self.associated_objects!=None:
@@ -179,14 +168,20 @@ class Filament(metaclass=Simulation_Object):
 
     def bond_nearest_part(self, type_name):
         '''
-        Docstring for bond_nearest_part
-        
-        :param self: Description
-        :type self:  
-        :param bond_handle: Description
-        :type bond_handle:  
-        :param type_name: Description
-        :type type_name:  '''
+        Bond adjacent associated objects through their nearest particles.
+
+        This method is only valid for filaments built from associated objects.
+        For each adjacent object pair, the midpoint between the objects'
+        ``real`` particle centroids is used as the reference position. The
+        particle of ``type_name`` closest to that midpoint is selected from
+        each object, and the selected pair is bonded with the filament's
+        configured ``bond_handle``. Exactly one particle pair is bonded for
+        each adjacent object pair; if multiple particles are equally close,
+        the first pair in the sorted particle order is used.
+
+        :param type_name: particle type key to select from each associated object
+        :type type_name: str
+        '''
         assert all([type_name in x.part_types.keys() for x in self.associated_objects]), 'type key must exist in the part_types of all associated monomers!'
         assert self.associated_objects != None, 'self.associated_objects must not be None for this method ot work correctly'
         len_sq=pow(self.associated_objects[0].params['n_parts'],2)
@@ -201,6 +196,24 @@ class Filament(metaclass=Simulation_Object):
             self.bond_owned_part_pair(x,y)
     
     def add_bending_potential(self, type_name, bond_handle):
+        '''
+        Add angle bonds along the filament particle sequence.
+
+        The bending sequence is built from particles of ``type_name``. For a
+        plain filament, particles are taken from this filament's
+        ``type_part_dict``. For a filament built from associated objects, the
+        particles are flattened in associated-object order, preserving each
+        object's local ``type_part_dict[type_name]`` order.
+
+        The provided angle interaction is added to the system if needed. Each
+        interior particle receives one angle bond to its next and previous
+        neighbors in the flattened sequence; the first and last particles do
+        not receive bending bonds.
+
+        :param type_name: particle type key used to build the bending sequence
+        :type type_name: str
+        :param bond_handle: ESPResSo angle interaction handle to add as bonds
+        '''
         flat_part_list=[]
         if self.associated_objects!=None:
             for obj in self.associated_objects:

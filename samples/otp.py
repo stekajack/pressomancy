@@ -25,7 +25,7 @@ opts = [OTP(config=OTP.config.specify(espresso_handle=sim_inst.sys)) for _ in ra
 sim_inst.store_objects(opts)
 sim_inst.set_objects(opts)
 
-sim_inst.set_vdW(key=('otp',), lj_eps=lj_eps, lj_size=lj_sig)
+sim_inst.set_vdW(key=('otp',), lj_eps=lj_eps, lj_sigma=lj_sig)
 sim_inst.sys.integrator.set_vv()
 sim_inst.sys.thermostat.set_langevin(kT=kT, gamma=1.0, seed=sim_inst.seed)
 

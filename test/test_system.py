@@ -12,7 +12,7 @@ class SimulationTest(BaseTestCase):
     sph_rad=0.5*sph_diam
     
     def tearDown(self) -> None:
-        sim_inst.reinitialize_instance()
+        self.cleanup()
 
     def test_store_set_del_objects(self):
         classes = [member for name, member in inspect.getmembers(pressomancy.object_classes, inspect.isclass)]

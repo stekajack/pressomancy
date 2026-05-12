@@ -23,6 +23,10 @@ class H5DataSelector:
       # Retrieve property data (e.g., positions):
       pos = data.pos  # This calls get_property("pos")
 
+      # Retrieve saved frame counters and physical times:
+      step = data.step
+      time = data.time
+
       # Connectivity-based particle selection:
       filament_particles = data.select_particles_by_object("Filament", connectivity_value=0)
       monomer_subset = filament_particles.particles[10:20].timestep[5]
@@ -36,6 +40,8 @@ class H5DataSelector:
 
     **Notes:**
       - Direct indexing on a top-level H5DataSelector is disallowed to ensure explicit axis selection. Use the accessor properties (.timestep or .particles) for slicing.
+      - `.timestep[...]` slices by frame index on axis 0. It does not query the stored HDF5 `step` or `time` datasets.
+      - `.step` and `.time` read from the particle group's `pos/step` and `pos/time` datasets. These are treated as the canonical particle timeline; the writer stores the same step/time values for every particle property in a frame.
       - Iteration and len() are only defined on the accessor objects.
       - Connectivity predicates are evaluated on the current H5DataSelector view. They select particles, not timesteps: the returned selector preserves the current timestep slice and only narrows the particle slice.
     
@@ -167,6 +173,14 @@ class H5DataSelector:
         """
         return TimestepAccessor(self)
 
+    def _with_timestep(self, ts_slice):
+        return H5DataSelector(
+            self.h5_file,
+            self.particle_group,
+            ts_slice=ts_slice,
+            pt_slice=self.pt_slice,
+        )
+
     @property
     def particles(self):
         """
@@ -199,7 +213,36 @@ class H5DataSelector:
         ds = self.h5_file[ds_path]
         time_selected = ds[self.ts_slice, :, :]
         return time_selected[:, self.pt_slice, :] if time_selected.ndim == 3 else time_selected[self.pt_slice, :]
+
+    @property
+    def step(self):
+        """Return saved frame counters from the particle group's canonical `pos/step` dataset."""
+        ds = self.h5_file[f"particles/{self.particle_group}/pos/step"]
+        return ds[self.ts_slice]
+
+    @property
+    def time(self):
+        """Return saved physical times from the particle group's canonical `pos/time` dataset."""
+        ds = self.h5_file[f"particles/{self.particle_group}/pos/time"]
+        return ds[self.ts_slice]
     
+    def get_box(self):
+        """Return fixed-box metadata for the current particle group."""
+        box_path = f"particles/{self.particle_group}/box"
+        box_group = self.h5_file[box_path]
+        dimension = int(box_group.attrs["dimension"])
+        boundary_raw = np.atleast_1d(box_group.attrs["boundary"]).tolist()
+        boundary = tuple(
+            item.decode("ascii") if isinstance(item, bytes) else str(item)
+            for item in boundary_raw
+        )
+        edges = np.asarray(box_group["edges"][:], dtype=np.float64)
+        return {
+            "dimension": dimension,
+            "boundary": boundary,
+            "edges": edges,
+        }
+
     def get_connectivity_values(self, object_name, predicate=None, fast=False):
         """
         Return object IDs present in ``ParticleHandle_to_<object_name>``.
@@ -442,19 +485,117 @@ class H5DataSelector:
                 f"ts_slice={self.ts_slice}, pt_slice={self.pt_slice})>")
 
 
+class H5ObservableSelector:
+    """
+    A simplified interface to access observable data stored in an HDF5 file.
+
+    The selector maintains internal slice information for the timestep axis only
+    and exposes direct access to the stored ``step``, ``time``, and ``value``
+    datasets under ``/observables/<name>``.
+    """
+    def __init__(self, h5_file, observable_name, ts_slice=None):
+        self.h5_file = h5_file
+        self.observable_name = observable_name
+        self.metadata = self._build_h5_tree(h5_file)
+        self.common_dims = self.sanity_check(self.metadata, self.observable_name)
+        self.ts_slice = ts_slice if ts_slice is not None else slice(None)
+
+    def __getitem__(self, key):
+        raise TypeError(
+            "Direct indexing on a H5ObservableSelector is not allowed. "
+            "Use the 'timestep' accessor for slicing instead."
+        )
+
+    def _build_h5_tree(self, obj):
+        tree = {}
+        if isinstance(obj, h5py.Group):
+            tree['_meta'] = {
+                'type': 'Group',
+                'members': list(obj.keys())
+            }
+            for key, item in obj.items():
+                tree[key] = self._build_h5_tree(item)
+        elif isinstance(obj, h5py.Dataset):
+            tree = {
+                'type': 'Dataset',
+                'shape': obj.shape,
+                'dtype': str(obj.dtype),
+                'attributes': {attr: obj.attrs[attr] for attr in obj.attrs}
+            }
+        return tree
+
+    def sanity_check(self, metadata, observable_name):
+        try:
+            observable_meta = metadata['observables'][observable_name]
+        except KeyError:
+            raise ValueError(f"Observable '{observable_name}' not found in metadata.")
+
+        try:
+            step_shape = observable_meta['step']['shape']
+            time_shape = observable_meta['time']['shape']
+            value_shape = observable_meta['value']['shape']
+        except KeyError as exc:
+            raise ValueError(
+                f"Observable '{observable_name}' must contain step, time, and value datasets."
+            ) from exc
+
+        common_dims = (step_shape[0], time_shape[0], value_shape[0])
+        if len(set(common_dims)) != 1:
+            raise ValueError(
+                f"Observable '{observable_name}' has inconsistent step/time/value lengths: {common_dims}"
+            )
+        return (value_shape[0],)
+
+    def __iter__(self):
+        raise TypeError("H5ObservableSelector objects are not iterable. Use the '.timestep' accessor for iteration.")
+
+    def __len__(self):
+        raise TypeError("len() is ambiguous on H5ObservableSelector objects. Use '.timestep' to get the number of selected frames.")
+
+    @property
+    def timestep(self):
+        return TimestepAccessor(self)
+
+    def _with_timestep(self, ts_slice):
+        return H5ObservableSelector(
+            self.h5_file,
+            self.observable_name,
+            ts_slice=ts_slice,
+        )
+
+    @property
+    def value(self):
+        ds = self.h5_file[f"observables/{self.observable_name}/value"]
+        return ds[self.ts_slice, ...]
+
+    @property
+    def step(self):
+        ds = self.h5_file[f"observables/{self.observable_name}/step"]
+        return ds[self.ts_slice]
+
+    @property
+    def time(self):
+        ds = self.h5_file[f"observables/{self.observable_name}/time"]
+        return ds[self.ts_slice]
+
+    def __repr__(self):
+        return (f"<H5ObservableSelector(observable_name={self.observable_name}, "
+                f"ts_slice={self.ts_slice})>")
+
+
 class TimestepAccessor:
     """
-    An accessor for slicing and iterating over timesteps of a H5DataSelector.
+    An accessor for slicing and iterating over timesteps of an HDF5 selector.
 
-    It composes new timestep slices with any existing slice and enables iteration
-    where each iteration yields a H5DataSelector corresponding to a single timestep.
+    It composes new timestep slices with any existing slice and delegates selector
+    reconstruction to the parent selector.
     """
     def __init__(self, sim_data):
         """
         Initialize the TimestepAccessor.
 
         Args:
-            sim_data (H5DataSelector): The parent data selector instance.
+            sim_data (H5DataSelector or H5ObservableSelector): The parent selector.
         """
         self.sim_data = sim_data
 
@@ -466,21 +607,23 @@ class TimestepAccessor:
             key (int, slice, or list/tuple): The new timestep index or slice.
 
         Returns:
-            H5DataSelector: A new selector with the updated timestep slice.
+            H5DataSelector or H5ObservableSelector: A new selector with the
+            updated timestep slice.
 
         Raises:
             IndexError: If the new index is out of bounds relative to the effective timestep indices.
         """
         total_timesteps = self.sim_data.common_dims[0]
         composed = _compose_index(self.sim_data.ts_slice, key, total_timesteps)
-        return H5DataSelector(self.sim_data.h5_file, self.sim_data.particle_group, ts_slice=composed, pt_slice=self.sim_data.pt_slice)
+        return self.sim_data._with_timestep(composed)
 
     def __iter__(self):
         """
         Iterate over the effective timestep indices.
 
         Yields:
-            H5DataSelector: Each selector has ts_slice set to a single timestep.
+            H5DataSelector or H5ObservableSelector: Each selector has ts_slice set
+            to a single timestep.
         """
         total_timesteps = self.sim_data.common_dims[0]
         ts_slice = self.sim_data.ts_slice
@@ -491,7 +634,7 @@ class TimestepAccessor:
         else:
             indices = [ts_slice]
         for idx in indices:
-            yield H5DataSelector(self.sim_data.h5_file, self.sim_data.particle_group, ts_slice=idx, pt_slice=self.sim_data.pt_slice)
+            yield self.sim_data._with_timestep(idx)
 
     def __len__(self):
         """

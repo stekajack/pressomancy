@@ -18,13 +18,14 @@ from collections import Counter
 import shutil
 from pathlib import Path
 import inspect
+from numbers import Integral
 
 @ManagedSimulation
 class Simulation():
     """
     A singleton class designed to manage and simulate a suspension of objects within the ESPResSo molecular dynamics framework.
 
-    The `Simulation` class encapsulates the ESPResSo system and provides methods to configure the simulation, manage objects, and apply various interactions and constraints. It maintains a dictionary of simulation objects, tracks their properties, and delegates object-specific operations to the appropriate methods. 
+    The `Simulation` class encapsulates the ESPResSo system and provides methods to configure the simulation, manage objects, and apply various interactions and constraints. It maintains a dictionary of simulation objects, tracks their properties, and delegates object-specific operations to the appropriate methods.
 
     Key features include:
     - Managing particle types and their properties.
@@ -79,10 +80,10 @@ class Simulation():
         set_steric_custom(pairs, wca_eps, sigma):
             Configures custom WCA interactions for specific particle type pairs.
 
-        set_vdW(key, lj_eps, lj_size):
+        set_vdW(key, lj_eps, lj_sigma):
             Sets Lennard-Jones interactions for specified particle types.
 
-        set_vdW_custom(pairs, lj_eps, lj_size):
+        set_vdW_custom(pairs, lj_eps, lj_sigma):
             Configures custom Lennard-Jones interactions for specific particle type pairs.
 
         init_lb(kT, agrid, dens, visc, gamma, timestep):
@@ -117,7 +118,7 @@ class Simulation():
         - Many methods rely on specific attributes or methods being implemented in the stored objects. This is why any object that is to be safely used by Simulation should use the SimulationObject metaclass.
         - This class is designed to be extensible for different types of interactions and constraints.
     """
-    
+
     object_permissions=['part_types']
     _sys=espressomd.System
     def __init__(self, box_dim):
@@ -129,12 +130,18 @@ class Simulation():
         self.part_positions=[]
         self.volume_size=None
         self.volume_centers=[]
-        self.io_dict={'h5_file': None,'properties':[('id',1), ('type',1), ('pos',3),('pos_folded',3), ('director',3),('image_box',3), ('f',3),('dip',3)],'flat_part_view':defaultdict(list),'registered_group_type': None}
+        self.io_dict={
+            'h5_file': None,
+            'properties':[('id',1), ('type',1), ('pos',3),('pos_folded',3), ('director',3),('image_box',3), ('f',3),('dip',3)],
+            'flat_part_view':defaultdict(list),
+            'registered_group_type': None,
+            'registered_observables': {},
+        }
         self.src_params_set=False
         self.author_name="unknown"
         self.author_email="unknown"
         # self.sys=espressomd.System(box_l=box_dim) is added and managed by the singleton decrator!
-    
+
     def set_init_src(self, path, pos_ori_src_type=['real',], type_to_type_map=[], prop_to_prop_map=[], declare_types=[]):
         self.src_path_h5=path
         self.pos_ori_src_type=pos_ori_src_type
@@ -144,7 +151,7 @@ class Simulation():
         for typ_decl in declare_types:
             for x,y in typ_decl.items():
                 self.part_types[x]=y
-    
+
     def set_sys(self, timestep=0.01, min_global_cut=3.0, have_quaternion=False):
         '''
         Set espresso cellsystem params, and import virtual particle scheme. Run automatically on initialisation of the System class.
@@ -179,7 +186,7 @@ class Simulation():
         '''
         Method that checks if the object has the required features to be stored in the simulation. If the object has the required features it is stored in the self.objects list.
         '''
-        
+
         if not all(api_agnostic_feature_check(feature) for feature in object.required_features):
             raise MissingFeature(f'{object.__class__.__name__} requires features: ',object.required_features)
 
@@ -197,7 +204,7 @@ class Simulation():
                 if check_any:
                     check_all=all(associated in self.objects for associated in element.params['associated_objects'])
                     if not check_all:
-                        raise ValueError(f"Some associated objects {element.params['associated_objects']} but not all  associated objects are stored in the simulation. This is a sign that smth major is fucked...Suffer in silence.")
+                        raise ValueError(f"Some associated objects {element.params['associated_objects']} but not all associated objects are stored in the simulation. This is a sign that smth major is fucked...Suffer in silence.")
                 else:
                     self.store_objects(element.params['associated_objects'],report=False)
             assert element not in self.objects, "Lists have common elements!"
@@ -231,11 +238,11 @@ class Simulation():
         -----
         The current implementation supports placing objects either in an empty system or in a system with exactly one previous partition. The method uses partition_cuboid_volume to generate positions and orientations, and for subsequent placements, ensures no overlaps with existing objects through get_cross_lattice_nonintersecting_volumes. The method automatically adjusts the search space (by increasing the factor) if it cannot find enough non-overlapping positions in subsequent placements.
         """
-        
+
         # Ensure all objects are of the same type.
         assert all(isinstance(item, type(objects[0])) for item in objects), "Not all items have the same type!"
         if mode=="INIT_SRC":
-            positions, orientations=self.get_pos_ori_from_src(objects)
+            positions, orientations=self._get_pos_ori_from_src(objects)
         else:
             # centeres, polymer_positions = partition_cubic_volume_oriented_rectangles(big_box_dim=self.sys.box_l, num_spheres=len(filaments), small_box_dim=np.array([filaments[0].sigma, filaments[0].sigma, filaments[0].size]), num_monomers=filaments[0].n_parts)
             if len(self.part_positions)== 0:
@@ -278,7 +285,7 @@ class Simulation():
                         logging.info('Failed to find enough space; (found, needed): (%d, %d). Will retry by requesting %d times the number of parts', len(positions), len(objects),factor)
             else:
                 raise NotImplementedError('The repartitioning scheme can currently handle only the case where one previos partition exists. More than than is still not supported')
-        
+
         for obj, pos, ori in zip(objects, positions, orientations):
             obj.set_object(pos, ori)
         names = [element.__class__.__name__ for element in objects]
@@ -330,7 +337,7 @@ class Simulation():
         """
         Configures custom Weeks-Chandler-Andersen (WCA) interactions for specified particle type pairs.
 
-        This method explicitly sets the WCA interaction parameters (epsilon and sigma) for each pair of particle types provided. 
+        This method explicitly sets the WCA interaction parameters (epsilon and sigma) for each pair of particle types provided.
         It ensures that each interaction pair has corresponding epsilon and sigma values.
 
         :param pairs: list of tuples | List of particle type pairs (keys from `self.part_types`) for which interactions are defined. Defaults to [(None, None)].
@@ -346,26 +353,26 @@ class Simulation():
             self.sys.non_bonded_inter[self.part_types[key_el], self.part_types[key_el2]
                                       ].wca.set_params(epsilon=eps, sigma=sgm)
 
-    def set_vdW(self, key=('nonmagn',), lj_eps=1., lj_size=1.):
+    def set_vdW(self, key=('nonmagn',), lj_eps=1., lj_sigma=1.):
         """
         Configures Lennard-Jones (LJ) interactions for specified particle types.
 
-        This method sets the LJ interaction parameters (epsilon and sigma) for particle types listed in the `key` parameter. 
+        This method sets the LJ interaction parameters (epsilon and sigma) for particle types listed in the `key` parameter.
         The interaction cutoff is automatically set to 2.5 times the LJ size (sigma).
 
         :param key: tuple of str | Particle type keys from `self.part_types` for which interactions are defined. Defaults to ('nonmagn',).
         :param lj_eps: float | Strength of the LJ attraction (epsilon). Defaults to 1.0.
-        :param lj_size: float | Interaction range (sigma). Defaults to 1.0.
+        :param lj_sigma: float | Interaction range (sigma). Defaults to 1.0.
         :return: None
         """
 
-        lj_cut = 2.5*lj_size
+        lj_cut = 2.5*lj_sigma
         for key_el, key_el2 in combinations_with_replacement(key, 2):
             self.sys.non_bonded_inter[self.part_types[key_el], self.part_types[key_el2]].lennard_jones.set_params(
-                epsilon=lj_eps, sigma=lj_size, cutoff=lj_cut, shift=0)
+                epsilon=lj_eps, sigma=lj_sigma, cutoff=lj_cut, shift=0)
         logging.info(f'vdW interactions initiated initiated for keys: {key}')
 
-    def set_vdW_custom(self, pairs=[(None, None),], lj_eps=[1.,], lj_size=[1.,]):
+    def set_vdW_custom(self, pairs=[(None, None),], lj_eps=[1.,], lj_sigma=[1.,], lj_cuttoffs=None, r_min=0):
         """
         Custom setter for Lennard-Jones (LJ) interactions between specified particle type pairs.
 
@@ -373,18 +380,24 @@ class Simulation():
 
         :param pairs: list of tuples | Each tuple specifies a pair of keys from `self.part_types` for which interactions are defined. Defaults to [(None, None)].
         :param lj_eps: list of float | Strength of the LJ interaction for each pair. Defaults to [1.0].
-        :param lj_size: list of float | Interaction range (sigma) for each pair. Defaults to [1.0].
+        :param lj_sigma: list of float | Interaction range (sigma) for each pair. Defaults to [1.0].
         :return: None
 
-        :raises AssertionError: If the lengths of `pairs`, `lj_eps`, and `lj_size` are not equal.
+        :raises AssertionError: If the lengths of `pairs`, `lj_eps`, and `lj_sigma` are not equal.
         """
 
         assert len(pairs) == len(lj_eps) and len(pairs) == len(
-            lj_size), 'epsilon and sigma must be specified explicitly for each type pair'
-        for (key_el, key_el2), eps, sgm in zip(pairs, lj_eps, lj_size):
-            lj_cut = 1.5*sgm
-            self.sys.non_bonded_inter[self.part_types[key_el], self.part_types[key_el2]].lennard_jones.set_params(
-                epsilon=eps, sigma=sgm, cutoff=lj_cut, shift=0)
+            lj_sigma), 'epsilon and sigma must be specified explicitly for each type pair'
+        if lj_cuttoffs is None:
+            for (key_el, key_el2), eps, sgm in zip(pairs, lj_eps, lj_sigma):
+                lj_cut = 2.5*sgm
+                self.sys.non_bonded_inter[self.part_types[key_el], self.part_types[key_el2]].lennard_jones.set_params(
+                    epsilon=eps, sigma=sgm, cutoff=lj_cut, shift=0, min=r_min)
+        else:
+            assert len(pairs) == len(lj_cuttoffs), 'cutoffs must be specified explicitly for each type pair'
+            for (key_el, key_el2), eps, sgm, cut in zip(pairs, lj_eps, lj_sigma, lj_cuttoffs):
+                self.sys.non_bonded_inter[self.part_types[key_el], self.part_types[key_el2]].lennard_jones.set_params(
+                    epsilon=eps, sigma=sgm, cutoff=cut, shift=0, min=r_min)
         logging.info('vdW interactions initiated!')
 
     def init_lb(self, kT, agrid, dens, visc, gamma, timestep=0.01):
@@ -420,7 +433,7 @@ class Simulation():
             LB_fluid=lbf, gamma=gamma_MD, seed=self.seed)
         logging.info(f'LBM is set with the params {lbf.get_params()}.')
         return lbf
-    
+
     def create_flow_channel(self, slip_vel=(0, 0, 0)):
         """
         Sets up LB boundaries for a flow channel.
@@ -574,8 +587,8 @@ class Simulation():
         f = gzip.open(path_to_dump, 'wb')
         pickle.dump(dict_of_god, f, pickle.HIGHEST_PROTOCOL)
         f.close()
-    
-    def collect_instances_recursively(self, roots):
+
+    def _collect_instances_recursively(self, roots):
         """
         Traverse each root in `roots` and return a flat preorder list
         of every object reachable via `.associated_objects`.
@@ -601,8 +614,8 @@ class Simulation():
         """Set default author metadata for newly created HDF5 files."""
         self.author_name = name
         self.author_email = email
-             
-    def restore_part_types_from_metadata(self, h5_file, group_type):
+
+    def _restore_part_types_from_metadata(self, h5_file, group_type):
         """Restore ``part_types`` from optional HDF5 metadata or infer them from the file.
 
         If ``/parameters/pressomancy/part_types`` is present, it is used as the
@@ -658,7 +671,55 @@ class Simulation():
                 unmatched,
             )
 
-    def inscribe_part_group_to_h5(self, group_type=None, h5_data_path=None,mode='NEW',force_resize_to_size=None):
+    def _inscribe_h5_stream(self, mode, force_resize_to_size, setup, new_kernel,load_new_kernel, load_kernel, resize_kernel):
+        """Run the shared HDF5 inscription mode and resize lifecycle."""
+        if mode not in ('NEW', 'LOAD', 'LOAD_NEW', 'INIT_SRC'):
+            raise ValueError(f"Unknown mode: {mode}")
+        if force_resize_to_size is not None:
+            assert mode in ('LOAD', 'LOAD_NEW'), 'force_resize_to_size can only be used in LOAD or LOAD_NEW mode'
+
+        setup()
+
+        if mode in ['NEW', 'INIT_SRC']:
+            h5md_group = self.io_dict['h5_file'].require_group("h5md")
+            author_group = h5md_group.require_group("author")
+            creator_group = h5md_group.require_group("creator")
+            h5md_group.attrs["version"] = np.array([1, 0], dtype=np.int32)
+            author_group.attrs["name"] = self.author_name
+            author_group.attrs["email"] = self.author_email
+            creator_name, creator_version = get_submission_creator_info()
+            creator_group.attrs["name"] = creator_name
+            creator_group.attrs["version"] = creator_version
+            parameters_group = self.io_dict['h5_file'].require_group("parameters")
+            pressomancy_group = parameters_group.require_group("pressomancy")
+            _, pressomancy_version = get_repo_context(Path(__file__).resolve())
+            pressomancy_group.attrs["version"] = pressomancy_version
+            part_types_group = pressomancy_group.require_group("part_types")
+            for key, value in self.part_types.items():
+                if isinstance(value, (int, np.integer)):
+                    part_types_group.attrs[key] = int(value)
+            GLOBAL_COUNTER = new_kernel()
+        elif mode == 'LOAD_NEW':
+            GLOBAL_COUNTER = load_new_kernel()
+            logging.info(f"Loaded h5 file with GLOBAL_COUNTER={GLOBAL_COUNTER} ")
+        elif mode == 'LOAD':
+            GLOBAL_COUNTER = load_kernel()
+            logging.info(f"Loading h5 file with GLOBAL_COUNTER={GLOBAL_COUNTER} ")
+
+        if force_resize_to_size is not None:
+            assert type(force_resize_to_size) is int, 'force_resize_to_size must be an integer'
+            assert force_resize_to_size <= GLOBAL_COUNTER, 'force_resize_to_size must be smaller than or equal to the current number of timesteps saved in file'
+            if force_resize_to_size == GLOBAL_COUNTER:
+                logging.info(f'force_resize_to_size is equal to the current number of timesteps saved in file. No resizing will be done.')
+            else:
+                resize_kernel(force_resize_to_size)
+                self.io_dict['h5_file'].flush()
+                logging.info(f'Force resized all datasets from {GLOBAL_COUNTER} to size {force_resize_to_size}')
+                GLOBAL_COUNTER = force_resize_to_size
+
+        return GLOBAL_COUNTER
+
+    def inscribe_part_group_to_h5(self, group_type=None, h5_data_path=None,mode='NEW', force_resize_to_size=None):
         """
         Inscribe one or more groups of simulation objects into an HDF5 file.
 
@@ -680,6 +741,10 @@ class Simulation():
             - 'LOAD': open an existing file and resume writing using the legacy path.
             - 'LOAD_NEW': resume writing from HDF5 state and optional metadata.
             - 'INIT_SRC': create a new file while populating particle data from a source file.
+        force_resize_to_size : int or None, optional
+            If provided in 'LOAD' or 'LOAD_NEW' mode, truncate all registered
+            particle property datasets to this number of saved frames before
+            subsequent writes.
 
         Returns
         -------
@@ -696,50 +761,43 @@ class Simulation():
             If `group_type` is not a list.
         ValueError
             In load modes, if different groups have mismatched saved step counts.
+        AssertionError
+            If `force_resize_to_size` is used outside load modes, is not an
+            integer, or exceeds the number of saved frames.
 
         Notes
         -----
         In 'NEW' and 'INIT_SRC' modes the method writes optional H5MD-style root
-        metadata under ``/h5md`` together with pressomancy-specific metadata under
-        ``/parameters/pressomancy``. In 'LOAD_NEW' mode this metadata is used as a
-        convenience source for restoring ``part_types`` when available, but it is
-        not required for successful resume.
+        metadata under ``/h5md`` together with pressomancy-specific metadata under ``/parameters/pressomancy``. In 'LOAD_NEW' mode, this metadata is used as a convenience source for restoring ``part_types`` when available, but it is not required for successful resume.
         """
-        if not isinstance(group_type, list):
-            raise ValueError("group_type must be a list of classes.")
-        if mode not in ('NEW', 'LOAD', 'LOAD_NEW', 'INIT_SRC'):
-            raise ValueError(f"Unknown mode: {mode}")
-        if force_resize_to_size is not None:
-            assert mode=='LOAD_NEW', 'force_resize_to_size can only be used in LOAD_NEW mode'
-        self.io_dict['registered_group_type']=[grp_typ.__name__ for grp_typ in group_type]
+        def setup():
+            if not isinstance(group_type, list):
+                raise ValueError("group_type must be a list of classes.")
+            self.io_dict['registered_group_type']=[grp_typ.__name__ for grp_typ in group_type]
+            file_mode = "w" if mode in ['NEW', 'INIT_SRC'] else "a"
+            self.io_dict['h5_file'] = h5py.File(h5_data_path, file_mode)
 
-        if mode in ['NEW', 'INIT_SRC']:
-            self.io_dict['h5_file'] = h5py.File(h5_data_path, "w")
-            h5md_group = self.io_dict['h5_file'].require_group("h5md")
-            author_group = h5md_group.require_group("author")
-            creator_group = h5md_group.require_group("creator")
-            h5md_group.attrs["version"] = np.array([1, 0], dtype=np.int32)
-            author_group.attrs["name"] = self.author_name
-            author_group.attrs["email"] = self.author_email
-            creator_name, creator_version = get_submission_creator_info()
-            creator_group.attrs["name"] = creator_name
-            creator_group.attrs["version"] = creator_version
-            parameters_group = self.io_dict['h5_file'].require_group("parameters")
-            pressomancy_group = parameters_group.require_group("pressomancy")
-            _, pressomancy_version = get_repo_context(Path(__file__).resolve())
-            pressomancy_group.attrs["version"] = pressomancy_version
-            part_types_group = pressomancy_group.require_group("part_types")
-            for key, value in self.part_types.items():
-                if isinstance(value, (int, np.integer)):
-                    part_types_group.attrs[key] = int(value)
-            
+        def new_kernel():
             par_grp = self.io_dict['h5_file'].require_group(f"particles")
             for grp_typ in group_type:
                 data_grp = par_grp.require_group(grp_typ.__name__)
+                box_grp = data_grp.require_group("box")
+                box_grp.attrs["dimension"] = int(len(self.sys.box_l))
+                box_grp.attrs["boundary"] = np.array(
+                    ["periodic" if flag else "none" for flag in self.sys.periodicity],
+                    dtype=h5py.string_dtype(encoding="ascii"),
+                )
+                if "edges" in box_grp:
+                    del box_grp["edges"]
+                box_grp.create_dataset(
+                    "edges",
+                    data=np.asarray(self.sys.box_l, dtype=np.float64),
+                    dtype=np.float64,
+                )
                 connect_grp = self.io_dict['h5_file'].require_group(f"connectivity").require_group(grp_typ.__name__)
                 logging.info(f"Inscribe: Creating group {grp_typ.__name__} in HDF5 file.")
                 objects_to_register=[obj for obj in self.objects if isinstance(obj,grp_typ)]
-            
+
                 coordination_indices=[]
                 for cr in objects_to_register:
                     part,coord=cr.get_owned_part()
@@ -764,8 +822,8 @@ class Simulation():
                     )
                 # Create the connectivity for objects that own each other
                 pair_buckets = defaultdict(list)
-                
-                for obj in self.collect_instances_recursively(objects_to_register):
+
+                for obj in self._collect_instances_recursively(objects_to_register):
                     if not obj.associated_objects:
                         continue
                     left_name = obj.__class__.__name__
@@ -781,11 +839,11 @@ class Simulation():
                         dtype=np.int32,
                         maxshape=(arr.shape)
                     )
-                # Create the datasets for each property           
+                # Create the datasets for each property
                 for prop,dim in self.io_dict['properties']:
                     prop_group = data_grp.require_group(prop)
                     prop_group.create_dataset("step", shape=(0,), maxshape=(None,), dtype=np.int32)
-                    prop_group.create_dataset("time", shape=(0,), maxshape=(None,), dtype=np.float32)
+                    prop_group.create_dataset("time", shape=(0,), maxshape=(None,), dtype=np.float64)
                     prop_group.create_dataset(
                         "value",
                         shape=(0, total_part_num, dim),  # Store all particles in a single dataset
@@ -795,12 +853,10 @@ class Simulation():
                         compression="gzip",
                         compression_opts=4
                     )
-            GLOBAL_COUNTER=0
+            return 0
 
-        elif mode=='LOAD_NEW':
-
-            self.io_dict['h5_file'] = h5py.File(h5_data_path, "a")
-            self.restore_part_types_from_metadata(self.io_dict['h5_file'], group_type)
+        def load_new_kernel():
+            self._restore_part_types_from_metadata(self.io_dict['h5_file'], group_type)
             particles_group = self.io_dict['h5_file']["particles"]
             candidate_lens=[]
             for grp_typ in group_type:
@@ -819,31 +875,9 @@ class Simulation():
                 raise ValueError(
                     f"Inconsistent step counts across groups: {candidate_lens}"
                 )
-            GLOBAL_COUNTER=candidate_lens[0]
+            return candidate_lens[0]
 
-            if force_resize_to_size is not None:
-                assert type(force_resize_to_size) is int, 'force_resize_to_size must be an integer'
-                assert force_resize_to_size<=GLOBAL_COUNTER, 'force_resize_to_size must be smaller than or equal to the current number of timesteps saved in file'
-                if force_resize_to_size==GLOBAL_COUNTER:
-                    logging.info(f'force_resize_to_size is equal to the current number of timesteps saved in file. No resizing will be done.')
-                else:
-                    for grp_typ in group_type:
-                        data_grp = particles_group[grp_typ.__name__]
-                        for prop,_ in self.io_dict['properties']:
-                            dataset_val = data_grp[f"{prop}/value"]
-                            step_dataset = data_grp[f"{prop}/step"]
-                            time_dataset = data_grp[f"{prop}/time"]
-                            step_dataset.resize((force_resize_to_size,))
-                            time_dataset.resize((force_resize_to_size,))
-                            dataset_val.resize((force_resize_to_size, dataset_val.shape[1], dataset_val.shape[2]))
-                    self.io_dict['h5_file'].flush()
-                    logging.info(f'Force resized all datasets from {GLOBAL_COUNTER} to size {force_resize_to_size}')
-                    GLOBAL_COUNTER=force_resize_to_size
-            logging.info(f"Loaded h5 file with GLOBAL_COUNTER={GLOBAL_COUNTER} ")
-            return GLOBAL_COUNTER
-        
-        elif mode=='LOAD':
-            self.io_dict['h5_file'] = h5py.File(h5_data_path, "a")
+        def load_kernel():
             particles_group = self.io_dict['h5_file']["particles"]
             candidate_lens=[]
             for grp_typ in group_type:
@@ -858,13 +892,176 @@ class Simulation():
                 raise ValueError(
                     f"Inconsistent step counts across groups: {candidate_lens}"
                 )
-            GLOBAL_COUNTER=candidate_lens[0]
-            logging.info(f"Loading h5 file with GLOBAL_COUNTER={GLOBAL_COUNTER} ")
+            return candidate_lens[0]
 
+        def resize_kernel(force_resize_to_size):
+            particles_group = self.io_dict['h5_file']["particles"]
+            for grp_typ in group_type:
+                data_grp = particles_group[grp_typ.__name__]
+                for prop,_ in self.io_dict['properties']:
+                    dataset_val = data_grp[f"{prop}/value"]
+                    step_dataset = data_grp[f"{prop}/step"]
+                    time_dataset = data_grp[f"{prop}/time"]
+                    step_dataset.resize((force_resize_to_size,))
+                    time_dataset.resize((force_resize_to_size,))
+                    dataset_val.resize((force_resize_to_size, dataset_val.shape[1], dataset_val.shape[2]))
+
+        GLOBAL_COUNTER = self._inscribe_h5_stream(mode, force_resize_to_size, setup, new_kernel, load_new_kernel, load_kernel, resize_kernel)
         return GLOBAL_COUNTER
-        
+
+    def inscribe_observable_group_to_h5(self, observable_defs=None, h5_data_path=None, mode='NEW', force_resize_to_size=None):
+        """
+        Inscribe one or more observable streams into an HDF5 file.
+
+        This method creates or reopens datasets under ``/observables/<name>/{step,time,value}``. Observable streams may be inscribed
+        independently or after particle groups have already opened the target
+        HDF5 file.
+
+        Parameters
+        ----------
+        observable_defs : list of tuple
+            Non-empty list of observable definitions. Each definition must be
+            ``(name, shape, dtype, observable_value_ref)``:
+
+            - ``name`` is the HDF5 observable group name.
+            - ``shape`` is the per-frame payload shape. Scalars may use
+              ``None`` or ``()``; integer shapes are converted to one-element
+              tuples.
+            - ``dtype`` is converted with ``numpy.dtype`` and used for the
+              ``value`` dataset.
+            - ``observable_value_ref`` is the live Python object or NumPy array
+              written on each observable frame.
+        h5_data_path : str
+            Path to the HDF5 file to write or append. This is required when no
+            HDF5 handle is currently open in ``self.io_dict['h5_file']``. If a
+            file is already open, the observable groups are added to that file.
+        mode : {'NEW', 'LOAD', 'LOAD_NEW', 'INIT_SRC'}, optional
+            - 'NEW' : create a fresh observable structure when opening a file.
+            - 'LOAD': reopen existing observable datasets and validate them
+              against `observable_defs`.
+            - 'LOAD_NEW': same observable behavior as 'LOAD'; the file is the
+              source of the saved frame count, while `observable_defs` supplies
+              the live value references for future writes.
+            - 'INIT_SRC': create a new observable structure, matching the
+              shared HDF5 inscription lifecycle.
+        force_resize_to_size : int or None, optional
+            If provided in 'LOAD' or 'LOAD_NEW' mode, truncate all registered
+            observable ``step``, ``time``, and ``value`` datasets to this number
+            of saved frames before subsequent writes.
+
+        Returns
+        -------
+        int
+            The starting global counter for writing time steps. This is 0 in
+            'NEW' and 'INIT_SRC' modes; for 'LOAD' and 'LOAD_NEW' it is the
+            current number of already-saved observable frames.
+
+        Raises
+        ------
+        ValueError
+            If `observable_defs` is not a non-empty list, if a definition does
+            not contain exactly four entries, if `mode` is unknown, if an
+            observable is missing in load modes, if its stored shape does not
+            match the requested shape, or if registered observables have
+            mismatched saved step counts.
+        AssertionError
+            If `force_resize_to_size` is used outside load modes, is not an
+            integer, or exceeds the number of saved frames.
+
+        Notes
+        -----
+        In 'NEW' and 'INIT_SRC' modes the shared HDF5 inscription lifecycle
+        writes H5MD-style root metadata under ``/h5md`` together with
+        pressomancy-specific metadata under ``/parameters/pressomancy`` before
+        the observable datasets are created.
+        """
+        def setup():
+            if not isinstance(observable_defs, list) or not observable_defs:
+                raise ValueError("observable_defs must be a non-empty list.")
+            nonlocal normalised_defs
+            normalised_defs = []
+            for obs_def in observable_defs:
+                if len(obs_def) != 4:
+                    raise ValueError("Each observable definition must be (name, shape, dtype, observable_value_ref).")
+                name, shape, dtype, observable_value_ref = obs_def
+                if shape is None:
+                    shape = tuple()
+                elif isinstance(shape, Integral):
+                    shape = (int(shape),)
+                else:
+                    shape = tuple(shape)
+                normalised_defs.append((str(name), shape, np.dtype(dtype), observable_value_ref))
+
+            self.io_dict['registered_observables'] = {
+                name: {'shape': shape, 'dtype': dtype, 'value': observable_value_ref}
+                for name, shape, dtype, observable_value_ref in normalised_defs
+            }
+
+            if self.io_dict['h5_file'] is None:
+                if h5_data_path is None:
+                    raise ValueError("h5_data_path must be provided when no HDF5 file is currently open.")
+                file_mode = "w" if mode in ('NEW', 'INIT_SRC') else "a"
+                self.io_dict['h5_file'] = h5py.File(h5_data_path, file_mode)
+
+
+        normalised_defs = []
+
+        def new_kernel():
+            observables_group = self.io_dict['h5_file'].require_group("observables")
+            for name, shape, dtype, _ in normalised_defs:
+                obs_group = observables_group.require_group(name)
+                if any(key in obs_group for key in ('step', 'time', 'value')):
+                    raise ValueError(f"Observable '{name}' already exists in HDF5 file.")
+                obs_group.create_dataset("step", shape=(0,), maxshape=(None,), dtype=np.int32)
+                obs_group.create_dataset("time", shape=(0,), maxshape=(None,), dtype=np.float64)
+                obs_group.create_dataset(
+                    "value",
+                    shape=(0, *shape),
+                    maxshape=(None, *shape),
+                    dtype=dtype,
+                    chunks=(1, *shape) if shape else (1,),
+                    compression="gzip",
+                    compression_opts=4,
+                )
+            return 0
+
+        def load_kernel():
+            observables_group = self.io_dict['h5_file'].require_group("observables")
+            candidate_lens = []
+            for name, shape, dtype, _ in normalised_defs:
+                obs_group = observables_group.get(name)
+                if obs_group is None:
+                    raise ValueError(f"Observable '{name}' was not found in HDF5 file during {mode}.")
+                value_dataset = obs_group["value"]
+                if tuple(value_dataset.shape[1:]) != shape:
+                    raise ValueError(
+                        f"Observable '{name}' shape mismatch: file has {value_dataset.shape[1:]}, expected {shape}."
+                    )
+                candidate_lens.append(value_dataset.shape[0])
+
+            if len(set(candidate_lens)) != 1:
+                raise ValueError(f"Inconsistent step counts across observables: {candidate_lens}")
+            return candidate_lens[0]
+
+        def resize_kernel(force_resize_to_size):
+            observables_group = self.io_dict['h5_file'].require_group("observables")
+            for name, _, _, _ in normalised_defs:
+                obs_group = observables_group[name]
+                step_dataset = obs_group["step"]
+                time_dataset = obs_group["time"]
+                value_dataset = obs_group["value"]
+                step_dataset.resize((force_resize_to_size,))
+                time_dataset.resize((force_resize_to_size,))
+                value_dataset.resize((force_resize_to_size, *value_dataset.shape[1:]))
+        GLOBAL_COUNTER = self._inscribe_h5_stream(mode, force_resize_to_size, setup, new_kernel, load_kernel, load_kernel, resize_kernel)
+        return GLOBAL_COUNTER
+
     def write_part_group_to_h5(self, time_step=None):
+        """Append one frame using an integer frame counter and current ESPResSo time."""
         assert self.io_dict['h5_file']!=None,'storage file has not been inscribed!'
+        if not isinstance(time_step, Integral):
+            raise TypeError("time_step must be provided as an integer frame counter.")
+        physical_time = float(self.sys.time)
         for grp_typ in self.io_dict['registered_group_type']:
             particles_group = self.io_dict['h5_file']["particles"]
             data_grp = particles_group[grp_typ]
@@ -876,10 +1073,74 @@ class Simulation():
                 time_dataset.resize((dataset_val.shape[0] + 1,))
                 dataset_val.resize((dataset_val.shape[0] + 1, dataset_val.shape[1], dataset_val.shape[2]))
                 step_dataset[-1] = time_step
-                time_dataset[-1] = time_step
+                time_dataset[-1] = physical_time
                 dataset_val[-1, :, :] = np.array([np.atleast_1d(getattr(part, prop)) for part in self.io_dict['flat_part_view'][grp_typ]], dtype=np.float32)
 
-        logging.info(f"Successfully wrote timestep for {self.io_dict['registered_group_type']}.")
+        logging.debug(f"Successfully wrote timestep for {self.io_dict['registered_group_type']}.")
+
+    def write_observable_group_to_h5(self, time_step=None):
+        """Append one frame for every registered observable.
+
+        The frame counter is stored in each observable ``step`` dataset and the
+        current ESPResSo time is stored in the corresponding ``time`` dataset.
+        Values are read from the live references registered by
+        :meth:`inscribe_observable_group_to_h5`.
+        """
+        assert self.io_dict['h5_file'] != None, 'storage file has not been inscribed!'
+        if not isinstance(time_step, Integral):
+            raise TypeError("time_step must be provided as an integer frame counter.")
+
+        registered_observables = self.io_dict['registered_observables']
+        if not registered_observables:
+            raise ValueError("No observables have been inscribed in HDF5.")
+
+        physical_time = float(self.sys.time)
+        observables_group = self.io_dict['h5_file']["observables"]
+        for name, obs_data in registered_observables.items():
+            obs_group = observables_group[name]
+            payload = obs_data['value']
+            value_dataset = obs_group["value"]
+            expected_shape = tuple(value_dataset.shape[1:])
+            if hasattr(payload, 'shape'):
+                payload_shape = tuple(payload.shape)
+            else:
+                payload_shape = tuple()
+            if payload_shape != expected_shape:
+                raise ValueError(
+                    f"Observable '{name}' shape mismatch: payload has {payload_shape}, dataset expects {expected_shape}."
+                )
+            step_dataset = obs_group["step"]
+            time_dataset = obs_group["time"]
+            step_dataset.resize((value_dataset.shape[0] + 1,))
+            time_dataset.resize((value_dataset.shape[0] + 1,))
+            value_dataset.resize((value_dataset.shape[0] + 1, *value_dataset.shape[1:]))
+            step_dataset[-1] = time_step
+            time_dataset[-1] = physical_time
+            value_dataset[-1] = payload
+
+        logging.debug(f"Successfully wrote timestep for {list(registered_observables)}.")
+
+    def write_registered_to_h5(self, time_step=None):
+        """Append one synchronized frame for all registered HDF5 streams.
+
+        If particle groups are registered, their particle property datasets are
+        extended. If observables are registered, their observable datasets are
+        extended. Both streams receive the same integer `time_step` and current
+        ESPResSo time.
+        """
+        assert self.io_dict['h5_file'] is not None, 'storage file has not been inscribed!'
+        if not isinstance(time_step, Integral):
+            raise TypeError("time_step must be provided as an integer frame counter.")
+
+        registered_groups = self.io_dict['registered_group_type'] or []
+        registered_observables = self.io_dict['registered_observables']
+        if not registered_groups and not registered_observables:
+            raise ValueError("No particle groups or observables have been inscribed in HDF5.")
+
+        if registered_groups:
+            self.write_part_group_to_h5(time_step=time_step)
+        if registered_observables:
+            self.write_observable_group_to_h5(time_step=time_step)
 
     def mk_src_file(self, original_data_file_path, dest_h5_file_path, prop_dim=None, time_step=-1):
         """
@@ -887,23 +1148,23 @@ class Simulation():
 
         The operation runs in two phases:
 
-        1) **Copy & shrink to one frame**  
+        1) **Copy & shrink to one frame**
         The file at ``original_data_file_path`` is copied to ``dest_h5_file_path``.
         For every group under ``/particles/<Group>/<Prop>``, the datasets
         ``value``, ``step``, and ``time`` are sliced at ``time_step`` and then
         **resized to length 1** (T=1), preserving the chosen frame as the only
         frame in the destination file.
 
-        2) **Optionally create new properties (single frame)**  
+        2) **Optionally create new properties (single frame)**
         If ``prop_dim`` is provided, for each group name in
         ``self.io_dict['registered_group_type']`` this function creates a new
         property group ``/particles/<Group>/<prop>`` with the standard layout:
         - ``step`` : int32, shape ``(T,)`` (created empty, then resized to 1)
         - ``time`` : float32, shape ``(T,)`` (created empty, then resized to 1)
         - ``value``: float32, shape ``(T, N, D)`` (gzip, chunked as ``(1, N, D)``)
-        
-        It then appends **one** frame (T=1), setting both ``step[-1]`` and
-        ``time[-1]`` to ``time_step``, and fills ``value[-1, :, :]`` from the
+
+        It then appends **one** frame (T=1), reusing the preserved
+        ``step[-1]`` and ``time[-1]`` values from the kept frame, and fills ``value[-1, :, :]`` from the
         in-memory list ``self.io_dict['flat_part_view'][<Group>]`` using
         ``getattr(part, prop)`` for each particle.
 
@@ -916,7 +1177,7 @@ class Simulation():
         prop_dim : iterable[tuple[str, int]] or None, optional
             Iterable of ``(prop_name, dim)`` pairs describing new properties to add as single-frame datasets. If ``None`` (default), the function only performs the copy-and-shrink phase.
         time_step : int, optional
-            Index of the frame to keep during the shrink phase and the value written to both ``step`` (int32) and ``time`` (float32) when adding new properties. Must be a valid index for all existing per-property datasets.
+            Index of the frame to keep during the shrink phase. Must be a valid index for all existing per-property datasets.
 
         Returns
         -------
@@ -957,15 +1218,19 @@ class Simulation():
         ...     time_step=0,
         ... )
         """
-        
+
         dst_path=Path(dest_h5_file_path)
         dst_path.parent.mkdir(parents=True, exist_ok=True)
+        if self.io_dict['h5_file'] is not None:
+            self.io_dict['h5_file'].flush()
         shutil.copy2(original_data_file_path, dst_path)
         with h5py.File(dst_path, "r+") as f:
             grp_particles = f["particles"]
             for group_name in grp_particles:
                 g = grp_particles[group_name]
                 for _, prop_grp in g.items():
+                    if not isinstance(prop_grp, h5py.Group) or "value" not in prop_grp:
+                        continue
                     val = prop_grp["value"]
 
                     slice_data = val[time_step, ...]  # shape (1, N, D...)
@@ -983,17 +1248,20 @@ class Simulation():
                     ds[0] = time_val
 
         print(f"✔ Shrunk to single timestep at: {dst_path}")
-        
+
         if prop_dim != None:
-            with h5py.File(dst_path, "a") as h5_file_handle: 
+            with h5py.File(dst_path, "a") as h5_file_handle:
                 for grp_typ in self.io_dict['registered_group_type']:
                     particles_group = h5_file_handle["particles"]
                     data_grp = particles_group[grp_typ]
+                    reference_prop = data_grp["pos"]  # Use 'pos' as a reference for step/time values and particle count
+                    kept_step = int(reference_prop["step"][0])
+                    kept_time = float(reference_prop["time"][0])
                     total_part_num=len(self.io_dict['flat_part_view'][grp_typ])
                     for prop,dim in prop_dim:
                         prop_group = data_grp.require_group(prop)
                         step_dataset=prop_group.create_dataset("step", shape=(0,), maxshape=(None,), dtype=np.int32)
-                        time_dataset=prop_group.create_dataset("time", shape=(0,), maxshape=(None,), dtype=np.float32)
+                        time_dataset=prop_group.create_dataset("time", shape=(0,), maxshape=(None,), dtype=np.float64)
                         dataset_val=prop_group.create_dataset(
                             "value",
                             shape=(0, total_part_num, dim),  # Store all particles in a single dataset
@@ -1006,13 +1274,13 @@ class Simulation():
                         step_dataset.resize((dataset_val.shape[0] + 1,))
                         time_dataset.resize((dataset_val.shape[0] + 1,))
                         dataset_val.resize((dataset_val.shape[0] + 1, dataset_val.shape[1], dataset_val.shape[2]))
-                        step_dataset[-1] = time_step
-                        time_dataset[-1] = time_step
+                        step_dataset[-1] = kept_step
+                        time_dataset[-1] = kept_time
                         dataset_val[-1, :, :] = np.array([np.atleast_1d(getattr(part, prop)) for part in self.io_dict['flat_part_view'][grp_typ]], dtype=np.float32)
                         src_data_grp = H5DataSelector(h5_file_handle, particle_group=grp_typ)
                         assert len(src_data_grp.timestep)==1,'dataset is ragged!!!'
                         logging.info(f'appended {prop} to {dst_path}')
-            
+
     def set_prop_from_src(
     self,
     registered_objs=None,
@@ -1117,12 +1385,7 @@ class Simulation():
         logging.debug('identity of espresso system from rebind_sys',id(self.sys))
         logging.info('successfully rebound to new espresso handle after checkpoint load!')
 
-
-    def get_pos_ori_from_src(
-    self,
-    registered_objs,
-    time_step: int = -1,
-):
+    def _get_pos_ori_from_src(self, registered_objs, time_step: int = -1):
 
         """
         Load particle positions and orientations for a set of registered local objects
@@ -1235,7 +1498,7 @@ class Simulation():
                     connectivity_value=loc_obj.who_am_i,
                     predicate=lambda subset: np.isin(subset.type, allowed_types),
                 )
-                positions_per_obj.append(part_slice.pos)    
+                positions_per_obj.append(part_slice.pos)
                 try:
                     ori_per_obj.append(part_slice.director)
                 except KeyError:
@@ -1249,4 +1512,4 @@ class Simulation():
                     val /= norm
                     ori_per_obj.append(val)
                     continue
-        return positions_per_obj,ori_per_obj
+        return positions_per_obj, ori_per_obj

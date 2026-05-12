@@ -2,26 +2,43 @@ import espressomd
 import numpy as np
 import random
 from pressomancy.object_classes.quadriplex_class import *
-from pressomancy.object_classes.object_class import Simulation_Object, ObjectConfigParams 
-from pressomancy.helper_functions import RoutineWithArgs, make_centered_rand_orient_point_array, PartDictSafe, SinglePairDict, BondWrapper, get_orientation_vec, get_random_perpendicular
+from pressomancy.object_classes.object_class import Simulation_Object, ObjectConfigParams
+from pressomancy.helper_functions import RoutineWithArgs, make_centered_rand_orient_point_array, PartDictSafe, SinglePairDict, BondWrapper, get_orientation_vec, get_perpendicular, align_vectors
 import logging
 import warnings
 
+TELSEQ_RULES = {
+    'quartet': {
+        'block_size': 75,
+        'top': [26, 45, 49, 30],
+        'bottom': [51, 70, 74, 55],
+    },
+    'quartet_11x11': {
+        'block_size': 363,
+        'top': [122, 231, 241, 132],
+        'bottom': [243, 352, 362, 253],
+    },
+}
+
+
 def rule_maker(fold_type, choice_id, offset, n=3):
-    top = [26, 45, 49, 30]
-    bottom = [51, 70, 74, 55]
     length = 4
     choice_local = choice_id - offset
 
-    if choice_local in bottom:
-        i = bottom.index(choice_local)
-        start_on_top = False
-    elif choice_local in top:
-        i = top.index(choice_local)
-        start_on_top = True
+    for rule_params in TELSEQ_RULES.values():
+        top = rule_params['top']
+        bottom = rule_params['bottom']
+        if choice_local in bottom:
+            i = bottom.index(choice_local)
+            start_on_top = False
+            break
+        if choice_local in top:
+            i = top.index(choice_local)
+            start_on_top = True
+            break
     else:
         raise ValueError(
-            f"choice_id={choice_id} (local={choice_local}) is not a valid TelSeq corner id"
+            f"choice_id={choice_id} (local={choice_local}) is not a valid TelSeq corner id for offset={offset}"
         )
 
     diag_pairs = []
@@ -78,7 +95,7 @@ class TelSeq(metaclass=Simulation_Object):
     '''
     Class that contains TelSeq relevant paramaters and methods. At construction one must pass an espresso handle becaouse the class manages parameters that are both internal and external to espresso. It is assumed that in any simulation instanse there will be only one type of a TelSeq. Therefore many relevant parameters are class specific, not instance specific.
     '''
-    required_features=list()	
+    required_features=['MORSE',]
     numInstances = 0
     simulation_type=SinglePairDict('tel_seq', 37)
     part_types = PartDictSafe({'real': 1, 'virt': 2,'to_be_magnetized':3})
@@ -99,7 +116,7 @@ class TelSeq(metaclass=Simulation_Object):
         self.params=config
         if self.params['associated_objects']==None:
             warnings.warn('no associated_objects have been passed explicity. Creating objects required to initialise object implicitly!')
-            configuration=Quartet.config.specify(espresso_handle=self.sys,type='broken')
+            configuration=Quartet.config.specify(espresso_handle=self.sys,type='brokenA')
             quartets=[Quartet(config=configuration) for _ in range(3*self.params['n_parts'])]
             grouped_quartets = [quartets[i:i+3]
                     for i in range(0, len(quartets), 3)]
@@ -107,11 +124,33 @@ class TelSeq(metaclass=Simulation_Object):
             self.params['associated_objects']= [Quadriplex(config=elem) for elem in quadriplex_config_list]
         self.associated_objects=self.params['associated_objects']
 
-        self.build_function=RoutineWithArgs(func=make_centered_rand_orient_point_array,num_monomers=self.params['n_parts'],spacing=config['spacing'])  
+        self.build_function=RoutineWithArgs(func=make_centered_rand_orient_point_array,num_monomers=self.params['n_parts'],spacing=config['spacing'])
         self.who_am_i = TelSeq.numInstances
         TelSeq.numInstances += 1
         self.orientor = np.empty(shape=3, dtype=float)
         self.type_part_dict=PartDictSafe({key: [] for key in TelSeq.part_types.keys()})
+
+    def _choose_antiparallel_phi(self, chain_dir, n_phi=720):
+        chain_dir = np.asarray(chain_dir, dtype=float)
+        chain_dir /= np.linalg.norm(chain_dir)
+
+        x_axis = np.array([1.0, 0.0, 0.0])
+        y_axis = np.array([0.0, 1.0, 0.0])
+        z_axis = np.array([0.0, 0.0, 1.0])
+
+        best_phi = 0.0
+        best_score = -np.inf
+        for idx in range(n_phi):
+            phi = 2.0 * np.pi * idx / n_phi
+            side_axis = get_perpendicular(chain_dir, phi=phi)
+            rotation_matrix = align_vectors(z_axis, side_axis)
+            x_world = rotation_matrix @ x_axis
+            y_world = rotation_matrix @ y_axis
+            score = max(np.abs(np.dot(x_world, chain_dir)), np.abs(np.dot(y_world, chain_dir)))
+            if score > best_score + 1e-08:
+                best_score = score
+                best_phi = phi
+        return best_phi
 
     def set_object(self,  pos, ori):
         '''
@@ -131,7 +170,8 @@ class TelSeq(metaclass=Simulation_Object):
         assert all([x.simulation_type==self.associated_objects[0].simulation_type for x in self.associated_objects[1:]]), 'all objects must have the same simulation type!'
         local_orientor = self.orientor
         if self.params['type'] == 'antiparallel':
-            local_orientor=get_random_perpendicular(self.orientor)
+            phi_opt = self._choose_antiparallel_phi(self.orientor)
+            local_orientor = get_perpendicular(self.orientor, phi=phi_opt)
         for obj_el, pos_el in zip(self.associated_objects, pos):
             _=obj_el.set_object(pos_el, local_orientor)
         return self
@@ -144,19 +184,20 @@ class TelSeq(metaclass=Simulation_Object):
         '''
         for iid in range(len(self.associated_objects)):
             monomer = self.associated_objects[iid]
-            fene_r0 = self.params['bond_handle'].r_0
             candidates1 = []
             candidates1.extend(monomer.associated_objects[1].corner_particles)
             candidates1.extend(monomer.associated_objects[2].corner_particles)
             if monomer == self.associated_objects[0]:
                 start_part_id = random.choice(candidates1).id
+            alias = monomer.associated_objects[0].params['alias']
+            offset = monomer.who_am_i * TELSEQ_RULES[alias]['block_size']
             logging.debug(
-                "wrap_into_Tel step=%s monomer_id=%s start_part_id=%s",
+                "wrap_into_Tel step=%s monomer_id=%s start_part_id=%s offset=%s",
                 iid,
                 monomer.who_am_i,
                 start_part_id,
+                offset,
             )
-            offset = monomer.who_am_i * 75                
             diag_pairs, across_pairs, free_end = rule_maker(
                 self.params['type'], start_part_id, offset
             )
