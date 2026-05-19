@@ -25,9 +25,8 @@ SM_dipm = 1.
 SM_Xi_0 = 0.1
 
 sim_inst = Simulation(box_dim=box_l)
-sim_inst.sys.box_l = box_l
-sim_inst.seed = 1
 sim_inst.set_sys(timestep=0.1)
+sim_inst.sys.thermostat.set_langevin(kT=1.0, gamma=1.0, seed=sim_inst.seed)
 
 pos = np.array([[0., 0., 0.],
                 [0., 0., 1.]])
@@ -48,21 +47,16 @@ for i, part in enumerate(sim_inst.sys.part.select(type=sim_inst.part_types["pdp_
 
 sim_inst.sys.integrator.run(0)
 sim_inst.set_H_ext(H=[0, 0, H])
-sim_inst.sys.integrator.run(2)
 
 assert np.array_equal(sim_inst.sys.part.all().pos, pos), f"{sim_inst.sys.part.all().pos},\n{pos}"
 assert np.array_equal(sim_inst.sys.part.all().dip, dip), f"{sim_inst.sys.part.all().dip},\n{dip}"
-
+print('I CAME, I SAW, I TESTED PERMANENT POINT DIPOLES')
 sim_inst.reinitialize_instance()
-sim_inst.sys.box_l = box_l
-sim_inst.seed = 1
-sim_inst.set_sys(timestep=0.1)
+sim_inst.set_sys(timestep=0.0001)
 
 if HAS_SUPERPARA_FEATURES:
     config_pds = PointDipoleSuperpara.config.specify(
         dipm=SM_dipm,
-        Xi_0=SM_Xi_0,
-        mag_func=0,
         espresso_handle=sim_inst.sys,
     )
 
@@ -77,17 +71,17 @@ if HAS_SUPERPARA_FEATURES:
         part.pos = pos[i]
         part_real.fix = [True, True, True]
 
+    sim_inst.sys.thermostat.set_langevin(kT=1.0, gamma=1.0, seed=sim_inst.seed)
     if espressomd.version.major() == 5:
         sim_inst.init_magnetic_inter(DipolarDirectSum(prefactor=1))
     else:
         sim_inst.init_magnetic_inter(DipolarDirectSumCpu(prefactor=1))
 
-    sim_inst.sys.integrator.run(0)
     sim_inst.set_H_ext(H=[0, 0, H])
     sim_inst.sys.integrator.run(10)
 
     dip_assert = np.array(dip, copy=True)
-    dip_assert[:, 2] = 0.12356435
+    dip_assert[:, 2] = 0.55632929
 
     assert np.array_equal(sim_inst.sys.part.select(type=sim_inst.part_types["pds_real"]).pos, pos), f"{sim_inst.sys.part.select(type=sim_inst.part_types['pds_real']).pos},\n{pos}"
     assert np.array_equal(sim_inst.sys.part.select(type=sim_inst.part_types["pds_virt"]).pos, pos), f"{sim_inst.sys.part.select(type=sim_inst.part_types['pds_virt']).pos},\n{pos}"

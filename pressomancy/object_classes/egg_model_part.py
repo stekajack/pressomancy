@@ -51,7 +51,7 @@ class EGGPart(GenericPart):
             "gamma": self.params['egg_gamma'],
             "anisotropy_energy": self.params['aniso_energy'],
             }
-            particl_virt.magnetodynamics = magnetodynamics_setup
+            particl_virt.magnetodynamics.egg = magnetodynamics_setup
             particl_virt.propagation = (Propagation.TRANS_VS_RELATIVE |
                                             Propagation.ROT_VS_INDEPENDENT)
         elif espressomd.version.major() == 4:

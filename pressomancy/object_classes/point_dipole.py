@@ -48,17 +48,16 @@ class PointDipoleSuperpara(metaclass=Simulation_Object):
     '''
     Class that contains superparamagnetic point dipole particles relevant paramaters and methods. At construction one must pass an espresso handle because the class manages parameters that are both internal and external to espresso. It is assumed that in any simulation instanse there will be only one type of a PointDipoleSuperpara. Therefore many relevant parameters are class specific, not instance specific.
 
-    Requires to run a magnetization function every step. Eg. system.magnetize()
+    Uses ESPResSo's ideal magnetizable superparamagnet magnetodynamics
+    scheme on the virtual particle carrying the dipole moment.
     '''
 
-    required_features=['DIPOLES', 'DIPOLE_FIELD_TRACKING', 'MAGNETIZE']	
+    required_features=['DIPOLES', 'DIPOLE_FIELD_TRACKING', 'IDEAL_MAGNETIZABLE_SUPERPARAMAGNET']	
     numInstances = 0
     simulation_type= SinglePairDict('point_dipole_superpara', 4)
     part_types = PartDictSafe({'pds_real': 62, 'pds_virt': 666})
     config = ObjectConfigParams(
         dipm=1.,
-        Xi_0=0.1,
-        mag_func=0
     )
 
     def __init__(self, config: ObjectConfigParams):
@@ -88,9 +87,10 @@ class PointDipoleSuperpara(metaclass=Simulation_Object):
         if espressomd.version.major() == 5:
             particl_virt.propagation = Propagation.TRANS_VS_RELATIVE | Propagation.ROT_VS_INDEPENDENT
 
-        particl_virt.is_magnetizable = True
-        particl_virt.magnetize_func = self.params["mag_func"]
-        particl_virt.dipm_sat = self.params["dipm"]
-        particl_virt.mag_susc_0 = self.params["Xi_0"]
+        if espressomd.version.major() == 5:
+            particl_virt.magnetodynamics.ideal = {
+                "is_enabled": True,
+                "sat_mag": self.params["dipm"],
+            }
 
         return self

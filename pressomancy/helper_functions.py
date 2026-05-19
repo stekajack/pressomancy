@@ -132,6 +132,8 @@ class ManagedSimulation:
             self.instance.sys.bonded_inter.clear()
             self.instance.sys.constraints.clear()
             self.instance.sys.thermostat.turn_off()
+            self.instance.sys.integrator.set_vv()
+
 
     def __getattr__(self, name):
         """

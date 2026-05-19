@@ -51,7 +51,8 @@ class SWPart(GenericPart):
 
         particl_real=self.add_particle(type_name='sw_real', pos=pos, rotation=(True, True, True), director=ori)
 
-        particl_virt=self.add_particle(type_name='sw_virt', pos=pos, rotation=(False, False, False), dip=self.params['dipm']*ori, magnetodynamics=magnetodynamics_setup)
+        particl_virt=self.add_particle(type_name='sw_virt', pos=pos, rotation=(False, False, False), dip=self.params['dipm']*ori)
+        particl_virt.magnetodynamics.tsw = magnetodynamics_setup
         particl_virt.vs_auto_relate_to(particl_real)
         if espressomd.version.major() == 5:
             particl_virt.propagation = Propagation.TRANS_VS_RELATIVE | Propagation.ROT_VS_INDEPENDENT 

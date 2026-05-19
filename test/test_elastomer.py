@@ -60,6 +60,34 @@ class ElastomerTest(BaseTestCase):
 
         assert len(sim_inst.sys.part.select(type=sim_inst.part_types["substrate"])) == 0
 
+
+    def test_mix_elastomer_stuff_restores_langevin_thermostat(self):
+        sim_inst.store_objects(self.mag_part)
+        sim_inst.store_objects([self.instance_cust])
+        sim_inst.set_objects([self.instance_cust])
+
+        sim_inst.sys.thermostat.set_langevin(kT=0.7, gamma=3.5, seed=41)
+        self.instance_cust.mix_elastomer_stuff(n_iter=0)
+
+        self.assertFalse(sim_inst.sys.thermostat.call_method("is_off"))
+        self.assertTrue(sim_inst.sys.thermostat.langevin.is_active)
+        self.assertAlmostEqual(sim_inst.sys.thermostat.kT, 0.7)
+        np.testing.assert_allclose(np.copy(sim_inst.sys.thermostat.langevin.gamma), 3.5)
+        self.assertEqual(sim_inst.sys.thermostat.langevin.seed, 41)
+
+    def test_snapshot_restore_brownian_thermostat(self):
+        sim_inst.sys.thermostat.set_brownian(kT=0.9, gamma=2.5, seed=43)
+
+        snapshot = self.instance_cust._snapshot_thermostat_state()
+        sim_inst.sys.thermostat.turn_off()
+        self.instance_cust._restore_thermostat_state(snapshot)
+
+        self.assertFalse(sim_inst.sys.thermostat.call_method("is_off"))
+        self.assertTrue(sim_inst.sys.thermostat.brownian.is_active)
+        self.assertAlmostEqual(sim_inst.sys.thermostat.kT, 0.9)
+        np.testing.assert_allclose(np.copy(sim_inst.sys.thermostat.brownian.gamma), 2.5)
+        self.assertEqual(sim_inst.sys.thermostat.brownian.seed, 43)
+
     def test_wall_substrate(self):
         instance_def=Elastomer(config=Elastomer.config.specify(box_E=self.box_E,
                 n_parts=10, size=self.part_size,espresso_handle=sim_inst.sys,seed=sim_inst.seed))

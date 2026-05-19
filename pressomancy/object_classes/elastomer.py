@@ -1,4 +1,5 @@
 import espressomd
+import logging
 import numpy as np
 from collections import defaultdict
 from pressomancy.object_classes.object_class import Simulation_Object, ObjectConfigParams
@@ -145,6 +146,88 @@ class Elastomer(metaclass=Simulation_Object):
 
         return orientations, points
     
+    def _snapshot_thermostat_state(self):
+        thermostat = self.sys.thermostat
+        snapshot = {"is_off": thermostat.call_method("is_off"), "modes": []}
+        if snapshot["is_off"]:
+            logging.debug("Elastomer.mix_elastomer_stuff: no active thermostat to preserve")
+            return snapshot
+
+        kT = thermostat.kT
+        if thermostat.langevin.is_active:
+            mode = {
+                "name": "langevin",
+                "kT": kT,
+                "gamma": np.copy(thermostat.langevin.gamma),
+                "seed": thermostat.langevin.seed,
+            }
+            gamma_rotation = thermostat.langevin.gamma_rotation
+            if gamma_rotation is not None:
+                mode["gamma_rotation"] = np.copy(gamma_rotation)
+            snapshot["modes"].append(mode)
+        if thermostat.brownian.is_active:
+            mode = {
+                "name": "brownian",
+                "kT": kT,
+                "gamma": np.copy(thermostat.brownian.gamma),
+                "seed": thermostat.brownian.seed,
+            }
+            gamma_rotation = thermostat.brownian.gamma_rotation
+            if gamma_rotation is not None:
+                mode["gamma_rotation"] = np.copy(gamma_rotation)
+            snapshot["modes"].append(mode)
+        if thermostat.lb.is_active and self.sys.lb is not None:
+            snapshot["modes"].append({
+                "name": "lb",
+                "kT": kT,
+                "gamma": np.copy(thermostat.lb.gamma),
+                "seed": thermostat.lb.seed,
+            })
+
+        logging.info(
+            "Elastomer.mix_elastomer_stuff: preserving thermostat state %s",
+            [mode["name"] for mode in snapshot["modes"]],
+        )
+        return snapshot
+
+    def _restore_thermostat_state(self, snapshot):
+        thermostat = self.sys.thermostat
+        thermostat.turn_off()
+        if snapshot["is_off"]:
+            logging.info("Elastomer.mix_elastomer_stuff: restored thermostat state to off")
+            return
+
+        restored = []
+        for mode in snapshot["modes"]:
+            if mode["name"] == "langevin":
+                kwargs = {
+                    "kT": mode["kT"],
+                    "gamma": mode["gamma"],
+                    "seed": mode["seed"],
+                }
+                if "gamma_rotation" in mode:
+                    kwargs["gamma_rotation"] = mode["gamma_rotation"]
+                thermostat.set_langevin(**kwargs)
+                restored.append("langevin")
+            elif mode["name"] == "brownian":
+                kwargs = {
+                    "kT": mode["kT"],
+                    "gamma": mode["gamma"],
+                    "seed": mode["seed"],
+                }
+                if "gamma_rotation" in mode:
+                    kwargs["gamma_rotation"] = mode["gamma_rotation"]
+                thermostat.set_brownian(**kwargs)
+                restored.append("brownian")
+            elif mode["name"] == "lb" and self.sys.lb is not None:
+                thermostat.set_lb(LB_fluid=self.sys.lb, kT=mode["kT"], gamma=mode["gamma"], seed=mode["seed"])
+                restored.append("lb")
+
+        logging.info(
+            "Elastomer.mix_elastomer_stuff: restored thermostat state %s",
+            restored,
+        )
+
     def mix_elastomer_stuff(self, n_iter=100, time_step=0.001):
         if isinstance(self, list):
             raise ValueError("Must be used on Elastomer object type")
@@ -168,14 +251,16 @@ class Elastomer(metaclass=Simulation_Object):
             sys=self.sys,
         )
 
-        self.sys.thermostat.set_langevin(kT=1e-3, gamma=10, seed=self.params['seed'])
-        self.sys.integrator.run(n_iter)
-
-        # Remove temporary box particles
-        remove_box_constraints_func(sys=self.sys)
-
-        self.sys.thermostat.turn_off()
-        self.sys.time_step = old_time_step
+        thermostat_snapshot = self._snapshot_thermostat_state()
+        try:
+            self.sys.thermostat.turn_off()
+            self.sys.thermostat.set_langevin(kT=1e-3, gamma=10, seed=self.params['seed'])
+            self.sys.integrator.run(n_iter)
+        finally:
+            # Remove temporary box particles
+            remove_box_constraints_func(sys=self.sys)
+            self._restore_thermostat_state(thermostat_snapshot)
+            self.sys.time_step = old_time_step
     
     def cure_elastomer(self, fold_coord=True):
         if isinstance(self, list):

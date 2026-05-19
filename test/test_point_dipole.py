@@ -27,7 +27,7 @@ if all(api_agnostic_feature_check(feature) for feature in PointDipoleSuperpara.r
     class PointDipoleSuperparaTest(BaseTestCase):
         H_ext = [0,0,3.]
         config=PointDipoleSuperpara.config.specify(
-            dipm=1., Xi_0=0.1, size=0.5, espresso_handle=sim_inst.sys)
+            dipm=1., size=0.5, espresso_handle=sim_inst.sys)
 
         def tearDown(self) -> None:
             self.mag_part=None
@@ -41,6 +41,7 @@ if all(api_agnostic_feature_check(feature) for feature in PointDipoleSuperpara.r
             sim_inst.set_objects(self.mag_part)
 
         def test_set_object_generic(self):
-             
             assert sim_inst.part_types["pds_real"] == 62 and sim_inst.part_types["pds_virt"] == 666
-            sim_inst.sys.integrator.run(0, recalc_forces=True)
+            p_virt = next(iter(sim_inst.sys.part.select(type=sim_inst.part_types["pds_virt"])))
+            assert p_virt.magnetodynamics.ideal["is_enabled"] is True
+            assert p_virt.magnetodynamics.ideal["sat_mag"] == 1.0

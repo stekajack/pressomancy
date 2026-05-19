@@ -1,9 +1,13 @@
 import inspect
 import numpy as np
+import espressomd
 from pressomancy.object_classes.object_class import ObjectConfigParams
 from pressomancy.object_classes.rigid_obj import GenericRigidObj
 from pressomancy.helper_functions import PartDictSafe, api_agnostic_feature_check
 from pressomancy.helper_functions import MissingFeature
+if espressomd.version.major() == 5:
+    import espressomd.propagation
+    Propagation = espressomd.propagation.Propagation
 
 class MulticorePart(GenericRigidObj):
 
@@ -96,7 +100,23 @@ class MulticorePart(GenericRigidObj):
                 )
             for x,dip_mom_per_part in zip(part_handles, dip_moments):
                 x.dip = dip_mom_per_part
-                x.egg_model_params = (True, anisotropy['params']['egg_gamma'], anisotropy['params']['aniso_energy'])
+                if espressomd.version.major() == 5:
+                    x.rotation = (True, True, True)
+                    x.magnetodynamics.egg = {
+                        "is_enabled": True,
+                        "gamma": anisotropy['params']['egg_gamma'],
+                        "anisotropy_energy": anisotropy['params']['aniso_energy'],
+                    }
+                    x.propagation = (Propagation.TRANS_VS_RELATIVE |
+                                     Propagation.ROT_VS_INDEPENDENT)
+                elif espressomd.version.major() == 4:
+                    x.egg_model_params = {
+                        "use_egg_model": True,
+                        "egg_gamma": anisotropy['params']['egg_gamma'],
+                        "aniso_energy": anisotropy['params']['aniso_energy'],
+                    }
+                else:
+                    raise ImportError(f"Unsupported espressomd version: {espressomd.version.major()}")
                 self.change_part_type(x,'yolk')
     
     
