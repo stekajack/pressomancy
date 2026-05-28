@@ -4,6 +4,7 @@ from functools import partial
 import logging
 import espressomd
 import itertools
+import sys
 
 def _generic_type_exception(scope, name, attribute_name, expected_type):
     raise NotImplementedError(
@@ -230,10 +231,13 @@ class Simulation_Object(type):
         """
         Best-effort owned-particle and live-instance cleanup.
 
-        The simulation lifecycle explicitly releases stored objects. When Python
-        destroys the object, delete owned particles and decrement the counters
-        that were incremented along its class hierarchy.
+        The simulation lifecycle explicitly releases stored objects. During
+        interpreter shutdown we avoid calling back into ESPResSo from Python
+        finalizers, because the underlying script interface may already be
+        tearing down.
         """
+        if sys.is_finalizing():
+            return
         self.delete_owned_parts()
         for cls in self.__class__.mro():
             if hasattr(cls, "numInstances") and cls.numInstances > 0:
