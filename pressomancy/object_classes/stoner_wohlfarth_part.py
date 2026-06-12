@@ -2,6 +2,7 @@ from pressomancy.object_classes.part_class import GenericPart
 from pressomancy.object_classes.object_class import ObjectConfigParams 
 from pressomancy.helper_functions import PartDictSafe, SinglePairDict
 import espressomd
+import numpy as np
 if espressomd.version.major() == 5:
     import espressomd.propagation
     Propagation = espressomd.propagation.Propagation
@@ -19,7 +20,6 @@ class SWPart(GenericPart):
     simulation_type= SinglePairDict('sw_part', 13)
     part_types = PartDictSafe({'sw_real': 9,'sw_virt': 10})
     config = ObjectConfigParams(
-        dipm = 1.75, # dipole moment in reduced units
         anisotropy_field_inv=0.175, # inverse anisotropy field (1/H_k) in reduced units
         sat_mag=1.75, # saturation magnetisation in reduced units
         anisotropy_energy=5., # anisotropy energy K * V in reduced units
@@ -51,10 +51,13 @@ class SWPart(GenericPart):
 
         particl_real=self.add_particle(type_name='sw_real', pos=pos, rotation=(True, True, True), director=ori)
 
-        particl_virt=self.add_particle(type_name='sw_virt', pos=pos, rotation=(False, False, False), dip=self.params['dipm']*ori)
+        particl_virt=self.add_particle(type_name='sw_virt', pos=pos, rotation=(False, False, False), dip=self.params['sat_mag']*ori)
         particl_virt.magnetodynamics.tsw = magnetodynamics_setup
         particl_virt.vs_auto_relate_to(particl_real)
         if espressomd.version.major() == 5:
             particl_virt.propagation = Propagation.TRANS_VS_RELATIVE | Propagation.ROT_VS_INDEPENDENT 
+        
+        if np.allclose(particl_virt.dipm, particl_virt.magnetodynamics.tsw['sat_mag']) == False:
+            raise ValueError(f"Error in setting dipole moment for virtual particle. Expected {particl_virt.magnetodynamics.tsw['sat_mag']}, got {particl_virt.dipm}. Check the parameters passed to the config object and the logic in this method.")
 
         return self

@@ -27,8 +27,6 @@ d_=4e-10
 mass_ = 2.5727522264874994e-20
 gamma_T = 6*np.pi*etaw*Rf*(t_/mass_)
 gamma_R = 8*np.pi*etaw*pow(Rf, 3)*(t_/(pow(d_, 2)*mass_))
-print("gamma_T: ", gamma_T)
-print("gamma_R: ", gamma_R)
 
 sheets_per_quad = 3
 part_per_filament = 2
@@ -144,8 +142,3 @@ electrostatidcs_solver=espressomd.electrostatics.DH(prefactor = 1., kappa=0, r_c
 # ,check_neutrality=False
 # sim_inst.sys.electrostatics.solver = electrostatidcs_solver
 sim_inst.sys.integrator.run(0)
-energy = sim_inst.sys.analysis.energy()
-
-for keys,val in energy.items():
-    if val!=0:
-        print(keys,val)

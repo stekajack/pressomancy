@@ -30,7 +30,6 @@ N_M_FULL_BOX = sim_params['N_FULL_BOX']
 SIGMA_PART = 1.
 SIZE_PART = SIGMA_PART*pow(2, 1/6)  # in sim_inst units
 
-print(f"SIZE_PART={SIZE_PART}")
 R_PART= SIZE_PART/2
 
 BONDS_MAX_LENGHT_A = 5.
@@ -45,7 +44,6 @@ BOX_SIZE = np.cbrt( N_M_FULL_BOX * 4/3*np.pi / 0.3 ) * R_PART
 BOX_Z_MAX = 4 * BOX_SIZE
 
 N_PART = round(DENS_PART * BOX_SIZE**2 * MAE_LAYER_HEIGHT / ( 4/3 * np.pi * R_PART**3))
-print(f"N_PART={N_PART}")
 
 assert MAE_LAYER_HEIGHT<=BOX_Z_MAX
 assert DENS_PART<=0.3
@@ -85,9 +83,6 @@ sim_inst.sys.integrator.run(0)
 
 # must add non_bonded interactions before creating substrate
 energy = sim_inst.sys.analysis.energy()
-print("total",energy["total"])
-print("bonded",energy["bonded"])
-print("non_bonded",energy["non_bonded"])
 
 elastomer.mix_elastomer_stuff()
 elastomer.cure_elastomer()

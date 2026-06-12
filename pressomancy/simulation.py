@@ -1247,7 +1247,7 @@ class Simulation():
                     ds.resize((1,))
                     ds[0] = time_val
 
-        print(f"✔ Shrunk to single timestep at: {dst_path}")
+        logging.info(f"✔ Shrunk to single timestep at: {dst_path}")
 
         if prop_dim != None:
             with h5py.File(dst_path, "a") as h5_file_handle:

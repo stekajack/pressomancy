@@ -50,7 +50,6 @@ sim_inst.set_H_ext(H=[0, 0, H])
 
 assert np.array_equal(sim_inst.sys.part.all().pos, pos), f"{sim_inst.sys.part.all().pos},\n{pos}"
 assert np.array_equal(sim_inst.sys.part.all().dip, dip), f"{sim_inst.sys.part.all().dip},\n{dip}"
-print('I CAME, I SAW, I TESTED PERMANENT POINT DIPOLES')
 sim_inst.reinitialize_instance()
 sim_inst.set_sys(timestep=0.0001)
 
